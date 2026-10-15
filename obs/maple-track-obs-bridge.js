@@ -13,6 +13,7 @@ let ws;
 let wsReady;
 let wsPending = new Map();
 let frames = [];
+let trackerState = {samples: [], level: null};
 let trackerUrl = process.env.MAPLE_TRACK_TRACKER_URL || '';
 
 function sendWs(op, d) {
@@ -80,6 +81,20 @@ const server = http.createServer(async (req, res) => {
     return res.end(frames.at(-1).image);
   }
   if (req.method === 'GET' && url.pathname === '/frames') return response(res, 200, frames.map(({timestamp, source, bytes}) => ({timestamp, source, bytes})));
+  if (req.method === 'GET' && url.pathname === '/tracker-state') return response(res, 200, trackerState);
+  if (req.method === 'POST' && url.pathname === '/tracker-state') {
+    let body = '';
+    req.on('data', chunk => { body += chunk; if (body.length > 1024 * 1024) req.destroy(); });
+    req.on('end', () => {
+      try {
+        const next = JSON.parse(body);
+        if (!Array.isArray(next.samples) || next.samples.length > 240) return response(res, 400, {error: 'Invalid tracker state'});
+        trackerState = {samples: next.samples, level: Number.isFinite(next.level) ? next.level : null};
+        return response(res, 200, {ok: true, samples: trackerState.samples.length});
+      } catch { return response(res, 400, {error: 'Invalid JSON'}); }
+    });
+    return;
+  }
   if (req.method !== 'POST' || url.pathname !== '/capture') return response(res, 404, {error: 'Not found'});
   const source = url.searchParams.get('source');
   if (!source) return response(res, 400, {error: 'Add ?source=OBS_SOURCE_NAME'});
