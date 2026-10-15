@@ -29,7 +29,7 @@ The bridge keeps the latest 20 screenshots in memory. It does not write game fra
 
 ## Manual mode
 
-Open `index.html` in a modern browser and use **Manual entry** to add cumulative EXP readings. The dashboard stores readings in local browser storage, calculates the rate from samples in the trailing five minutes, charts EXP over time, and estimates time to the next level.
+Open `index.html` in a modern browser and use **Manual entry** to add your level and the EXP number shown for that level. The dashboard stores readings in local browser storage, calculates the rate from samples in the trailing five minutes, charts total progress over time, and estimates time to the next level.
 
 ## Files
 
@@ -37,6 +37,8 @@ Open `index.html` in a modern browser and use **Manual entry** to add cumulative
 - `obs/maple-track-capture.lua` — configurable OBS timer script
 - `obs/maple-track-obs-bridge.js` — local OBS WebSocket screenshot bridge
 
-## Next implementation step
+## Leveling data and calibration
 
-Add region selection and local OCR for the level and EXP readouts. Validate the Classic leveling curve with known character readings before relying on level-up predictions.
+The dashboard now has drag-to-select regions for the level and EXP readout. Your capture shows Level 52 and `542,829 (68.74%)`; this matches the level 52 requirement of 789,631 EXP. The app interprets the number as EXP within the current level, converts samples to total EXP for rates across level-ups, and computes the next-level remainder from the curve.
+
+The curve formulas follow the [MeowDB MapleStory Classic EXP table](https://meowdb.com/msclassic/guides/exp-table-level-1-to-100): levels 1–5 and 6–50 use separate formulas, levels 51–89 increase by 1.0548 per level, and levels 90–99 by 2.1. Level 100 is treated as the cap. OCR is still the next step.
