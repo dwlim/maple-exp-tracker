@@ -76,7 +76,7 @@ const server = http.createServer(async (req, res) => {
   if (req.method === 'GET' && url.pathname === '/health') return response(res, 200, {ok: true, obsConnected: !!ws && ws.readyState === 1, latestFrameAt: frames.at(-1)?.timestamp || null});
   if (req.method === 'GET' && url.pathname === '/latest') {
     if (!frames.length) return response(res, 404, {error: 'No screenshots received yet'});
-    res.writeHead(200, {'Content-Type': 'image/png', 'Access-Control-Allow-Origin': '*', 'X-Frame-Timestamp': String(frames.at(-1).timestamp)});
+    res.writeHead(200, {'Content-Type': 'image/png', 'Access-Control-Allow-Origin': '*', 'Access-Control-Expose-Headers': 'X-Frame-Timestamp', 'X-Frame-Timestamp': String(frames.at(-1).timestamp)});
     return res.end(frames.at(-1).image);
   }
   if (req.method === 'GET' && url.pathname === '/frames') return response(res, 200, frames.map(({timestamp, source, bytes}) => ({timestamp, source, bytes})));

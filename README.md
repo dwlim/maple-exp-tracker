@@ -6,7 +6,7 @@ A local browser tracker for MapleStory Classic EXP with an OBS Browser Source ov
 
 This prototype uses OBS's built-in obs-websocket screenshot request. The Lua script schedules a local request; the Node bridge asks OBS for a screenshot of the selected source and makes the latest image available to the dashboard. The bridge binds only to `127.0.0.1` and does not contact Twitch.
 
-Requirements: OBS Studio 28 or newer, its built-in WebSocket server enabled, and Node.js 18 or newer.
+Requirements: OBS Studio 28 or newer, its built-in WebSocket server enabled, and Node.js 22 or newer.
 
 1. In OBS, open **Tools → WebSocket Server Settings**, enable the server, and note its port (default `4455`) and password.
 2. Start the bridge from this folder:
@@ -25,7 +25,9 @@ Requirements: OBS Studio 28 or newer, its built-in WebSocket server enabled, and
 4. In OBS, open **Tools → Scripts**, add `obs/maple-track-capture.lua`, select the game capture source, and click **Start capture timer**. The interval defaults to 30 seconds.
 5. Open `http://127.0.0.1:8000` in a browser to see the dashboard. Add `http://127.0.0.1:8000/index.html?overlay=1` to OBS as a Browser Source for the tracker overlay.
 
-The bridge keeps the latest 20 screenshots in memory. It does not write game frames to disk. The tracker currently displays screenshots but does not OCR them yet; use **Manual entry** for level and EXP values.
+The bridge keeps the latest 20 screenshots in memory. It does not write game frames to disk. In the dashboard, wait for a screenshot, select the Level number and the full EXP readout (including its percentage), then click **Read frame**. With **Read new frames automatically** enabled, each new OBS capture is read after calibration. The tracker accepts a reading only when the values are in range, OCR confidence is sufficient, and the displayed percentage agrees with the EXP table when it was recognized. Uncertain readings appear for review and are not added to the session.
+
+OCR uses Tesseract.js in the browser. Its script, WebAssembly core, and English language data are downloaded from their configured CDNs on first use and cached by the browser; image recognition runs locally. Keep the dashboard tab open during the session. **Manual entry** remains available if a reading needs correction.
 
 ## Manual mode
 
@@ -39,6 +41,6 @@ Open `index.html` in a modern browser and use **Manual entry** to add your level
 
 ## Leveling data and calibration
 
-The dashboard now has drag-to-select regions for the level and EXP readout. Your capture shows Level 52 and `542,829 (68.74%)`; this matches the level 52 requirement of 789,631 EXP. The app interprets the number as EXP within the current level, converts samples to total EXP for rates across level-ups, and computes the next-level remainder from the curve.
+The dashboard has drag-to-select regions for the level and EXP readout. Your capture shows Level 52 and `542,829 (68.74%)`; this matches the level 52 requirement of 789,631 EXP. The app interprets the number as EXP within the current level, converts samples to total EXP for rates across level-ups, and computes the next-level remainder from the curve.
 
-The curve formulas follow the [MeowDB MapleStory Classic EXP table](https://meowdb.com/msclassic/guides/exp-table-level-1-to-100): levels 1–5 and 6–50 use separate formulas, levels 51–89 increase by 1.0548 per level, and levels 90–99 by 2.1. Level 100 is treated as the cap. OCR is still the next step.
+The curve formulas follow the [MeowDB MapleStory Classic EXP table](https://meowdb.com/msclassic/guides/exp-table-level-1-to-100): levels 1–5 and 6–50 use separate formulas, levels 51–89 increase by 1.0548 per level, and levels 90–99 by 2.1. Level 100 is treated as the cap.
