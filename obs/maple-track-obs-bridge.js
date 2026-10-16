@@ -14,6 +14,7 @@ let wsReady;
 let wsPending = new Map();
 let frames = [];
 let trackerState = {samples: [], level: null};
+let ocrReports = [], cleanSince = null, cleanCount = 0;
 let trackerUrl = process.env.MAPLE_TRACK_TRACKER_URL || '';
 
 function sendWs(op, d) {
@@ -80,8 +81,28 @@ const server = http.createServer(async (req, res) => {
     res.writeHead(200, {'Content-Type': 'image/png', 'Access-Control-Allow-Origin': '*', 'Access-Control-Expose-Headers': 'X-Frame-Timestamp', 'X-Frame-Timestamp': String(frames.at(-1).timestamp)});
     return res.end(frames.at(-1).image);
   }
+  if (req.method === 'GET' && url.pathname === '/frame') {
+    const timestamp=Number(url.searchParams.get('timestamp'));
+    const frame=frames.find(f=>(f.timestamp<1e12?f.timestamp*1000:f.timestamp)===timestamp);
+    if(!frame)return response(res,404,{error:'Frame is no longer in the capture buffer'});
+    res.writeHead(200,{'Content-Type':'image/png','Access-Control-Allow-Origin':'*'});return res.end(frame.image);
+  }
   if (req.method === 'GET' && url.pathname === '/frames') return response(res, 200, frames.map(({timestamp, source, bytes}) => ({timestamp, source, bytes})));
   if (req.method === 'GET' && url.pathname === '/tracker-state') return response(res, 200, trackerState);
+  if (req.method === 'GET' && url.pathname === '/ocr-status') {
+    const latest=ocrReports.at(-1)||null, fresh=latest&&Date.now()-latest.receivedAt<=25000;
+    return response(res,200,{latest,cleanSince: fresh?cleanSince:null,cleanCount:fresh?cleanCount:0,cleanDurationMs:fresh&&cleanSince?latest.receivedAt-cleanSince:0,reports:ocrReports});
+  }
+  if (req.method === 'POST' && url.pathname === '/ocr-status') {
+    let body='';req.on('data',chunk=>{body+=chunk;if(body.length>16384)req.destroy();});
+    req.on('end',()=>{try{
+      const report=JSON.parse(body);if(typeof report.accepted!=='boolean')return response(res,400,{error:'Missing OCR outcome'});
+      const now=Date.now(),prior=ocrReports.at(-1);
+      if(!report.accepted){cleanSince=null;cleanCount=0;}else{if(!prior||!prior.accepted||now-prior.receivedAt>25000){cleanSince=now;cleanCount=0;}cleanCount++;}
+      ocrReports.push({accepted:report.accepted,frameAt:report.frameAt,levelText:String(report.levelText||'').slice(0,100),expText:String(report.expText||'').slice(0,200),error:String(report.error||'').slice(0,200),receivedAt:now});
+      if(ocrReports.length>600)ocrReports.shift();return response(res,200,{ok:true});
+    }catch{return response(res,400,{error:'Invalid OCR report'});}});return;
+  }
   if (req.method === 'POST' && url.pathname === '/tracker-state') {
     let body = '';
     req.on('data', chunk => { body += chunk; if (body.length > 1024 * 1024) req.destroy(); });

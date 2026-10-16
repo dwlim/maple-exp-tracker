@@ -26,7 +26,9 @@ for index in range(len(items)):
   ys=[y for y in range(im.height) if any(mask[y][x] for x in range(left,right))];top,bottom=min(ys),max(ys)+1
   rows=[''.join('1' if mask[y][x] else '0' for x in range(left,right)) for y in range(top,bottom)]
   if index<17 or index in [17,22,25,28] or (index in [19,23] and char=='3') or (index in [19,21] and char=='5'):templates.append({'char':char,'rows':rows})
- fixtures.append({'width':im.width,'height':im.height,'data':[v for p in im.getdata() for v in (*p,255)],'expected':labels[index],'training':index<17 or index in [17,19,21,22,23,25,28]})
+ fixtures.append({'width':im.width,'height':im.height,'data':[v for p in im.getdata() for v in (*p,255)],'expected':labels[index],'training':index<17 or index in [17,19,21,22,23,25,27,28]})
+extra=Path('tools/extra-font-templates.json')
+if extra.exists():templates.extend(json.loads(extra.read_text()))
 Path('tools/hud-font-templates.json').write_text(json.dumps(templates))
 Path('tools/hud-font-fixtures.json').write_text(json.dumps(fixtures))
-print(f'Built {len(templates)} glyph templates and {len(fixtures)} test crops (6 held out).')
+print(f'Built {len(templates)} glyph templates and {len(fixtures)} test crops (5 held out).')

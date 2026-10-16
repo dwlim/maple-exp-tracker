@@ -1,10 +1,10 @@
 -- Maple Track OBS capture timer
--- Calls a tiny local Node helper every 30 seconds. The helper asks OBS
+-- Calls a tiny local Node helper every 10 seconds. The helper asks OBS
 -- obs-websocket for a source screenshot and forwards it to the tracker.
 local obs = obslua
 local source_name = ""
 local helper_url = "http://127.0.0.1:8787/capture"
-local interval_seconds = 30
+local interval_seconds = 10
 local running = false
 local tick_count = 0
 
@@ -15,7 +15,7 @@ local function url_encode(value)
 end
 
 function script_description()
-    return "Requests a local Maple Track screenshot from the configured OBS source every 30 seconds. Requires maple-track-obs-bridge.js to be running."
+    return "Requests a local Maple Track screenshot from the configured OBS source every 10 seconds. Requires maple-track-obs-bridge.js to be running."
 end
 
 function script_properties()
@@ -38,7 +38,7 @@ end
 function script_defaults(settings)
     obs.obs_data_set_default_string(settings, "source_name", "")
     obs.obs_data_set_default_string(settings, "helper_url", "http://127.0.0.1:8787/capture")
-    obs.obs_data_set_default_int(settings, "interval_seconds", 30)
+    obs.obs_data_set_default_int(settings, "interval_seconds", 10)
 end
 
 function script_update(settings)
