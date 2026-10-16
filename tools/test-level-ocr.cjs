@@ -1,6 +1,14 @@
 const fs=require('node:fs'),assert=require('node:assert/strict'),L=require('../level-ocr.js');
 const baseline=require('./level-bounds-fixture.json');assert.equal(L.recognize(baseline).data.text,'31');
 if(fs.existsSync('tools/browser-level-fixture.json'))assert.equal(L.recognize(require('./browser-level-fixture.json')).data.text,'31','Downloaded browser capture must preserve the leading 3');
+const level56=require('./level56-fixture.json');
+assert.equal(L.recognize(level56).data.text,'56','Real 4K level 56: tile corner highlights must not distort digit bounds');
+for(const factor of [.7,.85,1.15])assert.equal(L.recognize({...level56,data:level56.data.map((v,i)=>i%4===3?v:Math.min(255,Math.round(v*factor)))}).data.text,'56','Level 56 must tolerate brightness changes');
+for(const scale of [.5,.75,1.25,1.5]){
+ const width=Math.round(level56.width*scale),height=Math.round(level56.height*scale),data=[];
+ for(let y=0;y<height;y++)for(let x=0;x<width;x++){const i=(Math.min(level56.height-1,Math.floor(y/scale))*level56.width+Math.min(level56.width-1,Math.floor(x/scale)))*4;data.push(...level56.data.slice(i,i+4));}
+ assert.equal(L.recognize({width,height,data}).data.text,'56',`Level 56 at scale ${scale}`);
+}
 let checked=0,exact=0,rejected=0;
 if(fs.existsSync('tools/level-scale-fixtures.local.json'))for(const f of require('./level-scale-fixtures.local.json')){const r=L.recognize(f);checked++;if(r.data.text===f.expected)exact++;else{assert.ok(r.data.text.includes('?'),`Scaled false level ${f.expected} → ${r.data.text}`);rejected++;}}
 if(fs.existsSync('tools/level-font-fixtures.local.json'))for(const f of require('./level-font-fixtures.local.json')){
