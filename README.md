@@ -2,6 +2,10 @@
 
 A browser tracker for MapleStory Classic EXP. Share the game window and read EXP locally every 10 seconds.
 
+**Open the tracker:** https://dwlim.github.io/maple-exp-tracker/
+
+Pushes to `main` run the capture and OCR checks, then publish only the standalone dashboard through GitHub Pages. Test crops, scripts and local bridge files are not part of the deployed site.
+
 ## Browser capture (default)
 
 1. Open the dashboard in desktop Chrome or Edge on HTTPS or localhost. The local development address is `http://127.0.0.1:8000/` when a static server is running.
