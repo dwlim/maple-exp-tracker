@@ -1,4 +1,8 @@
 ocr-debug-*.png
+ocr-debug-*.json
+*.traineddata
+*.traineddata.gz
+tools/browser-level-fixture.json
 tools/font-captures.json
 tools/*contact-sheet.png
 tools/check-labels.png

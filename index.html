@@ -157,7 +157,7 @@ function cropLevelDigits(region,frame){
  const digits=document.createElement('canvas');digits.width=b.digitRight-b.digitLeft;digits.height=b.digitBottom-b.digitTop;const dc=digits.getContext('2d'),out=dc.createImageData(digits.width,digits.height);
  for(let y=0;y<digits.height;y++)for(let x=0;x<digits.width;x++){const i=((y+b.digitTop)*native.width+x+b.digitLeft)*4,j=(y*digits.width+x)*4;const ink=Math.min(pixels.data[i],pixels.data[i+1],pixels.data[i+2])>170;out.data[j]=out.data[j+1]=out.data[j+2]=ink?0:255;out.data[j+3]=255;}dc.putImageData(out,0,0);
  const scaled=document.createElement('canvas');scaled.width=digits.width*6+24;scaled.height=digits.height*6+24;const sc=scaled.getContext('2d');sc.fillStyle='white';sc.fillRect(0,0,scaled.width,scaled.height);sc.imageSmoothingEnabled=false;sc.drawImage(digits,12,12,digits.width*6,digits.height*6);scaled.expectedDigits=b.digitCount;
- scaled.tileVariants=b.tiles.map(tile=>[130,170,205].map(threshold=>{
+ scaled.tileVariants=b.tiles.map(tile=>[90,110,130].map(threshold=>{
   const c=document.createElement('canvas');c.width=tile.right-tile.left;c.height=b.digitBottom-b.digitTop;const cc=c.getContext('2d'),p=cc.createImageData(c.width,c.height);
   for(let y=0;y<c.height;y++)for(let x=0;x<c.width;x++){const i=((b.digitTop+y)*native.width+tile.left+x)*4,j=(y*c.width+x)*4;const ink=Math.min(pixels.data[i],pixels.data[i+1],pixels.data[i+2])>threshold;p.data[j]=p.data[j+1]=p.data[j+2]=ink?0:255;p.data[j+3]=255;}cc.putImageData(p,0,0);
   const out=document.createElement('canvas');out.width=c.width*6+40;out.height=c.height*6+40;const oc=out.getContext('2d');oc.fillStyle='white';oc.fillRect(0,0,out.width,out.height);oc.imageSmoothingEnabled=false;oc.drawImage(c,20,20,c.width*6,c.height*6);return out;
