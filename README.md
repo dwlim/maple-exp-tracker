@@ -58,6 +58,8 @@ Run `node tools/test-hud-font.cjs` to check the extracted HUD crops, including w
 
 ## Dashboard and debug mode
 
+In browser capture debug mode (`?debug=1`), each new captured frame requests a timestamped PNG download every 10 seconds, including frames that fail OCR. These are full screenshots of the shared surface saved to the browser's download location; they are not uploaded. The browser may require allowing multiple automatic downloads, and save-location prompts depend on browser settings. Uncheck **Download each captured screenshot** to stop downloads, or remove the debug flag. Normal mode and overlay mode never download screenshots automatically.
+
 The normal dashboard shows session metrics, character progress, connection status and recent readings. Automatic OCR and reporting continue in the background. Manual entry remains available.
 
 Open `http://127.0.0.1:8000/?debug=1` for the captured game frame, highlighted regions, calibration buttons, raw OCR text, confidence and enlarged EXP crop. Remove `debug=1` to return to the normal dashboard. The OBS overlay stays minimal even if the debug parameter is present.
