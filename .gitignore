@@ -3,6 +3,7 @@ ocr-debug-*.json
 *.traineddata
 *.traineddata.gz
 tools/browser-level-fixture.json
+tools/*.local.json
 tools/font-captures.json
 tools/*contact-sheet.png
 tools/check-labels.png
