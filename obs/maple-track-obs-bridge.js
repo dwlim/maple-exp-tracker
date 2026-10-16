@@ -33,7 +33,7 @@ function waitForObs() {
         const identify = {rpcVersion: hello.rpcVersion};
         if (hello.authentication) {
           if (!OBS_PASSWORD) { clearTimeout(timer); reject(new Error('OBS WebSocket password is required; set OBS_WEBSOCKET_PASSWORD')); return; }
-          const secret = btoa(OBS_PASSWORD + hello.authentication.salt);
+          const secret = OBS_PASSWORD + hello.authentication.salt;
           const secretHash = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(secret));
           const secretBase64 = btoa(String.fromCharCode(...new Uint8Array(secretHash)));
           const authHash = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(secretBase64 + hello.authentication.challenge));
