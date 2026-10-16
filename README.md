@@ -8,6 +8,8 @@ Pushes to `main` run the capture and OCR checks, then publish only the standalon
 
 ## Browser capture (default)
 
+Level recognition detects the orange tiles, reads each digit separately at three contrast thresholds, and requires two agreeing results per tile. An uncertain leading digit produces a rejected level, not a shorter level number. Run `node tools/test-level-ocr.cjs` for tile and consensus regressions.
+
 1. Open the dashboard in desktop Chrome or Edge on HTTPS or localhost. The local development address is `http://127.0.0.1:8000/` when a static server is running.
 2. Click **Share game window** and choose the MapleStory window in the browser picker. No OBS, Lua script, bridge, or OBS password is needed for this capture mode. The picker must be completed each session.
 3. Keep the dashboard open while playing. The preview confirms the chosen window; screenshots and OCR stay in the browser, and audio capture is disabled. Internet access is still needed on first use for Tesseract and its level model.
