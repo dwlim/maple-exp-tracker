@@ -8,7 +8,21 @@ function findTiles({width,height,data}){
  const tileHeight=bottom-top+1;if(tileHeight<5||right-left<tileHeight*.5||right-left>tileHeight*5)return null;
  const tiles=[];let start=null;
  for(let x=left;x<=right+1;x++){let count=0;for(let y=top;x<=right&&y<=bottom;y++){const i=(y*width+x)*4;if(orange(data[i],data[i+1],data[i+2]))count++;}const on=count>=tileHeight*.3;if(on&&start===null)start=x;if(!on&&start!==null){if(x-start>=tileHeight*.3)tiles.push({left:start,right:x});start=null;}}
- if(!tiles.length||tiles.length>3||tiles.some(tile=>tile.right-tile.left>tileHeight*1.25))return null;
+ // Video scaling can blend the dark separator into orange, joining adjacent tiles.
+ // Split only when a strong dark seam appears near the expected tile boundary.
+ for(let i=0;i<tiles.length;i++){
+  const tile=tiles[i],w=tile.right-tile.left;if(w<=tileHeight*1.25)continue;
+  const count=Math.round(w/(tileHeight*.85));if(count<2||count>3)return null;
+  const brightness=[];for(let x=tile.left;x<tile.right;x++){let sum=0,n=0;for(let y=top+Math.floor(tileHeight*.15);y<bottom-tileHeight*.15;y++){sum+=data[(y*width+x)*4];n++;}brightness.push(sum/Math.max(1,n));}
+  const cuts=[tile.left];for(let k=1;k<count;k++){const center=k*w/count,radius=tileHeight*.16;let best=-1;for(let x=Math.ceil(center-radius);x<=Math.floor(center+radius);x++)if(best<0||brightness[x]<brightness[best])best=x;
+   const before=Math.max(...brightness.slice(Math.max(0,best-Math.round(tileHeight*.4)),best)),after=Math.max(...brightness.slice(best+1,Math.min(w,best+Math.round(tileHeight*.4))));
+   if(brightness[best]>Math.min(before,after)*.78)return null;cuts.push(tile.left+best);
+  }
+  cuts.push(tile.right);const split=cuts.slice(0,-1).map((left,k)=>({left,right:cuts[k+1]}));
+  if(split.some(t=>t.right-t.left<tileHeight*.35||t.right-t.left>tileHeight*1.25))return null;
+  tiles.splice(i,1,...split);i+=split.length-1;
+ }
+ if(!tiles.length||tiles.length>3)return null;
  return {x:Math.max(0,left-1),y:Math.max(0,top-1),right:Math.min(width,right+2),bottom:Math.min(height,bottom+2),digitLeft:left,digitTop:top,digitRight:right+1,digitBottom:bottom+1,digitCount:tiles.length,tiles};
 }
 function softMask(image,tile,bounds){

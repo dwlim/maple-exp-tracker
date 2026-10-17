@@ -15,6 +15,8 @@ if(fs.existsSync('tools/level-font-fixtures.local.json'))for(const f of require(
  for(const factor of [.7,.85,1,1.15]){const data=f.data.map((v,i)=>i%4===3?v:Math.min(255,Math.round(v*factor))),r=L.recognize({...f,data});checked++;if(r.data.text===f.expected)exact++;else{assert.ok(r.data.text.includes('?'),`False level ${f.expected} → ${r.data.text}`);rejected++;}}
 }
 assert.equal(L.recognize({width:40,height:20,data:new Uint8Array(3200)}).data.text,'?');
+const broadOrange={width:67,height:37,data:Uint8Array.from({length:67*37*4},(_,i)=>[240,130,15,255][i%4])};
+assert.equal(L.findTiles(broadOrange),null,'A broad orange area without a dark seam must never be divided into invented tiles');
 const read=text=>({data:{text,confidence:95}});
 assert.equal(L.checkContinuity(read('31'),null,null).accepted,true);
 assert.equal(L.checkContinuity(read('31'),31,null).accepted,true);
