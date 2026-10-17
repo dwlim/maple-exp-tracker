@@ -27,9 +27,9 @@ const c={MapleLevelOcr:{...L,recognize:()=>({...reading('??'),expectedDigits:2})
  currentRegions:()=>({level:{},exp:{}}),cropLevelDigits:()=>({}),
  readExpGlyphs:()=>({rawText:'770.482[78.82%]',rawConfidence:95,data:{text:'770.482[78.82%]',confidence:95},uncertain:false}),
  document:{createElement:()=>({getContext:()=>({drawImage(){}})})},
- ocrRunning:false,queuedOcrTimestamp:null,lastFrameTimestamp:null,captureGeneration:1,captureStream:{},obsMode:false,debug:false,
+ ocrRunning:false,queuedOcrTimestamp:null,lastFrameTimestamp:null,captureGeneration:1,captureStream:{},debug:false,
  inferredLevelPending:null,pendingLevel:null,pendingLevelFrame:null,state:{level:null,samples:[]},
- Date,setTimeout,reportOcr(){},setTrackingStatus(){},addSample(level,exp,t){c.state.level=level;c.state.samples.push({level,exp,t});}};
+ Date,setTimeout,setTrackingStatus(){},addSample(level,exp,t){c.state.level=level;c.state.samples.push({level,exp,t});}};
 vm.createContext(c);vm.runInContext(functions,c);
 (async()=>{
  await c.runOcr(1700000000000);assert.equal(c.state.samples.length,0);

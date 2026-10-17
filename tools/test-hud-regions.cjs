@@ -36,7 +36,7 @@ const levelTile=require('./level56-fixture.json');
 for(let y=0;y<levelTile.height;y++)orphan.data.set(levelTile.data.slice(y*levelTile.width*4,(y+1)*levelTile.width*4),((orphan.height-50+y)*orphan.width+20)*4);
 assert.equal(R.detect(orphan,L,MapleHudOcr).level,null,'Orange tiles without the LV label are not a level HUD');
 const fs=require('node:fs'),vm=require('node:vm'),html=fs.readFileSync('index.html','utf8'),calibration={auto:false,level:{x:.1,y:.2,w:.1,h:.1},exp:{x:.4,y:.5,w:.2,h:.1}},context={state:{calibration}};
-vm.createContext(context);vm.runInContext(html.slice(html.indexOf('function currentRegions('),html.indexOf('\nasync function refreshFrame')),context);
+vm.createContext(context);vm.runInContext(html.slice(html.indexOf('function currentRegions('),html.indexOf('\nfunction cropForOcr')),context);
 assert.equal(context.currentRegions({}),calibration,'Custom regions must bypass automatic detection');
 assert.ok(html.includes(fs.readFileSync('hud-regions.js','utf8')),'The deployed detector must match its tested source');
 console.log(`HUD detection: ${count} real-crop layouts at multiple scales/positions, tracking, reacquisition and blank rejection passed.`);
