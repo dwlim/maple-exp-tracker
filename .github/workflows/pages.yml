@@ -28,6 +28,7 @@ jobs:
       - name: Check browser capture and OCR
         run: |
           node tools/test-browser-capture.cjs
+          node tools/test-stream-card.cjs
           node tools/test-debug-downloads.cjs
           node tools/test-level-ocr.cjs
           node tools/test-level-inference.cjs

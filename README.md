@@ -49,6 +49,12 @@ The glyph matcher normalizes usable frame brightness and compares both pixel cov
 
 `node tools/stress-hud-font.cjs --strict` runs 238 original, brightness-adjusted and gamma-adjusted cases. The reviewed matcher reads 189 exactly and rejects 49, with no incorrect complete readings in this set (previous matcher: 146 exact, 92 rejected). These transformed crops measure regression robustness, not independent real-world accuracy. Several saved regression crops were also used to calibrate templates. Run `node tools/test-hud-font.cjs` for real crop regressions, 3/8/9 confusions, extra-padding and missing-bracket checks.
 
+## Stream card
+
+Click **Open stream card** for a compact live view of level, EXP/hour, progress and time to level. In your streaming software, add **Window Capture**, select the Maple Track stream card browser window, and crop out the browser chrome. Keep the main tracker and card open in the same browser profile. The card syncs locally through browser storage; no backend or bridge is used. It shows paused/offline status when tracking stops or the main tracker closes.
+
+This window is intended for Window Capture. A separate Browser Source in streaming software has isolated storage and will not receive readings from your browser. Start sharing from the main tracker; the card itself does not request screen access.
+
 ## Manual mode
 
 Open `index.html` in a modern browser and use **Manual entry** to add your level and the EXP number shown for that level. The dashboard stores readings in local browser storage, calculates the rate from samples in the trailing five minutes, charts total progress over time, and estimates time to the next level.
@@ -58,6 +64,7 @@ Open `index.html` in a modern browser and use **Manual entry** to add your level
 - `index.html` — standalone browser dashboard
 - `level-ocr.js`, `hud-ocr.js` — local level and EXP recognition
 - `hud-regions.js` — automatic HUD detection
+- `stream-card.js` — live stream card and local session sync
 - `tools/` — build scripts and regression checks
 
 ## Leveling data and calibration
