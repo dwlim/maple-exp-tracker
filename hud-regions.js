@@ -60,7 +60,7 @@ function detect(image,levelOcr,expOcr,previous){
   const textHeight=Math.max(h,...nearby.map(b=>b.h)),y=Math.max(0,Math.min(left.y,right.y,...nearby.map(b=>b.y))-1),bottom=Math.min(image.height,Math.max(left.y+left.h,right.y+right.h,...nearby.map(b=>b.y+b.h))+1),spans=whiteSpans(image,left.x-textHeight*14,left.x,y,bottom);
   const heights=whiteSpans(image,left.x+left.w,right.x,y,bottom).map(b=>b.h).filter(v=>v>=h*.5).sort((a,b)=>a-b),glyphHeight=heights[Math.floor(heights.length/2)]||h;
   // The bold EXP label is taller/wider than the numeric font. Never rank a truncated suffix above a longer uncertain amount.
-  for(const span of spans){if(span.h<h*.5||span.h>glyphHeight*1.15||span.w>glyphHeight*1.3)continue;const box={x:Math.max(0,span.x-1),y,w:right.x+right.w-span.x+3,h:bottom-y},read=expOcr.recognize(crop(image,box));
+  for(const span of spans){let fullHeight=span.h;for(let x=span.x;x<span.x+span.w;x++){let top=span.y;for(let yy=span.y;yy>=Math.max(0,y-h*.7);yy--){const i=(Math.floor(yy)*image.width+x)*4,r=image.data[i],g=image.data[i+1],b=image.data[i+2];if(Math.min(r,g,b)<=135||Math.max(r,g,b)-Math.min(r,g,b)>=65)break;top=yy;}fullHeight=Math.max(fullHeight,span.y+span.h-top);}if(span.h<h*.5||fullHeight>glyphHeight*1.15||span.w>glyphHeight*1.3)continue;const box={x:Math.max(0,span.x-1),y,w:right.x+right.w-span.x+3,h:bottom-y},read=expOcr.recognize(crop(image,box));
    if(/^\d[\d.]*\[\d+\.\d{2}%\]$/.test(read.text))exps.push({box,score:read.text.length*20+5+read.confidence/100+left.y/image.height});
    else if(/^[\d?][\d.?]*\[[\d.?]+%\]$/.test(read.text))exps.push({box,score:read.text.length*20+read.confidence/100+left.y/image.height});
   }

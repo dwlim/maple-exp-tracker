@@ -24,7 +24,7 @@ function recognize(image){
  for(const [left,right] of spans){
   let top=h,bottom=0;for(let y=0;y<h;y++)for(let x=left;x<right;x++)if(mask[y*w+x]){top=Math.min(top,y);bottom=Math.max(bottom,y+1);}
   const gw=right-left,gh=bottom-top;
-  if(gh<typicalHeight*.5){text+=gw/gh>1.8?'?':'.';continue;}
+  if(gh<typicalHeight*.5){text+=(gw/gh>1.8&&!(gw<=typicalHeight*.4&&gw/gh<=3))?'?':'.';continue;}
   const candidates=[],vector=coverage((x,y)=>mask[(top+y)*w+left+x],gw,gh);
   for(const t of templates){if(t.char==='.'||t.char===',')continue;const th=t.rows.length,tw=t.rows[0].length;let diff=0,n=0;
    t.vector ||= coverage((x,y)=>t.rows[y][x]==='1'?1:0,tw,th);
