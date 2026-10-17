@@ -33,5 +33,23 @@ function matchDigit(g){
 }
 function recognize(image){const bounds=findTiles(image);if(!bounds)return {data:{text:'?',confidence:0},expectedDigits:0,details:[],reason:'Orange tiles not found'};const details=bounds.tiles.map(tile=>matchDigit(softMask(image,tile,bounds)));return {data:{text:details.map(d=>d.text).join(''),confidence:Math.min(...details.map(d=>d.confidence))},expectedDigits:bounds.digitCount,details};}
 function checkContinuity(reading,previous,pending){const level=Number(reading.data.text);if(!/^\d{1,3}$/.test(reading.data.text)||level<1||level>100)return {accepted:false,pending:null,reason:'Uncertain level digit'};if(!Number.isInteger(previous)||level===previous)return {accepted:true,pending:null};if(level===previous+1&&pending===level)return {accepted:true,pending:null};return {accepted:false,pending:level,reason:level===previous+1?'Confirming level up on the next frame':'Unexpected level change; verify the capture or start a new session'};}
-return {findTiles,softMask,matchDigit,recognize,checkContinuity};
+// Infer only from independently recognized EXP, never digits repaired using a level.
+function resolveLevel(reading,exp,pct,required,pending,frame){
+ const raw=reading.data.text.trim(),hud=/^\d{1,3}$/.test(raw)&&Number(raw)>=1&&Number(raw)<=100?Number(raw):null;
+ const candidates=[];
+ if(Number.isSafeInteger(exp)&&exp>0&&Number.isFinite(pct)&&pct>=.5&&pct<100){
+  for(let level=1;level<100;level++){const need=required(level);if(need>exp&&Math.abs(exp/need*100-pct)<=.0051)candidates.push(level);}
+ }
+ const inferred=candidates.length===1?candidates[0]:null;
+ if(hud!==null){
+  if(inferred!==null&&inferred!==hud)return {level:null,pending:null,source:'conflict',reason:'Level digits disagree with EXP percentage'};
+  return {level:hud,pending:null,source:'digits'};
+ }
+ if(inferred===null)return {level:null,pending:null,source:'unresolved',reason:'No unique level from EXP percentage'};
+ const same=pending&&pending.level===inferred;
+ const fresh=same&&frame>pending.frame&&frame-pending.frame<=25000;
+ const confirmed=Boolean(same&&(frame===pending.frame?pending.confirmed:fresh));
+ return {level:confirmed?inferred:null,pending:{level:inferred,frame,confirmed},source:'exp',reason:confirmed?null:'Confirming level from EXP on the next frame'};
+}
+return {findTiles,softMask,matchDigit,recognize,checkContinuity,resolveLevel};
 });
