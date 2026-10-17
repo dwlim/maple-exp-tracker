@@ -8,6 +8,8 @@ Pushes to `main` run the capture and OCR checks, then publish only the standalon
 
 ## Browser capture (default)
 
+Automatic regions search the bottom 35% of the shared surface for orange tiles beside the white LV label and for the green EXP brackets. The detector follows validated regions and searches again when the text stops matching, the window moves, or its dimensions change. No fixed screen-percentage boxes are used for recognition. A covered or unreadable EXP readout waits for a clearer capture; debug mode still supports custom regions. Tests composite only real HUD crops at multiple sizes and positions; they do not guarantee recognition when scaling removes text detail. `node tools/test-hud-regions.cjs` checks detection and reacquisition.
+
 Level recognition detects the orange tiles and uses the blue/red color ratio to separate white strokes from orange without a hard brightness threshold. Soft anti-aliased masks are compared with templates for all ten digits, allowing small translations and scale changes. Both fit error and the lead over the next digit must pass. An uncertain digit remains `?`; a previous level is never substituted.
 
 When the orange digits are unclear, the tracker can independently identify a level from the EXP amount and percentage. It requires exactly one matching EXP requirement and two consecutive distinct frames within 25 seconds, with at least 0.5% displayed. Clear level digits that conflict with a unique EXP-derived level are rejected. EXP glyphs repaired using a presumed level never count as independent evidence. Debug output marks a confirmed fallback as "level from EXP". `node tools/test-level-inference.cjs` checks this path and its safeguards.

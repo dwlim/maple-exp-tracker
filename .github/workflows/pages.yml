@@ -31,6 +31,7 @@ jobs:
           node tools/test-debug-downloads.cjs
           node tools/test-level-ocr.cjs
           node tools/test-level-inference.cjs
+          node tools/test-hud-regions.cjs
           node tools/test-hud-font.cjs
           node tools/stress-hud-font.cjs --strict
       - uses: actions/configure-pages@v5
