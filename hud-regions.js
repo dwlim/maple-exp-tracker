@@ -4,8 +4,8 @@ function crop(image,box){
  for(let row=0;row<height;row++)data.set(image.data.slice(((y+row)*image.width+x)*4,((y+row)*image.width+x+width)*4),row*width*4);
  return {width,height,data};
 }
-function components(image,kind){
- const {width,height,data}=image,top=Math.floor(height*.65),h=height-top,mask=new Uint8Array(width*h),out=[];
+function components(image,kind,from=.65){
+ const {width,height,data}=image,top=Math.floor(height*from),h=height-top,mask=new Uint8Array(width*h),out=[];
  for(let y=top;y<height;y++)for(let x=0;x<width;x++){const i=(y*width+x)*4,r=data[i],g=data[i+1],b=data[i+2];mask[(y-top)*width+x]=kind==='orange'?(r>100&&g/r>.25&&g/r<.85&&b/r<.4):kind==='white'?(Math.min(r,g,b)>135&&Math.max(r,g,b)-Math.min(r,g,b)<65):(g-r>12&&g-b>20);}
  for(let seed=0;seed<mask.length;seed++)if(mask[seed]){const queue=[seed];mask[seed]=0;let l=width,r=0,t=h,b=0;
   for(let head=0;head<queue.length;head++){const i=queue[head],x=i%width,y=Math.floor(i/width);l=Math.min(l,x);r=Math.max(r,x+1);t=Math.min(t,y);b=Math.max(b,y+1);
@@ -39,15 +39,22 @@ function hasLvLabel(image,tile){
 
 const expLabelMask='111111111111111100011111001111111110111111111100111110011100111111111111111110000000011111111100111110011111111110000000011111111100111110011111111000000000001111111100111110011111111111110000001111111000111110011111111111111000001111111000001111111111111111110000001111111000111111111110111111110000001111111000111111111110111110000000001111111000111111100000111000000000011111111100111110000000111110000000111111111100001110000000111111111111111100011110111110011110111111111111111100011110111110011110111111111111111100011111111110011110011111111111111000000110001100000110';
 function hasExpLabel(image,box){
- const spans=whiteSpans(image,box.x-box.h*5,box.x,box.y-box.h*.7,box.y+box.h*1.1);
+ const spans=whiteSpans(image,box.x-box.h*5,box.x,box.y-box.h*.7,box.y+box.h*1.1),candidates=[];
  for(let end=spans.length-1;end>=0;end--)for(let n=1;n<=4&&end-n+1>=0;n++){
-  const group=spans.slice(end-n+1,end+1),x=group[0].x,y=Math.min(...group.map(b=>b.y)),w=group.at(-1).x+group.at(-1).w-x,h=Math.max(...group.map(b=>b.y+b.h))-y;
+  const group=spans.slice(end-n+1,end+1),x=group[0].x,y=Math.min(...group.map(b=>b.y)),w=group.at(-1).x+group.at(-1).w-x,h=Math.max(...group.map(b=>b.y+b.h))-y;candidates.push({x,y,w,h});
+ }
+ // A bright panel border can join every column in a projection. Connected ink
+ // components isolate the EXP letters from that border instead of widening the crop.
+ const left=Math.max(0,Math.floor(box.x-box.h*5)),top=Math.max(0,Math.floor(box.y-box.h*.7)),patch=crop(image,{x:left,y:top,w:box.x-left,h:box.h*1.8});
+ candidates.push(...components(patch,'white',0).map(b=>({...b,x:b.x+left,y:b.y+top})));
+ for(const {x,y,w,h} of candidates){
   if(h<box.h*.65||w/h<1.8||w/h>3.3||box.x-x-w>box.h*.8)continue;
   let error=0;for(let yy=0;yy<16;yy++)for(let xx=0;xx<36;xx++){const px=x+Math.min(w-1,Math.floor((xx+.5)*w/36)),py=y+Math.min(h-1,Math.floor((yy+.5)*h/16)),i=(py*image.width+px)*4,on=Math.min(image.data[i],image.data[i+1],image.data[i+2])>135;error+=Number(on)!==Number(expLabelMask[yy*36+xx]);}
   if(error/576<.24)return true;
  }
  return false;
 }
+
 function detect(image,levelOcr,expOcr,previous){
  if(previous?.width===image.width&&previous?.height===image.height&&previous.level&&previous.exp){
   const box=r=>({x:Math.round(r.x*image.width),y:Math.round(r.y*image.height),w:Math.round(r.w*image.width),h:Math.round(r.h*image.height)}),l=box(previous.level),e=box(previous.exp),lr=levelOcr.recognize(crop(image,l)),er=expOcr.recognize(crop(image,e));

@@ -18,7 +18,8 @@ for(const fixture of fixtures)for(const scale of [.75,1,1.5,2])for(const dx of [
  assert.ok(regions.level,`Missing level ${fixture.level}, scale ${scale}, shift ${dx}`);
  const text=L.recognize(R.crop(f,pixels(regions.level,f))).data.text;
  assert.ok(text===fixture.level||text.includes('?'),`Wrong level ${text}`);
- if(!fixture.occludedExp&&(scale>=1||regions.exp)){assert.ok(regions.exp,`Missing EXP at scale ${scale}`);const exp=MapleHudOcr.recognize(R.crop(f,pixels(regions.exp,f)));const expected=fixture.exp||(fixture.level==='2'?'5[14.71%]':'18[0.02%]');assert.ok(exp.text===expected||exp.text.includes('?'),`Wrong accepted EXP: ${exp.text}, expected ${expected}`);
+ if(!fixture.occludedExp&&(fixture.percentageOnly?scale===1||regions.exp:scale>=1||regions.exp)){assert.ok(regions.exp,`Missing EXP at scale ${scale}`);const exp=MapleHudOcr.recognize(R.crop(f,pixels(regions.exp,f)));const expected=fixture.exp||(fixture.level==='2'?'5[14.71%]':'18[0.02%]');assert.ok(exp.text===expected||exp.text.includes('?'),`Wrong accepted EXP: ${exp.text}, expected ${expected}`);
+  if(fixture.percentageOnly&&scale===1){assert.equal(text,'60');assert.equal(exp.text,'[92.09%]','Real compressed screenshot must preserve the percentage and exclude the panel border');assert.equal(MapleHudOcr.percentageReading(exp.text,1209994).exp,1114283);}
   if(fixture.level==='44'&&scale===1){assert.equal(text,'44','Blended tile seams must preserve both digits');assert.equal(MapleHudOcr.resolveReading(exp,428280).text,expected,'Level 44 must uniquely validate the EXP percentage');}
   if(fixture.level==='32'&&scale===1){assert.equal(text,'32');assert.equal(exp.text,'412[0.34%]','Resized HUD must exclude the clipped EXP label and retain its decimal point');}
  }

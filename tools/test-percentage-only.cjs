@@ -53,5 +53,14 @@ vm.createContext(c);vm.runInContext(html.slice(html.indexOf('function parseHudRe
  c.MapleLevelOcr.recognize=()=>({data:{text:'62',confidence:95},expectedDigits:2});
  c.readExpGlyphs=()=>({rawText:'12.345[0.92%]',rawConfidence:95,data:{text:'12.345[0.92%]',confidence:95},uncertain:false});
  await c.runOcr(1700000020000);await c.runOcr(1700000030000);assert.equal(c.state.samples.at(-1).level,62);assert.equal(c.state.samples.at(-1).exp,12345);assert.ok(!c.state.samples.at(-1).estimated,'Level-up returns to exact amount mode');
+ // Full app pipeline using the real level-60/92.09% HUD crops supplied by the user.
+ const real=require('./hud-region-fixtures.json').find(f=>f.percentageOnly),actual={width:real.width,height:real.height,data:new Uint8ClampedArray(real.width*real.height*4)};
+ for(const p of real.patches)for(let y=0;y<p.height;y++)actual.data.set(p.data.slice(y*p.width*4,(y+1)*p.width*4),((p.y+y)*actual.width+p.x)*4);
+ c.state={level:null,samples:[]};c.pendingLevel=c.pendingLevelFrame=c.inferredLevelPending=null;c.MapleLevelOcr=L;c.MapleHudOcr=H;
+ q('#latestFrame').naturalWidth=actual.width;q('#latestFrame').naturalHeight=actual.height;
+ c.currentRegions=()=>R.detect(actual,L,H);c.cropLevelDigits=r=>R.crop(actual,pixels(r,actual));
+ c.document={createElement:()=>{let rect;return {getContext:()=>({drawImage(...args){if(args.length>3)rect={x:args[1],y:args[2],w:args[3],h:args[4]};},getImageData:()=>R.crop(actual,rect)})};}};
+ vm.runInContext(html.slice(html.indexOf('function readExpGlyphs('),html.indexOf('\nfunction beginRegionSelection')),c);
+ await c.runOcr(1700000040000);assert.equal(c.state.samples[0].level,60);assert.equal(c.state.samples[0].pct,92.09);assert.equal(c.state.samples[0].exp,1114283);assert.equal(c.state.samples[0].estimated,true);
  console.log('Percentage-only: rounding estimates, threshold/range validation, bare/bracketed detection, no truncated full amounts, readable-level requirement and exact-mode level-up passed.');
 })().catch(e=>{console.error(e);process.exitCode=1;});
