@@ -92,6 +92,28 @@ return {findTiles,softMask,matchDigit,recognize,checkContinuity,resolveLevel};
 });
 </script>
 <!-- LEVEL FONT END -->
+<!-- STREAM CARD START -->
+<script>(function(root,factory){const api=factory();if(typeof module==='object'&&module.exports)module.exports=api;else root.MapleStreamCard=api;})(typeof window==='undefined'?globalThis:window,function(){
+function metrics(state,now,required,totalExp){
+ const samples=(Array.isArray(state.samples)?state.samples:[]).filter(s=>Number.isInteger(s.level)&&s.level>=1&&s.level<=100&&Number.isFinite(s.exp)&&s.exp>=0&&Number.isFinite(s.t)&&s.t<=now).sort((a,b)=>a.t-b.t),latest=samples.at(-1),base=samples.find(s=>s.t>=now-300000);
+ const level=latest?.level??state.level,need=required(level),exp=latest?.exp||0;
+ const rate=base&&latest&&latest.t>base.t?Math.max(0,(totalExp(latest)-totalExp(base))/((latest.t-base.t)/3600000)):0;
+ const remaining=need>0&&rate>0?Math.max(0,(need-exp)/rate*3600000):null;
+ const eta=level===100?'MAX LEVEL':remaining===null?'Waiting for EXP':remaining<60000?'Under 1 min':remaining<3600000?Math.round(remaining/60000)+' min':Math.floor(remaining/3600000)+'h '+Math.floor(remaining%3600000/60000)+'m';
+ return {level:Number.isInteger(level)&&level>=1&&level<=100?String(level):'—',rate:rate?(base?.estimated||latest?.estimated?'~':'')+Math.round(rate).toLocaleString('en-US'):'—',percent:need?Math.max(0,Math.min(100,exp/need*100)):0,eta,status:!state.updatedAt||now-state.updatedAt>20000?'TRACKER OFFLINE':state.running?'TRACKING':'PAUSED'};
+}
+function mount({document,window,storage,key,required,totalExp}){
+ document.title='Maple Track · Stream card';document.body.classList.add('stream-card');
+ document.querySelector('.app').innerHTML='<section class="stream-panel" aria-label="Maple Track live stream card"><header><span>MAPLE TRACK</span><span id="cardStatus">CONNECTING</span></header><div class="stream-values"><div><span>LEVEL</span><strong id="cardLevel">—</strong></div><div><span>EXP / HOUR</span><strong id="cardRate">—</strong></div></div><div class="stream-progress"><i id="cardFill"></i></div><footer><span id="cardPercent">0.00%</span><span id="cardEta">Waiting for EXP</span></footer></section>';
+ const q=id=>document.querySelector(id);
+ function render(){let state={};try{state=JSON.parse(storage.getItem(key)||'{}')||{};}catch{}const m=metrics(state,Date.now(),required,totalExp);q('#cardLevel').textContent=m.level;q('#cardRate').textContent=m.rate;q('#cardPercent').textContent=m.percent.toFixed(2)+'%';q('#cardFill').style.width=m.percent+'%';q('#cardEta').textContent=m.eta==='MAX LEVEL'?m.eta:'Level up · '+m.eta;q('#cardStatus').textContent=m.status;}
+ const onStorage=event=>{if(event.key===key||event.key===null)render();};window.addEventListener('storage',onStorage);const timer=window.setInterval(render,5000);
+ window.addEventListener('pagehide',()=>{window.clearInterval(timer);window.removeEventListener('storage',onStorage);},{once:true});render();
+}
+return {metrics,mount};
+});
+</script>
+<!-- STREAM CARD END -->
 <!-- HUD FONT START -->
 <script>/* Digit shapes extracted from local Classic HUD screenshots. */
 (function(root){
@@ -142,7 +164,16 @@ function resolveReading(result,requiredExp){
  if(valid.size!==1)return result;
  return {...result,text:[...valid][0],originalText:result.text,resolved:true};
 }
-root.MapleHudOcr={recognize,resolveReading};
+function percentageReading(text,requiredExp,previousExp=null){
+ const m=text.match(/^(?:\[(\d{1,3}\.\d{2})%\]|(\d{1,3}\.\d{2})%)$/);
+ if(!m||!Number.isFinite(requiredExp)||requiredExp<=1000000)return null;
+ const pct=Number(m[1]||m[2]);if(pct<0||pct>100)return null;
+ const center=requiredExp*pct/100,error=requiredExp*.00005;
+ if(center+error<1000000)return null;
+ const previousFits=Number.isFinite(previousExp)&&previousExp>=1000000&&Math.abs(previousExp-center)<=error;
+ return {exp:previousFits?previousExp:Math.max(1000000,Math.min(requiredExp,Math.round(center))),pct,estimated:true,error};
+}
+root.MapleHudOcr={recognize,resolveReading,percentageReading};
 })(typeof window==='undefined'?globalThis:window);
 </script>
 <!-- HUD FONT END -->
@@ -155,7 +186,7 @@ function crop(image,box){
 }
 function components(image,kind){
  const {width,height,data}=image,top=Math.floor(height*.65),h=height-top,mask=new Uint8Array(width*h),out=[];
- for(let y=top;y<height;y++)for(let x=0;x<width;x++){const i=(y*width+x)*4,r=data[i],g=data[i+1],b=data[i+2];mask[(y-top)*width+x]=kind==='orange'?(r>100&&g/r>.25&&g/r<.85&&b/r<.4):(g-r>12&&g-b>20);}
+ for(let y=top;y<height;y++)for(let x=0;x<width;x++){const i=(y*width+x)*4,r=data[i],g=data[i+1],b=data[i+2];mask[(y-top)*width+x]=kind==='orange'?(r>100&&g/r>.25&&g/r<.85&&b/r<.4):kind==='white'?(Math.min(r,g,b)>135&&Math.max(r,g,b)-Math.min(r,g,b)<65):(g-r>12&&g-b>20);}
  for(let seed=0;seed<mask.length;seed++)if(mask[seed]){const queue=[seed];mask[seed]=0;let l=width,r=0,t=h,b=0;
   for(let head=0;head<queue.length;head++){const i=queue[head],x=i%width,y=Math.floor(i/width);l=Math.min(l,x);r=Math.max(r,x+1);t=Math.min(t,y);b=Math.max(b,y+1);
    for(let dy=-1;dy<=1;dy++)for(let dx=-1;dx<=1;dx++){const nx=x+dx,ny=y+dy,j=ny*width+nx;if(nx>=0&&nx<width&&ny>=0&&ny<h&&mask[j]){mask[j]=0;queue.push(j);}}
@@ -186,10 +217,21 @@ function hasLvLabel(image,tile){
  return false;
 }
 
+const expLabelMask='111111111111111100011111001111111110111111111100111110011100111111111111111110000000011111111100111110011111111110000000011111111100111110011111111000000000001111111100111110011111111111110000001111111000111110011111111111111000001111111000001111111111111111110000001111111000111111111110111111110000001111111000111111111110111110000000001111111000111111100000111000000000011111111100111110000000111110000000111111111100001110000000111111111111111100011110111110011110111111111111111100011110111110011110111111111111111100011111111110011110011111111111111000000110001100000110';
+function hasExpLabel(image,box){
+ const spans=whiteSpans(image,box.x-box.h*5,box.x,box.y-box.h*.7,box.y+box.h*1.1);
+ for(let end=spans.length-1;end>=0;end--)for(let n=1;n<=4&&end-n+1>=0;n++){
+  const group=spans.slice(end-n+1,end+1),x=group[0].x,y=Math.min(...group.map(b=>b.y)),w=group.at(-1).x+group.at(-1).w-x,h=Math.max(...group.map(b=>b.y+b.h))-y;
+  if(h<box.h*.65||w/h<1.8||w/h>3.3||box.x-x-w>box.h*.8)continue;
+  let error=0;for(let yy=0;yy<16;yy++)for(let xx=0;xx<36;xx++){const px=x+Math.min(w-1,Math.floor((xx+.5)*w/36)),py=y+Math.min(h-1,Math.floor((yy+.5)*h/16)),i=(py*image.width+px)*4,on=Math.min(image.data[i],image.data[i+1],image.data[i+2])>135;error+=Number(on)!==Number(expLabelMask[yy*36+xx]);}
+  if(error/576<.24)return true;
+ }
+ return false;
+}
 function detect(image,levelOcr,expOcr,previous){
  if(previous?.width===image.width&&previous?.height===image.height&&previous.level&&previous.exp){
   const box=r=>({x:Math.round(r.x*image.width),y:Math.round(r.y*image.height),w:Math.round(r.w*image.width),h:Math.round(r.h*image.height)}),l=box(previous.level),e=box(previous.exp),lr=levelOcr.recognize(crop(image,l)),er=expOcr.recognize(crop(image,e));
-  if(/^\d{1,3}$/.test(lr.data.text)&&hasLvLabel(image,l)&&/^\d[\d.]*\[\d+\.\d{2}%\]$/.test(er.text))return {level:previous.level,exp:previous.exp};
+  if(/^\d{1,3}$/.test(lr.data.text)&&hasLvLabel(image,l)&&(/^\d[\d.]*\[\d+\.\d{2}%\]$/.test(er.text)||(/^(?:\[\d{1,3}\.\d{2}%\]|\d{1,3}\.\d{2}%)$/.test(er.text)&&Number(lr.data.text)>=57&&hasExpLabel(image,e))))return {level:previous.level,exp:previous.exp};
  }
  const orange=components(image,'orange').filter(b=>b.h>=5&&b.h<=image.height*.09&&b.w>=b.h*.35&&b.w<=b.h*3.5),levels=[];
  for(const first of orange){const group=[first];let last=first;
@@ -198,7 +240,7 @@ function detect(image,levelOcr,expOcr,previous){
   if(!hasLvLabel(image,first))continue;
   const box={x:Math.max(0,first.x-1),y:Math.max(0,first.y-1),w:last.x+last.w-first.x+2,h:Math.max(...group.map(b=>b.y+b.h))-first.y+2},read=levelOcr.recognize(crop(image,box));
   if(!read.expectedDigits)continue;
-  levels.push({box,score:first.y/image.height+(read.data.text.includes('?')?0:1)+group.length*.05});
+  levels.push({box,level:read.data.text,score:first.y/image.height+(read.data.text.includes('?')?0:1)+group.length*.05});
  }
  levels.sort((a,b)=>b.score-a.score);
  const brackets=components(image,'green').filter(b=>b.h>=2&&b.h<=image.height*.06&&b.w<=b.h),exps=[];
@@ -210,8 +252,19 @@ function detect(image,levelOcr,expOcr,previous){
   const heights=whiteSpans(image,left.x+left.w,right.x,y,bottom).map(b=>b.h).filter(v=>v>=h*.5).sort((a,b)=>a-b),glyphHeight=heights[Math.floor(heights.length/2)]||h;
   // The bold EXP label is taller/wider than the numeric font. Never rank a truncated suffix above a longer uncertain amount.
   for(const span of spans){let fullHeight=span.h;for(let x=span.x;x<span.x+span.w;x++){let top=span.y;for(let yy=span.y;yy>=Math.max(0,y-h*.7);yy--){const i=(Math.floor(yy)*image.width+x)*4,r=image.data[i],g=image.data[i+1],b=image.data[i+2];if(Math.min(r,g,b)<=135||Math.max(r,g,b)-Math.min(r,g,b)>=65)break;top=yy;}fullHeight=Math.max(fullHeight,span.y+span.h-top);}if(span.h<h*.5||fullHeight>glyphHeight*1.15||span.w>glyphHeight*1.3)continue;const box={x:Math.max(0,span.x-1),y,w:right.x+right.w-span.x+3,h:bottom-y},read=expOcr.recognize(crop(image,box));
-   if(/^\d[\d.]*\[\d+\.\d{2}%\]$/.test(read.text))exps.push({box,score:read.text.length*20+5+read.confidence/100+left.y/image.height});
+   if(/^\d[\d.]*\[\d+\.\d{2}%\]$/.test(read.text))exps.push({box,complete:true,score:read.text.length*20+5+read.confidence/100+left.y/image.height});
    else if(/^[\d?][\d.?]*\[[\d.?]+%\]$/.test(read.text))exps.push({box,score:read.text.length*20+read.confidence/100+left.y/image.height});
+  }
+ }
+ // Percentage-only text still needs its EXP label and a currently readable high level.
+ // This prevents a cropped full reading or an HP/MP percentage becoming estimated EXP.
+ if(Number(levels[0]?.level)>=57&&Number(levels[0]?.level)<100&&!exps.some(e=>e.complete)){
+  const levelBox=levels[0].box;
+  const consider=box=>{const read=expOcr.recognize(crop(image,box));if(/^(?:\[\d{1,3}\.\d{2}%\]|\d{1,3}\.\d{2}%)$/.test(read.text)&&hasExpLabel(image,box))exps.push({box,score:read.text.length*20+read.confidence/100});};
+  for(const left of brackets)for(const right of brackets){const h=Math.max(left.h,right.h);if(right.x-left.x<h*3||right.x-left.x>h*14||Math.abs(left.y-right.y)>h*.3||Math.abs(left.h-right.h)>h*.4)continue;consider({x:left.x-1,y:Math.min(left.y,right.y)-1,w:right.x+right.w-left.x+3,h:Math.max(left.y+left.h,right.y+right.h)-Math.min(left.y,right.y)+2});}
+  for(const glyph of components(image,'white').filter(b=>b.h>=5&&b.w/b.h>.3&&b.w/b.h<1.5&&b.x>levelBox.x+levelBox.w&&Math.abs(b.y-levelBox.y)<levelBox.h*1.5)){
+   const y=glyph.y-1,bottom=glyph.y+glyph.h+1;
+   for(const span of whiteSpans(image,glyph.x-glyph.h*7,glyph.x,y,bottom)){if(span.h<glyph.h*.5)continue;consider({x:span.x-1,y,w:glyph.x+glyph.w-span.x+2,h:bottom-y});}
   }
  }
  exps.sort((a,b)=>b.score-a.score);
@@ -221,28 +274,6 @@ return {detect,crop};
 });
 </script>
 <!-- HUD REGIONS END -->
-<!-- STREAM CARD START -->
-<script>(function(root,factory){const api=factory();if(typeof module==='object'&&module.exports)module.exports=api;else root.MapleStreamCard=api;})(typeof window==='undefined'?globalThis:window,function(){
-function metrics(state,now,required,totalExp){
- const samples=(Array.isArray(state.samples)?state.samples:[]).filter(s=>Number.isInteger(s.level)&&s.level>=1&&s.level<=100&&Number.isFinite(s.exp)&&s.exp>=0&&Number.isFinite(s.t)&&s.t<=now).sort((a,b)=>a.t-b.t),latest=samples.at(-1),base=samples.find(s=>s.t>=now-300000);
- const level=latest?.level??state.level,need=required(level),exp=latest?.exp||0;
- const rate=base&&latest&&latest.t>base.t?Math.max(0,(totalExp(latest)-totalExp(base))/((latest.t-base.t)/3600000)):0;
- const remaining=need>0&&rate>0?Math.max(0,(need-exp)/rate*3600000):null;
- const eta=level===100?'MAX LEVEL':remaining===null?'Waiting for EXP':remaining<60000?'Under 1 min':remaining<3600000?Math.round(remaining/60000)+' min':Math.floor(remaining/3600000)+'h '+Math.floor(remaining%3600000/60000)+'m';
- return {level:Number.isInteger(level)&&level>=1&&level<=100?String(level):'—',rate:rate?Math.round(rate).toLocaleString('en-US'):'—',percent:need?Math.max(0,Math.min(100,exp/need*100)):0,eta,status:!state.updatedAt||now-state.updatedAt>20000?'TRACKER OFFLINE':state.running?'TRACKING':'PAUSED'};
-}
-function mount({document,window,storage,key,required,totalExp}){
- document.title='Maple Track · Stream card';document.body.classList.add('stream-card');
- document.querySelector('.app').innerHTML='<section class="stream-panel" aria-label="Maple Track live stream card"><header><span>MAPLE TRACK</span><span id="cardStatus">CONNECTING</span></header><div class="stream-values"><div><span>LEVEL</span><strong id="cardLevel">—</strong></div><div><span>EXP / HOUR</span><strong id="cardRate">—</strong></div></div><div class="stream-progress"><i id="cardFill"></i></div><footer><span id="cardPercent">0.00%</span><span id="cardEta">Waiting for EXP</span></footer></section>';
- const q=id=>document.querySelector(id);
- function render(){let state={};try{state=JSON.parse(storage.getItem(key)||'{}')||{};}catch{}const m=metrics(state,Date.now(),required,totalExp);q('#cardLevel').textContent=m.level;q('#cardRate').textContent=m.rate;q('#cardPercent').textContent=m.percent.toFixed(2)+'%';q('#cardFill').style.width=m.percent+'%';q('#cardEta').textContent=m.eta==='MAX LEVEL'?m.eta:'Level up · '+m.eta;q('#cardStatus').textContent=m.status;}
- const onStorage=event=>{if(event.key===key||event.key===null)render();};window.addEventListener('storage',onStorage);const timer=window.setInterval(render,5000);
- window.addEventListener('pagehide',()=>{window.clearInterval(timer);window.removeEventListener('storage',onStorage);},{once:true});render();
-}
-return {metrics,mount};
-});
-</script>
-<!-- STREAM CARD END -->
 </head>
 <body><main class="app">
 <header class="top"><div class="brand"><div class="mark">✦</div><div><strong>maple track</strong><span>classic exp companion</span></div></div><div class="topright"><span class="subtle">SESSION 01 · <span id="sessionTime">00:00:00</span></span><span class="live-pill"><i></i><span id="liveState">READY</span></span></div></header>
@@ -286,16 +317,17 @@ function update(){
  const ss=samples(),now=Date.now(),old=ss[0],latest=ss[ss.length-1];let base=ss.filter(s=>s.t>=now-300000)[0];if(!base&&latest&&latest.t>=now-300000)base=old;let rate=0;if(base&&latest&&latest.t>base.t&&totalExp(latest)>=totalExp(base))rate=(totalExp(latest)-totalExp(base))/((latest.t-base.t)/3600000);
  if(state.level!==null){q('#level').textContent=state.level;q('#classLabel').textContent='CHARACTER TRACKING'}else q('#level').textContent='—';
  const gained=old&&latest?Math.max(0,totalExp(latest)-totalExp(old)):0; q('#gained').textContent=fmt(gained);q('#rate').textContent=rate?fmt(rate):'—';q('#pace').textContent=rate?fmt(rate/12)+' / 5m':'—';q('#rateHint').textContent=ss.length<2?'Waiting for more samples':'Based on trailing 5 minutes';
+ if(ss.some(s=>s.estimated)){if(rate){q('#rate').textContent='~'+fmt(rate);q('#pace').textContent='~'+fmt(rate/12)+' / 5m';}if(gained)q('#gained').textContent='~'+fmt(gained);q('#rateHint').textContent='Estimated from rounded HUD percentages';}
  const lvl=state.level, req=lvl?required(lvl):0, expIn=latest?(latest.exp||0):0, pct=req?Math.max(0,Math.min(100,expIn/req*100)):0;
  q('#progressFill').style.width=pct+'%';q('#percent').textContent=pct.toFixed(2)+'% to next level';q('#remaining').textContent=req?fmt(Math.max(0,req-expIn))+' EXP TO GO':'— EXP TO GO';
- if(lvl>=100){q('#eta').textContent='MAX LEVEL';q('#etaNote').textContent='Level cap'}else if(req&&rate>0){const ms=Math.max(0,(req-expIn)/rate*3600000);q('#eta').textContent=ms<60000?'under 1 min':ms<3600000?Math.round(ms/60000)+' min':Math.floor(ms/3600000)+'h '+Math.round(ms%3600000/60000)+'m';q('#etaNote').textContent='at current pace'}else{q('#eta').textContent='—';q('#etaNote').textContent=ss.length<2?'Need more data':'No recent EXP gain'}
+ if(lvl>=100){q('#eta').textContent='MAX LEVEL';q('#etaNote').textContent='Level cap'}else if(req&&rate>0){const ms=Math.max(0,(req-expIn)/rate*3600000);q('#eta').textContent=ms<60000?'under 1 min':ms<3600000?Math.round(ms/60000)+' min':Math.floor(ms/3600000)+'h '+Math.round(ms%3600000/60000)+'m';q('#etaNote').textContent=ss.some(s=>s.estimated)?'at estimated pace':'at current pace'}else{q('#eta').textContent='—';q('#etaNote').textContent=ss.length<2?'Need more data':'No recent EXP gain'}
  if(q('#nextLevelEta')){q('#nextLevelEta').textContent=q('#eta').textContent;q('#nextLevelEtaHint').textContent=q('#etaNote').textContent}
  q('#sampleCount').textContent=ss.length+' sample'+(ss.length===1?'':'s');q('#liveState').textContent=state.running?'TRACKING':'READY';q('#sourceState').textContent=state.source||'NOT CONNECTED';q('#sourceState').style.color=state.source?'var(--lime)':'';
  if(state.startAt){let sec=Math.floor((now-state.startAt)/1000);q('#sessionTime').textContent=[Math.floor(sec/3600),Math.floor(sec%3600/60),sec%60].map(n=>String(n).padStart(2,'0')).join(':')}
  q('#lastSample').textContent=latest?'LAST CAPTURE · '+new Date(latest.t).toLocaleTimeString([],{hour:'2-digit',minute:'2-digit',second:'2-digit'}):'NO CAPTURE YET';draw(ss);drawLog(ss);save();
 }
 function draw(ss){const g=q('#chartContent');g.innerHTML='';if(ss.length<2){g.innerHTML='<text class="empty" x="350" y="88" text-anchor="middle">Your EXP curve will appear after a couple of captures</text>';return}let vals=ss.map(totalExp),min=Math.min(...vals),max=Math.max(...vals);if(max===min)max=min+1;const x=i=>30+i/(ss.length-1)*650,y=v=>142-(v-min)/(max-min)*112;for(let k=0;k<4;k++){let yy=30+k*37;g.insertAdjacentHTML('beforeend',`<line class="gridline" x1="30" y1="${yy}" x2="690" y2="${yy}"/>`)}let path=ss.map((s,i)=>(i?'L':'M')+x(i)+' '+y(totalExp(s))).join(' '),area=path+` L 680 148 L 30 148 Z`;g.insertAdjacentHTML('beforeend',`<path class="area" d="${area}"/><path class="line" d="${path}"/><circle class="dot" cx="${x(ss.length-1)}" cy="${y(vals.at(-1))}" r="4"/><text x="30" y="164">${new Date(ss[0].t).toLocaleTimeString([],{hour:'2-digit',minute:'2-digit'})}</text><text x="690" y="164" text-anchor="end">${new Date(ss.at(-1).t).toLocaleTimeString([],{hour:'2-digit',minute:'2-digit'})}</text>`)}
-function drawLog(ss){q('#logList').innerHTML=ss.slice(-4).reverse().map(s=>`<div class="log-item"><span>${new Date(s.t).toLocaleTimeString([],{hour:'2-digit',minute:'2-digit',second:'2-digit'})}</span><b>Lv. ${s.level} · ${fmt(s.exp)} EXP</b><span>capture</span></div>`).join('')||'<div class="log-item"><span>—</span><b>No captures yet</b><span>—</span></div>'}
+function drawLog(ss){q('#logList').innerHTML=ss.slice(-4).reverse().map(s=>`<div class="log-item"><span>${new Date(s.t).toLocaleTimeString([],{hour:'2-digit',minute:'2-digit',second:'2-digit'})}</span><b>Lv. ${s.level} · ${s.estimated?'≈ ':''}${fmt(s.exp)} EXP</b><span>capture</span></div>`).join('')||'<div class="log-item"><span>—</span><b>No captures yet</b><span>—</span></div>'}
 function notice(s){q('#notice').textContent=s;q('#notice').classList.add('show');setTimeout(()=>q('#notice').classList.remove('show'),4500)}
 
 function readExpGlyphs(region,frame,level){
@@ -303,7 +335,8 @@ function readExpGlyphs(region,frame,level){
  const ctx=c.getContext('2d');ctx.drawImage(frame,Math.round(region.x*frame.width),Math.round(region.y*frame.height),c.width,c.height,0,0,c.width,c.height);
  const raw=MapleHudOcr.recognize(ctx.getImageData(0,0,c.width,c.height)),result=MapleHudOcr.resolveReading(raw,required(level));
  if(debug){let preview=q('#expGlyphPreview');if(!preview){preview=document.createElement('img');preview.id='expGlyphPreview';preview.alt='Exact EXP crop used by the digit matcher';preview.style.cssText='display:block;max-width:100%;height:56px;object-fit:contain;object-position:left;image-rendering:pixelated;margin:10px 4px';q('#ocrOutput').after(preview)}preview.src=c.toDataURL();}
- return {rawText:raw.text,rawConfidence:raw.confidence,data:{text:result.text,confidence:result.confidence},uncertain:result.text.includes('?')||!/^\d[\d.]*\[\d+\.\d{2}%\]$/.test(result.text)};
+ const prior=state.samples.at(-1),percentageOnly=MapleHudOcr.percentageReading(result.text,required(level),prior?.level===level?prior.exp:null);
+ return {rawText:raw.text,rawConfidence:raw.confidence,data:{text:result.text,confidence:result.confidence},percentageOnly,uncertain:result.text.includes('?')||(!percentageOnly&&!/^\d[\d.]*\[\d+\.\d{2}%\]$/.test(result.text))};
 }
 function beginRegionSelection(name){if(state.calibration.auto!==false)state.calibration={...currentRegions(),auto:false};selecting=selecting===name?null:name;dragStart=dragCurrent=null;updateRegionStatus();drawRegions()}
 
@@ -327,7 +360,7 @@ function parseHudReading(levelText,expText){
  const amountMatch=amountText.match(/^(\d{1,3}(?:\s*[,.]\s*\d{3})+|\d+)\s*[\])]?\s*$/);
  return {levelMatch:levelMatch?[levelMatch[1]]:null,expToken:amountMatch?.[1]?.replace(/\s/g,'').replace(/\./g,','),pctToken:pctMatch?.[1]};
 }
-async function runOcr(timestamp=lastFrameTimestamp){if(ocrRunning){queuedOcrTimestamp=timestamp;return}const image=q('#latestFrame');if(!image?.naturalWidth){q('#ocrOutput').textContent='Waiting for a game screenshot.';return}const regions=currentRegions(image);if(!regions?.exp){q('#ocrOutput').textContent='Looking for the EXP readout. Keep the bottom HUD visible and unobstructed, or select a custom region in debug mode.';setTrackingStatus('waiting','Looking for the EXP readout');inferredLevelPending=null;if(debug){const snapshot=document.createElement('canvas');snapshot.width=image.naturalWidth;snapshot.height=image.naturalHeight;snapshot.getContext('2d').drawImage(image,0,0);const blob=await new Promise(resolve=>snapshot.toBlob(resolve,'image/png')),stamp=Number(timestamp)||Date.now();if(blob)downloadDebugFrame(blob,stamp<1e12?stamp*1000:stamp,false);}return}const generation=captureGeneration;const rawTime=Number(timestamp)||Date.now(),readAt=rawTime<1e12?rawTime*1000:rawTime;const frame=document.createElement('canvas');frame.width=image.naturalWidth;frame.height=image.naturalHeight;frame.getContext('2d').drawImage(image,0,0);ocrRunning=true;q('#readFrame').disabled=true;q('#ocrOutput').textContent='Starting local OCR…';try{const levelCrop=regions.level?cropLevelDigits(regions.level,frame):{width:1,height:1,data:new Uint8ClampedArray(4)},levelResult=MapleLevelOcr.recognize(levelCrop);levelCrop.expectedDigits=levelResult.expectedDigits;const levelDigits=parseHudReading(levelResult.data.text,'').levelMatch;const expResult=readExpGlyphs(regions.exp,frame,levelDigits?Number(levelDigits[0]):NaN);if(generation!==captureGeneration||!captureStream)return;const independent=parseHudReading('',expResult.rawText),independentClean=expResult.rawConfidence>=35&&/^\d[\d.]*\[\d+\.\d{2}%\]$/.test(expResult.rawText),levelResolution=MapleLevelOcr.resolveLevel(levelResult,independentClean?Number(independent.expToken?.replace(/,/g,'')):NaN,independentClean?Number(independent.pctToken):NaN,required,inferredLevelPending,readAt);inferredLevelPending=levelResolution.pending;const resolvedLevelResult={data:{text:levelResolution.level===null?'?':String(levelResolution.level),confidence:levelResolution.source==='exp'?expResult.data.confidence:levelResult.data.confidence}};const {levelMatch,expToken,pctToken}=parseHudReading(resolvedLevelResult.data.text,expResult.data.text),level=levelMatch?Number(levelMatch[0]):NaN,exp=expToken?Number(expToken.replace(/,/g,'')):NaN,pct=pctToken?Number(pctToken):null,confidence=Math.round((resolvedLevelResult.data.confidence+expResult.data.confidence)/2),requiredExp=required(level),computedPct=requiredExp?exp/requiredExp*100:0,pctOkay=pct===null||!requiredExp||Math.abs(computedPct-pct)<=0.03,continuity=MapleLevelOcr.checkContinuity(resolvedLevelResult,state.level,pendingLevelFrame!==readAt?pendingLevel:null),valid=continuity.accepted&&Number.isInteger(level)&&level>=1&&level<=100&&Number.isFinite(exp)&&exp>=0&&(level===100||exp<=requiredExp)&&confidence>=35&&pctOkay&&!expResult.uncertain&&(levelResolution.source==='exp'||!levelCrop.expectedDigits||String(level).length===levelCrop.expectedDigits);pendingLevel=continuity.pending;pendingLevelFrame=readAt;q('#ocrOutput').textContent=`Level OCR: ${levelMatch?.[0]||'not found'} · EXP OCR: ${expToken||'not found'}${pctToken?` (${pctToken}%)`:''} · confidence ${confidence}%`+(pct!==null&&requiredExp?` · calculated ${computedPct.toFixed(2)}%`:'' )+(levelResolution.source==='exp'?' · level from EXP':'')+(valid?' · accepted':' · needs review')+'\nRaw level: '+levelResult.data.text.trim()+' | EXP glyphs: '+expResult.data.text.trim();setTrackingStatus(valid?'ok':'waiting',valid?'Tracking · Last read '+new Date(readAt).toLocaleTimeString():(levelResolution.reason||continuity.reason||'Reading skipped · Waiting for the next capture'));if(debug&&!valid&&continuity.reason!=='Confirming level up on the next frame'&&levelResolution.reason!=='Confirming level from EXP on the next frame'){const rejectedBlob=await new Promise(resolve=>frame.toBlob(resolve,"image/png"));if(rejectedBlob)downloadDebugFrame(rejectedBlob,readAt,false);}if(valid){const prior=state.samples.at(-1);if(!prior||prior.t!==readAt)addSample(level,exp,readAt);q('#ocrOutput').textContent+=`\nSaved ${new Date(readAt).toLocaleTimeString()} sample.`}}catch(error){setTrackingStatus('error','Recognition unavailable · '+error.message);q('#ocrOutput').textContent='OCR failed: '+error.message}finally{ocrRunning=false;q('#readFrame').disabled=false;if(queuedOcrTimestamp!==null){const queued=queuedOcrTimestamp;queuedOcrTimestamp=null;setTimeout(()=>runOcr(queued),0)}}}
+async function runOcr(timestamp=lastFrameTimestamp){if(ocrRunning){queuedOcrTimestamp=timestamp;return}const image=q('#latestFrame');if(!image?.naturalWidth){q('#ocrOutput').textContent='Waiting for a game screenshot.';return}const regions=currentRegions(image);if(!regions?.exp){q('#ocrOutput').textContent='Looking for the EXP readout. Keep the bottom HUD visible and unobstructed, or select a custom region in debug mode.';setTrackingStatus('waiting','Looking for the EXP readout');inferredLevelPending=null;if(debug){const snapshot=document.createElement('canvas');snapshot.width=image.naturalWidth;snapshot.height=image.naturalHeight;snapshot.getContext('2d').drawImage(image,0,0);const blob=await new Promise(resolve=>snapshot.toBlob(resolve,'image/png')),stamp=Number(timestamp)||Date.now();if(blob)downloadDebugFrame(blob,stamp<1e12?stamp*1000:stamp,false);}return}const generation=captureGeneration;const rawTime=Number(timestamp)||Date.now(),readAt=rawTime<1e12?rawTime*1000:rawTime;const frame=document.createElement('canvas');frame.width=image.naturalWidth;frame.height=image.naturalHeight;frame.getContext('2d').drawImage(image,0,0);ocrRunning=true;q('#readFrame').disabled=true;q('#ocrOutput').textContent='Starting local OCR…';try{const levelCrop=regions.level?cropLevelDigits(regions.level,frame):{width:1,height:1,data:new Uint8ClampedArray(4)},levelResult=MapleLevelOcr.recognize(levelCrop);levelCrop.expectedDigits=levelResult.expectedDigits;const levelDigits=parseHudReading(levelResult.data.text,'').levelMatch;const expResult=readExpGlyphs(regions.exp,frame,levelDigits?Number(levelDigits[0]):NaN);if(generation!==captureGeneration||!captureStream)return;const independent=parseHudReading('',expResult.rawText),independentClean=expResult.rawConfidence>=35&&/^\d[\d.]*\[\d+\.\d{2}%\]$/.test(expResult.rawText),levelResolution=MapleLevelOcr.resolveLevel(levelResult,independentClean?Number(independent.expToken?.replace(/,/g,'')):NaN,independentClean?Number(independent.pctToken):NaN,required,inferredLevelPending,readAt);inferredLevelPending=levelResolution.pending;const resolvedLevelResult={data:{text:levelResolution.level===null?'?':String(levelResolution.level),confidence:levelResolution.source==='exp'?expResult.data.confidence:levelResult.data.confidence}};const {levelMatch,expToken,pctToken}=parseHudReading(resolvedLevelResult.data.text,expResult.data.text),level=levelMatch?Number(levelMatch[0]):NaN,exp=expToken?Number(expToken.replace(/,/g,'')):(expResult.percentageOnly?.exp??NaN),pct=pctToken?Number(pctToken):null,confidence=Math.round((resolvedLevelResult.data.confidence+expResult.data.confidence)/2),requiredExp=required(level),computedPct=requiredExp?exp/requiredExp*100:0,pctOkay=pct===null||!requiredExp||Math.abs(computedPct-pct)<=0.03,continuity=MapleLevelOcr.checkContinuity(resolvedLevelResult,state.level,pendingLevelFrame!==readAt?pendingLevel:null),valid=continuity.accepted&&Number.isInteger(level)&&level>=1&&level<=100&&Number.isFinite(exp)&&exp>=0&&(level===100||exp<=requiredExp)&&confidence>=35&&pctOkay&&!expResult.uncertain&&(levelResolution.source==='exp'||!levelCrop.expectedDigits||String(level).length===levelCrop.expectedDigits);pendingLevel=continuity.pending;pendingLevelFrame=readAt;q('#ocrOutput').textContent=`Level OCR: ${levelMatch?.[0]||'not found'} · EXP OCR: ${expToken||(expResult.percentageOnly?'~'+fmt(exp):'not found')}${pctToken?` (${pctToken}%)`:''} · confidence ${confidence}%`+(pct!==null&&requiredExp?` · calculated ${computedPct.toFixed(2)}%`:'' )+(levelResolution.source==='exp'?' · level from EXP':'')+(expResult.percentageOnly?' · EXP estimated from percentage':'')+(valid?' · accepted':' · needs review')+'\nRaw level: '+levelResult.data.text.trim()+' | EXP glyphs: '+expResult.data.text.trim();setTrackingStatus(valid?'ok':'waiting',valid?'Tracking · Last read '+new Date(readAt).toLocaleTimeString():(levelResolution.reason||continuity.reason||'Reading skipped · Waiting for the next capture'));if(debug&&!valid&&continuity.reason!=='Confirming level up on the next frame'&&levelResolution.reason!=='Confirming level from EXP on the next frame'){const rejectedBlob=await new Promise(resolve=>frame.toBlob(resolve,"image/png"));if(rejectedBlob)downloadDebugFrame(rejectedBlob,readAt,false);}if(valid){const prior=state.samples.at(-1);if(!prior||prior.t!==readAt)addSample(level,exp,readAt,expResult.percentageOnly||{});q('#ocrOutput').textContent+=`\nSaved ${new Date(readAt).toLocaleTimeString()} sample.`}}catch(error){setTrackingStatus('error','Recognition unavailable · '+error.message);q('#ocrOutput').textContent='OCR failed: '+error.message}finally{ocrRunning=false;q('#readFrame').disabled=false;if(queuedOcrTimestamp!==null){const queued=queuedOcrTimestamp;queuedOcrTimestamp=null;setTimeout(()=>runOcr(queued),0)}}}
 function updateRegionStatus(){const automatic=state.calibration?.auto!==false;const regions=currentRegions(),l=regions?.level,e=regions?.exp;q('#regionStatus').textContent=`${automatic?'Auto regions':'Custom regions'} · Level ${l?'ready':'unset'} · EXP ${e?'ready':'unset'}${selecting?` · Drag to select ${selecting}`:''}`;q('#pickLevel')?.classList.toggle('active',selecting==='level');q('#pickExp')?.classList.toggle('active',selecting==='exp')}
 function drawRegions(){if(!debug)return;const canvas=q('#frameCanvas'),img=q('#latestFrame');if(!canvas||!img||!img.naturalWidth)return;const ctx=canvas.getContext('2d');canvas.width=img.naturalWidth;canvas.height=img.naturalHeight;ctx.clearRect(0,0,canvas.width,canvas.height);const colors={level:'#c7f36b',exp:'#a995ff'};const regions=currentRegions(img);for(const name of ['level','exp']){const r=regions[name];if(!r)continue;const x=r.x*canvas.width,y=r.y*canvas.height,w=r.w*canvas.width,h=r.h*canvas.height;ctx.fillStyle=colors[name]+'22';ctx.strokeStyle=colors[name];ctx.lineWidth=Math.max(3,canvas.width/600);ctx.fillRect(x,y,w,h);ctx.strokeRect(x,y,w,h);ctx.font=`bold ${Math.max(18,canvas.width/55)}px sans-serif`;ctx.fillStyle=colors[name];ctx.fillText(name==='level'?'LEVEL':'EXP',x+4,Math.max(18,y-5))}if(dragStart&&dragCurrent&&selecting){const x=Math.min(dragStart.x,dragCurrent.x)*canvas.width,y=Math.min(dragStart.y,dragCurrent.y)*canvas.height,w=Math.abs(dragStart.x-dragCurrent.x)*canvas.width,h=Math.abs(dragStart.y-dragCurrent.y)*canvas.height;ctx.strokeStyle=colors[selecting];ctx.lineWidth=Math.max(3,canvas.width/600);ctx.setLineDash([10,6]);ctx.strokeRect(x,y,w,h);ctx.setLineDash([])}}
 function downloadDebugFrame(blob,timestamp,accepted){
@@ -358,7 +391,7 @@ async function connect(){
  pending.getVideoTracks()[0].addEventListener('ended',()=>{if(captureStream===pending)stopSharing();},{once:true});video.classList.remove('hidden');state.running=true;state.source='GAME WINDOW SHARED';state.startAt ||= Date.now();button.classList.add('hidden');q('#stopSharingBtn').classList.remove('hidden');setTrackingStatus('waiting','Reading your game window…');update();captureTimer=setInterval(captureBrowserFrame,10000);await captureBrowserFrame();
  }catch(error){if(pending)stopSharing();setTrackingStatus('waiting',error.name==='NotAllowedError'?'Screen sharing was cancelled or blocked. Click Share game window to try again.':'Could not start screen sharing: '+error.message);}finally{button.disabled=false;}
 }
-function addSample(level,exp,t=Date.now()){if(!Number.isFinite(level)||!Number.isFinite(exp)||level<1||level>100||exp<0||(level<100&&exp>required(level))){notice('Enter a level from 1 to 100 and current-level EXP within that level’s requirement.');return}state.level=level;state.samples.push({t,level,exp});if(state.samples.length>240)state.samples=state.samples.slice(-240);update()}
+function addSample(level,exp,t=Date.now(),reading={}){if(!Number.isFinite(level)||!Number.isFinite(exp)||level<1||level>100||exp<0||(level<100&&exp>required(level))){notice('Enter a level from 1 to 100 and current-level EXP within that level’s requirement.');return}state.level=level;state.samples.push({t,level,exp,...(reading.estimated?{estimated:true,pct:reading.pct}: {})});if(state.samples.length>240)state.samples=state.samples.slice(-240);update()}
 function setTrackingStatus(kind,text){const el=q('#trackingStatus');if(el){el.dataset.state=kind;el.textContent=text}}
 q('#screenBtn')?.addEventListener('click',()=>connect('screen'));q('#windowBtn')?.addEventListener('click',()=>connect('window'));q('#readFrame')?.addEventListener('click',()=>runOcr(lastFrameTimestamp));q('#pickLevel')?.addEventListener('click',()=>{beginRegionSelection('level')});q('#pickExp')?.addEventListener('click',()=>{beginRegionSelection('exp')});q('#clearRegions')?.addEventListener('click',()=>{state.calibration={level:null,exp:null,auto:true};selecting=dragStart=dragCurrent=null;save();updateRegionStatus();drawRegions()});const frameCanvas=q('#frameCanvas');if(frameCanvas){frameCanvas.addEventListener('pointerdown',event=>{if(!selecting)return;const r=frameCanvas.getBoundingClientRect();dragStart={x:Math.max(0,Math.min(1,(event.clientX-r.left)/r.width)),y:Math.max(0,Math.min(1,(event.clientY-r.top)/r.height))};dragCurrent=dragStart;frameCanvas.setPointerCapture(event.pointerId);drawRegions()});frameCanvas.addEventListener('pointermove',event=>{if(!dragStart)return;const r=frameCanvas.getBoundingClientRect();dragCurrent={x:Math.max(0,Math.min(1,(event.clientX-r.left)/r.width)),y:Math.max(0,Math.min(1,(event.clientY-r.top)/r.height))};drawRegions()});frameCanvas.addEventListener('pointerup',event=>{if(!dragStart||!selecting)return;const r=frameCanvas.getBoundingClientRect();dragCurrent={x:Math.max(0,Math.min(1,(event.clientX-r.left)/r.width)),y:Math.max(0,Math.min(1,(event.clientY-r.top)/r.height))};const left=Math.min(dragStart.x,dragCurrent.x),top=Math.min(dragStart.y,dragCurrent.y),width=Math.abs(dragStart.x-dragCurrent.x),height=Math.abs(dragStart.y-dragCurrent.y);if(width>.005&&height>.005)state.calibration[selecting]={x:left,y:top,w:width,h:height};selecting=dragStart=dragCurrent=null;save();updateRegionStatus();drawRegions()})}if(q('#sampleBtn'))q('#sampleBtn').onclick=()=>{if(!state.samples.length){q('#manualBtn')?.click();return}notice('OCR calibration is needed before automatic readings. Use Manual entry to add a sample.')};if(q('#manualBtn'))q('#manualBtn').onclick=()=>{let lev=prompt('Character level (for example, 52):');if(lev===null)return;let ex=prompt('EXP gained within this level (for example, 542829):');if(ex===null)return;addSample(Number(lev),Number(ex))};updateRegionStatus();
 q('#streamCardBtn')?.addEventListener('click',()=>{const url=new URL(location.href);url.search='?stream=1';const card=window.open(url.href,'maple-track-stream-card','popup=yes,width=420,height=270');if(card)card.focus();else notice('Allow popups for Maple Track, then click Open stream card again.');});

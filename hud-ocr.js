@@ -47,5 +47,14 @@ function resolveReading(result,requiredExp){
  if(valid.size!==1)return result;
  return {...result,text:[...valid][0],originalText:result.text,resolved:true};
 }
-root.MapleHudOcr={recognize,resolveReading};
+function percentageReading(text,requiredExp,previousExp=null){
+ const m=text.match(/^(?:\[(\d{1,3}\.\d{2})%\]|(\d{1,3}\.\d{2})%)$/);
+ if(!m||!Number.isFinite(requiredExp)||requiredExp<=1000000)return null;
+ const pct=Number(m[1]||m[2]);if(pct<0||pct>100)return null;
+ const center=requiredExp*pct/100,error=requiredExp*.00005;
+ if(center+error<1000000)return null;
+ const previousFits=Number.isFinite(previousExp)&&previousExp>=1000000&&Math.abs(previousExp-center)<=error;
+ return {exp:previousFits?previousExp:Math.max(1000000,Math.min(requiredExp,Math.round(center))),pct,estimated:true,error};
+}
+root.MapleHudOcr={recognize,resolveReading,percentageReading};
 })(typeof window==='undefined'?globalThis:window);

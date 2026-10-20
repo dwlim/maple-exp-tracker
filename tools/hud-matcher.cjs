@@ -1,6 +1,6 @@
 const fs=require('node:fs');
 const templates=JSON.parse(fs.readFileSync('tools/hud-font-templates.json'));
-const source=`/* Digit shapes extracted from local Classic HUD screenshots. */\n(function(root){\nconst templates=${JSON.stringify(templates)};\n${recognize.toString()}\n${resolveReading.toString()}\nroot.MapleHudOcr={recognize,resolveReading};\n})(typeof window==='undefined'?globalThis:window);\n`;
+const source=`/* Digit shapes extracted from local Classic HUD screenshots. */\n(function(root){\nconst templates=${JSON.stringify(templates)};\n${recognize.toString()}\n${resolveReading.toString()}\n${percentageReading.toString()}\nroot.MapleHudOcr={recognize,resolveReading,percentageReading};\n})(typeof window==='undefined'?globalThis:window);\n`;
 fs.writeFileSync('hud-ocr.js',source);
 let html=fs.readFileSync('index.html','utf8');
 html=html.replace(/<!-- HUD FONT START -->[\s\S]*?<!-- HUD FONT END -->\s*/,'');
@@ -43,6 +43,15 @@ function recognize(image){
  // Brackets are green, so reinsert them by their position between white glyphs.
  const opening=green.findIndex(v=>v);if(opening>=0){let before=0;for(const [left] of spans)if(left<opening)before++;text=text.slice(0,before)+'['+text.slice(before)+(greenGroups.length>=2?']':'');for(const d of details)if(d.charIndex>=before)d.charIndex++;}
  return {text,confidence:scores.length?Math.min(...scores)*100:0,details};
+}
+function percentageReading(text,requiredExp,previousExp=null){
+ const m=text.match(/^(?:\[(\d{1,3}\.\d{2})%\]|(\d{1,3}\.\d{2})%)$/);
+ if(!m||!Number.isFinite(requiredExp)||requiredExp<=1000000)return null;
+ const pct=Number(m[1]||m[2]);if(pct<0||pct>100)return null;
+ const center=requiredExp*pct/100,error=requiredExp*.00005;
+ if(center+error<1000000)return null;
+ const previousFits=Number.isFinite(previousExp)&&previousExp>=1000000&&Math.abs(previousExp-center)<=error;
+ return {exp:previousFits?previousExp:Math.max(1000000,Math.min(requiredExp,Math.round(center))),pct,estimated:true,error};
 }
 function resolveReading(result,requiredExp){
  if(!Number.isFinite(requiredExp)||requiredExp<=0||!result.text.includes('?'))return result;

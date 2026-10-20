@@ -3,6 +3,7 @@ const html=fs.readFileSync('index.html','utf8'),required=vm.runInNewContext(html
 const now=Date.now(),state={running:true,updatedAt:now,level:32,samples:[{level:32,exp:1000,t:now-60000},{level:32,exp:2000,t:now}]};
 let m=C.metrics(state,now,required,totalExp);assert.equal(m.level,'32');assert.equal(m.rate,'60,000');assert.equal(m.status,'TRACKING');assert.ok(m.percent>1&&m.percent<2);assert.notEqual(m.eta,'Waiting for EXP');
 assert.equal(C.metrics({...state,running:false},now,required,totalExp).status,'PAUSED');
+assert.equal(C.metrics({...state,samples:state.samples.map(s=>({...s,estimated:true}))},now,required,totalExp).rate,'~60,000','Percentage-only rates must be marked approximate on stream cards');
 assert.equal(C.metrics(state,now+21000,required,totalExp).status,'TRACKER OFFLINE');
 assert.equal(C.metrics({},now,required,totalExp).level,'—');
 assert.equal(C.metrics({level:100,samples:[]},now,required,totalExp).eta,'MAX LEVEL');

@@ -5,7 +5,7 @@ function metrics(state,now,required,totalExp){
  const rate=base&&latest&&latest.t>base.t?Math.max(0,(totalExp(latest)-totalExp(base))/((latest.t-base.t)/3600000)):0;
  const remaining=need>0&&rate>0?Math.max(0,(need-exp)/rate*3600000):null;
  const eta=level===100?'MAX LEVEL':remaining===null?'Waiting for EXP':remaining<60000?'Under 1 min':remaining<3600000?Math.round(remaining/60000)+' min':Math.floor(remaining/3600000)+'h '+Math.floor(remaining%3600000/60000)+'m';
- return {level:Number.isInteger(level)&&level>=1&&level<=100?String(level):'—',rate:rate?Math.round(rate).toLocaleString('en-US'):'—',percent:need?Math.max(0,Math.min(100,exp/need*100)):0,eta,status:!state.updatedAt||now-state.updatedAt>20000?'TRACKER OFFLINE':state.running?'TRACKING':'PAUSED'};
+ return {level:Number.isInteger(level)&&level>=1&&level<=100?String(level):'—',rate:rate?(base?.estimated||latest?.estimated?'~':'')+Math.round(rate).toLocaleString('en-US'):'—',percent:need?Math.max(0,Math.min(100,exp/need*100)):0,eta,status:!state.updatedAt||now-state.updatedAt>20000?'TRACKER OFFLINE':state.running?'TRACKING':'PAUSED'};
 }
 function mount({document,window,storage,key,required,totalExp}){
  document.title='Maple Track · Stream card';document.body.classList.add('stream-card');

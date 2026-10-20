@@ -49,6 +49,12 @@ The glyph matcher normalizes usable frame brightness and compares both pixel cov
 
 `node tools/stress-hud-font.cjs --strict` runs 238 original, brightness-adjusted and gamma-adjusted cases. The reviewed matcher reads 189 exactly and rejects 49, with no incorrect complete readings in this set (previous matcher: 146 exact, 92 rejected). These transformed crops measure regression robustness, not independent real-world accuracy. Several saved regression crops were also used to calibrate templates. Run `node tools/test-hud-font.cjs` for real crop regressions, 3/8/9 confusions, extra-padding and missing-bracket checks.
 
+## Percentage-only EXP above one million
+
+When the HUD hides the amount and shows only a percentage, the tracker estimates current EXP from the displayed percentage and the EXP requirement for a clearly recognized level. Both bracketed (`[78.82%]`) and bare (`78.82%`) readouts are supported. Automatic detection also requires the EXP label; a clipped full reading is not treated as percentage-only. The inferred amount must reach the one-million threshold. Uncertain percentage digits or an unreadable level are skipped.
+
+These amounts are approximate because the HUD rounds its percentage to two decimals. Estimated samples are marked in the capture log; affected totals/rates use `~` and the dashboard explains the estimate. A previous EXP value inside the displayed percentage's rounding interval is retained to avoid artificial gains/losses when switching formats. After leveling up, normal full-amount readings resume. `node tools/test-percentage-only.cjs` covers validation, detection with layouts composited from real glyph pixels, and switching back to exact readings; a live screenshot of this HUD variant is still needed for display-specific validation.
+
 ## Stream card
 
 Click **Open stream card** for a compact live view of level, EXP/hour, progress and time to level. In your streaming software, add **Window Capture**, select the Maple Track stream card browser window, and crop out the browser chrome. Keep the main tracker and card open in the same browser profile. The card syncs locally through browser storage; no backend or bridge is used. It shows paused/offline status when tracking stops or the main tracker closes.

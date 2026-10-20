@@ -1,0 +1,57 @@
+const fs=require('node:fs'),vm=require('node:vm'),assert=require('node:assert/strict'),L=require('../level-ocr'),R=require('../hud-regions');require('../hud-ocr');
+const H=MapleHudOcr,html=fs.readFileSync('index.html','utf8'),required=vm.runInNewContext(html.match(/const required=l=>[^\n]+/)[0]+';required');
+for(const text of ['[78.82%]','78.82%']){const result=H.percentageReading(text,required(61));assert.ok(result?.estimated);assert.equal(result.exp,Math.round(required(61)*.7882));assert.equal(result.pct,78.82);}
+for(const text of ['[?8.82%]','[78.82%','78.82%]','1.200.000[78.82%]','101.00%','-1.00%','78%','78.8%','[EXP 78.82%]'])assert.equal(H.percentageReading(text,required(61)),null,text);
+assert.equal(H.percentageReading('[78.82%]',required(56)),null,'Levels below the threshold cannot silently enter percentage-only mode');
+assert.equal(H.percentageReading('[0.34%]',required(61)),null,'A low percentage cannot imply over one million EXP');
+assert.equal(H.percentageReading('[78.82%]',NaN),null);
+assert.ok(H.percentageReading('[0.34%]',required(99)).exp>1000000);
+const nominal=H.percentageReading('[78.82%]',required(61));
+assert.equal(H.percentageReading('[78.82%]',required(61),nominal.exp+10).exp,nominal.exp+10,'Switching formats must retain a previous value within the rounding interval');
+assert.equal(H.percentageReading('[78.82%]',required(61),nominal.exp+1000).exp,nominal.exp,'Values outside the rounding interval must not override a new reading');
+
+// Construct percentage-only layouts from real, independently verified glyph pixels.
+// The level recognizer is stubbed to 99 for detector isolation; these are not live captures.
+const fixture=require('./hud-region-fixtures.json').find(f=>f.level==='32'),p=fixture.patches[1];
+function assemble(bare=false,withAmount=false){
+ const width=fixture.width,height=fixture.height,data=new Uint8ClampedArray(width*height*4);
+ const patches=[fixture.patches[0]];
+ if(withAmount)patches.push(p);
+ else{
+  const label=R.crop(p,{x:0,y:0,w:58,h:p.height}),percentage=R.crop(p,{x:96,y:0,w:75,h:p.height});
+  if(bare)for(let i=0;i<percentage.data.length;i+=4)if(percentage.data[i+1]-percentage.data[i]>12&&percentage.data[i+1]-percentage.data[i+2]>20)percentage.data.set([45,52,55,255],i);
+  patches.push({...label,x:p.x,y:p.y},{...percentage,x:p.x+59,y:p.y});
+ }
+ for(const patch of patches)for(let y=0;y<patch.height;y++)data.set(patch.data.slice(y*patch.width*4,(y+1)*patch.width*4),((patch.y+y)*width+patch.x)*4);
+ return {width,height,data};
+}
+const highLevel={...L,recognize:image=>{const r=L.recognize(image);return r.expectedDigits?{...r,data:{text:'99',confidence:98}}:r;}};
+const pixels=(r,f)=>({x:Math.round(r.x*f.width),y:Math.round(r.y*f.height),w:Math.round(r.w*f.width),h:Math.round(r.h*f.height)});
+for(const bare of [false,true]){
+ const f=assemble(bare),regions=R.detect(f,highLevel,H);assert.ok(regions.exp,`Percentage-only layout ${bare?'bare':'bracketed'} must be detected`);
+ const text=H.recognize(R.crop(f,pixels(regions.exp,f))).text;assert.ok(H.percentageReading(text,required(99)),text);
+ const tracked=R.detect(f,highLevel,H,{...regions,width:f.width,height:f.height});assert.ok(tracked.exp);
+ const crop=R.crop(f,pixels(regions.exp,f)),readContext={MapleHudOcr:H,required,state:{samples:[]},debug:false,document:{createElement:()=>({getContext:()=>({drawImage(){},getImageData:()=>crop})})}};
+ vm.createContext(readContext);vm.runInContext(html.slice(html.indexOf('function readExpGlyphs('),html.indexOf('\nfunction beginRegionSelection')),readContext);
+ const result=readContext.readExpGlyphs(regions.exp,f,99);assert.equal(result.uncertain,false);assert.equal(result.percentageOnly.estimated,true);
+ assert.equal(readContext.readExpGlyphs(regions.exp,f,NaN).uncertain,true,'Actual crop path must reject percentages with no readable level');
+}
+const full=assemble(false,true),fullRegions=R.detect(full,highLevel,H),fullText=H.recognize(R.crop(full,pixels(fullRegions.exp,full))).text;
+assert.equal(fullText,'412[0.34%]','Full-amount readings must not be cropped into percentage-only estimates');
+
+const nodes=new Map(),q=id=>{if(!nodes.has(id))nodes.set(id,{naturalWidth:2564,naturalHeight:1486});return nodes.get(id);};
+const c={MapleLevelOcr:L,required,fmt:n=>String(n),q,currentRegions:()=>({level:{},exp:{}}),cropLevelDigits:()=>({}),
+ readExpGlyphs:()=>({rawText:'[78.82%]',rawConfidence:95,data:{text:'[78.82%]',confidence:95},percentageOnly:H.percentageReading('[78.82%]',required(61)),uncertain:false}),
+ document:{createElement:()=>({getContext:()=>({drawImage(){}})})},ocrRunning:false,queuedOcrTimestamp:null,lastFrameTimestamp:null,captureGeneration:1,captureStream:{},debug:false,inferredLevelPending:null,pendingLevel:null,pendingLevelFrame:null,state:{level:null,samples:[]},Date,setTimeout,setTrackingStatus(){},
+ addSample(level,exp,t,meta){c.state.level=level;c.state.samples.push({level,exp,t,...meta});}};
+c.MapleLevelOcr={...L,recognize:()=>({data:{text:'61',confidence:95},expectedDigits:2})};
+vm.createContext(c);vm.runInContext(html.slice(html.indexOf('function parseHudReading('),html.indexOf('\nfunction downloadDebugFrame')),c);
+(async()=>{
+ await c.runOcr(1700000000000);assert.equal(c.state.samples.length,1);assert.equal(c.state.samples[0].estimated,true);assert.equal(c.state.samples[0].exp,Math.round(required(61)*.7882));
+ assert.match(q('#ocrOutput').textContent,/estimated from percentage/);
+ c.MapleLevelOcr.recognize=()=>({data:{text:'??',confidence:0},expectedDigits:2});await c.runOcr(1700000010000);assert.equal(c.state.samples.length,1,'Percentage alone cannot recover an unreadable level');
+ c.MapleLevelOcr.recognize=()=>({data:{text:'62',confidence:95},expectedDigits:2});
+ c.readExpGlyphs=()=>({rawText:'12.345[0.92%]',rawConfidence:95,data:{text:'12.345[0.92%]',confidence:95},uncertain:false});
+ await c.runOcr(1700000020000);await c.runOcr(1700000030000);assert.equal(c.state.samples.at(-1).level,62);assert.equal(c.state.samples.at(-1).exp,12345);assert.ok(!c.state.samples.at(-1).estimated,'Level-up returns to exact amount mode');
+ console.log('Percentage-only: rounding estimates, threshold/range validation, bare/bracketed detection, no truncated full amounts, readable-level requirement and exact-mode level-up passed.');
+})().catch(e=>{console.error(e);process.exitCode=1;});
