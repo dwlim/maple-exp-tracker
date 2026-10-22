@@ -25,6 +25,18 @@ function recognize(image){
  for(let x=0;x<=end;x++){let on=false;if(x<end)for(let y=0;y<h;y++)on ||= !!mask[y*w+x];if(on&&start===null)start=x;if(!on&&start!==null){spans.push([start,x]);start=null;}}
  const heights=spans.map(([l,r])=>{let t=h,b=0;for(let y=0;y<h;y++)for(let x=l;x<r;x++)if(mask[y*w+x]){t=Math.min(t,y);b=Math.max(b,y+1);}return b-t;}).sort((a,b)=>a-b);
  const typicalHeight=heights[Math.floor(heights.length/2)]||h;
+ // Video compression may bridge adjacent digits with one or two bright pixels.
+ // Separate a wide span only at a pronounced low-ink valley, never by width alone.
+ for(let index=0;index<spans.length;index++){
+  const [left,right]=spans[index],width=right-left;if(width<typicalHeight*1.45||width>typicalHeight*3.3)continue;
+  const count=Math.round(width/(typicalHeight*.75));if(count<2||count>3)continue;
+  const columns=Array.from({length:width},(_,x)=>{let n=0;for(let y=0;y<h;y++)n+=mask[y*w+left+x];return n;}),cuts=[left];let clear=true;
+  for(let k=1;k<count;k++){const center=k*width/count,radius=typicalHeight*.17;let best=-1;for(let x=Math.max(1,Math.ceil(center-radius));x<Math.min(width-1,Math.floor(center+radius)+1);x++)if(best<0||columns[x]<columns[best])best=x;
+   const before=Math.max(...columns.slice(Math.max(0,best-Math.ceil(typicalHeight*.5)),best)),after=Math.max(...columns.slice(best+1,Math.min(width,best+Math.ceil(typicalHeight*.5))));
+   if(best<0||columns[best]>Math.min(before,after)*.25){clear=false;break;}cuts.push(left+best);
+  }
+  if(!clear)continue;cuts.push(right);const pieces=cuts.slice(0,-1).map((x,i)=>[x,cuts[i+1]]);spans.splice(index,1,...pieces);index+=pieces.length-1;
+ }
  let text='',scores=[],details=[];
  for(const [left,right] of spans){
   let top=h,bottom=0;for(let y=0;y<h;y++)for(let x=left;x<right;x++)if(mask[y*w+x]){top=Math.min(top,y);bottom=Math.max(bottom,y+1);}
