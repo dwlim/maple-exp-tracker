@@ -33,7 +33,7 @@ function recognize(image){
   const columns=Array.from({length:width},(_,x)=>{let n=0;for(let y=0;y<h;y++)n+=mask[y*w+left+x];return n;}),cuts=[left];let clear=true;
   for(let k=1;k<count;k++){const center=k*width/count,radius=typicalHeight*.17;let best=-1;for(let x=Math.max(1,Math.ceil(center-radius));x<Math.min(width-1,Math.floor(center+radius)+1);x++)if(best<0||columns[x]<columns[best])best=x;
    const before=Math.max(...columns.slice(Math.max(0,best-Math.ceil(typicalHeight*.5)),best)),after=Math.max(...columns.slice(best+1,Math.min(width,best+Math.ceil(typicalHeight*.5))));
-   if(best<0||columns[best]>Math.min(before,after)*.25){clear=false;break;}cuts.push(left+best);
+   if(best<0||columns[best]>Math.min(before,after)*.4){clear=false;break;}cuts.push(left+best);
   }
   if(!clear)continue;cuts.push(right);const pieces=cuts.slice(0,-1).map((x,i)=>[x,cuts[i+1]]);spans.splice(index,1,...pieces);index+=pieces.length-1;
  }
