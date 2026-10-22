@@ -1,4 +1,5 @@
 const fs=require('node:fs'),assert=require('node:assert/strict'),L=require('../level-ocr.js');
+assert.equal(L.recognize(require('./level25-small-fixture.json')).data.text,'25','A compressed large-glyph calibration must not make a small 5 ambiguous');
 const baseline=require('./level-bounds-fixture.json');assert.equal(L.recognize(baseline).data.text,'31');
 if(fs.existsSync('tools/browser-level-fixture.json'))assert.equal(L.recognize(require('./browser-level-fixture.json')).data.text,'31','Downloaded browser capture must preserve the leading 3');
 const level56=require('./level56-fixture.json');
