@@ -2,8 +2,8 @@ const fs=require('node:fs'),vm=require('node:vm'),assert=require('node:assert/st
 const H=MapleHudOcr,html=fs.readFileSync('index.html','utf8'),required=vm.runInNewContext(html.match(/const required=l=>[^\n]+/)[0]+';required');
 for(const text of ['[78.82%]','78.82%']){const result=H.percentageReading(text,required(61));assert.ok(result?.estimated);assert.equal(result.exp,Math.round(required(61)*.7882));assert.equal(result.pct,78.82);}
 for(const text of ['[?8.82%]','[78.82%','78.82%]','1.200.000[78.82%]','101.00%','-1.00%','78%','78.8%','[EXP 78.82%]'])assert.equal(H.percentageReading(text,required(61)),null,text);
-assert.equal(H.percentageReading('[78.82%]',required(56)),null,'Levels below the threshold cannot silently enter percentage-only mode');
-assert.equal(H.percentageReading('[0.34%]',required(61)),null,'A low percentage cannot imply over one million EXP');
+assert.equal(H.percentageReading('[78.82%]',required(56)).exp,Math.round(required(56)*.7882),'The observed HUD format, not a numeric cutoff, selects percentage mode');
+assert.equal(H.percentageReading('[0.34%]',required(61)).exp,Math.round(required(61)*.0034),'Valid percentage-only readings below one million must be supported');
 assert.equal(H.percentageReading('[78.82%]',NaN),null);
 assert.ok(H.percentageReading('[0.34%]',required(99)).exp>1000000);
 const nominal=H.percentageReading('[78.82%]',required(61));
@@ -38,21 +38,25 @@ for(const bare of [false,true]){
 }
 const full=assemble(false,true),fullRegions=R.detect(full,highLevel,H),fullText=H.recognize(R.crop(full,pixels(fullRegions.exp,full))).text;
 assert.equal(fullText,'412[0.34%]','Full-amount readings must not be cropped into percentage-only estimates');
+assert.ok(R.detect(assemble(false),L,H).exp,'A percentage-only layout must be locatable without the old hardcoded high-level gate');
 
-const nodes=new Map(),q=id=>{if(!nodes.has(id))nodes.set(id,{naturalWidth:2564,naturalHeight:1486});return nodes.get(id);};
+const nodes=new Map(),q=id=>{if(!nodes.has(id))nodes.set(id,{naturalWidth:2564,naturalHeight:1486,dataset:{}});return nodes.get(id);};
 const c={MapleLevelOcr:L,required,fmt:n=>String(n),q,currentRegions:()=>({level:{},exp:{}}),cropLevelDigits:()=>({}),
  readExpGlyphs:()=>({rawText:'[78.82%]',rawConfidence:95,data:{text:'[78.82%]',confidence:95},percentageOnly:H.percentageReading('[78.82%]',required(61)),uncertain:false}),
  document:{createElement:()=>({getContext:()=>({drawImage(){}})})},ocrRunning:false,queuedOcrTimestamp:null,lastFrameTimestamp:null,captureGeneration:1,captureStream:{},debug:false,inferredLevelPending:null,pendingLevel:null,pendingLevelFrame:null,state:{level:null,samples:[]},Date,setTimeout,setTrackingStatus(){},
  addSample(level,exp,t,meta){c.state.level=level;c.state.samples.push({level,exp,t,...meta});}};
 c.MapleLevelOcr={...L,recognize:()=>({data:{text:'61',confidence:95},expectedDigits:2})};
-vm.createContext(c);vm.runInContext(html.slice(html.indexOf('function parseHudReading('),html.indexOf('\nfunction downloadDebugFrame')),c);
+c.samples=()=>c.state.samples;
+vm.createContext(c);vm.runInContext(html.slice(html.indexOf('function updateRateHint('),html.indexOf('function draw(ss)')),c);vm.runInContext(html.match(/function setTrackingStatus[^\n]+/)[0],c);vm.runInContext(html.slice(html.indexOf('function parseHudReading('),html.indexOf('\nfunction downloadDebugFrame')),c);
 (async()=>{
  await c.runOcr(1700000000000);assert.equal(c.state.samples.length,1);assert.equal(c.state.samples[0].estimated,true);assert.equal(c.state.samples[0].exp,Math.round(required(61)*.7882));
  assert.match(q('#ocrOutput').textContent,/estimated from percentage/);
  c.MapleLevelOcr.recognize=()=>({data:{text:'??',confidence:0},expectedDigits:2});await c.runOcr(1700000010000);assert.equal(c.state.samples.length,1,'Percentage alone cannot recover an unreadable level');
  c.MapleLevelOcr.recognize=()=>({data:{text:'62',confidence:95},expectedDigits:2});
+ c.readExpGlyphs=()=>({rawText:'[0.92%]',rawConfidence:95,data:{text:'[0.92%]',confidence:95},percentageOnly:H.percentageReading('[0.92%]',required(62)),uncertain:false});
+ await c.runOcr(1700000020000);await c.runOcr(1700000030000);assert.equal(c.state.samples.at(-1).level,62);assert.equal(c.state.samples.at(-1).estimated,true,'Level-up must accept a percentage-only reading below one million');
  c.readExpGlyphs=()=>({rawText:'12.345[0.92%]',rawConfidence:95,data:{text:'12.345[0.92%]',confidence:95},uncertain:false});
- await c.runOcr(1700000020000);await c.runOcr(1700000030000);assert.equal(c.state.samples.at(-1).level,62);assert.equal(c.state.samples.at(-1).exp,12345);assert.ok(!c.state.samples.at(-1).estimated,'Level-up returns to exact amount mode');
+ await c.runOcr(1700000035000);assert.equal(c.state.samples.at(-1).level,62);assert.equal(c.state.samples.at(-1).exp,12345);assert.ok(!c.state.samples.at(-1).estimated,'Level-up returns to exact amount mode');
  // Full app pipeline using the real percentage-only HUD crops supplied by the user.
  for(const real of require('./hud-region-fixtures.json').filter(f=>f.percentageOnly)){
  const actual={width:real.width,height:real.height,data:new Uint8ClampedArray(real.width*real.height*4)};
@@ -63,6 +67,10 @@ vm.createContext(c);vm.runInContext(html.slice(html.indexOf('function parseHudRe
  c.document={createElement:()=>{let rect;return {getContext:()=>({drawImage(...args){if(args.length>3)rect={x:args[1],y:args[2],w:args[3],h:args[4]};},getImageData:()=>R.crop(actual,rect)})};}};
  vm.runInContext(html.slice(html.indexOf('function readExpGlyphs('),html.indexOf('\nfunction beginRegionSelection')),c);
  await c.runOcr(1700000040000);assert.equal(c.state.samples[0].level,Number(real.level));assert.equal(c.state.samples[0].pct,Number(real.exp.match(/[\d.]+/)[0]));assert.equal(c.state.samples[0].exp,real.estimatedExp||1114283);assert.equal(c.state.samples[0].estimated,true);
+ const accepted=c.state.samples[0];c.state={level:32,samples:[]};c.pendingLevel=null;
+ await c.runOcr(1700000050000);assert.equal(c.state.samples.length,0);assert.match(q('#rateHint').textContent,/saved level 32/,'Persisted-level rejection must be visible in the rate card');
+ c.state={level:null,samples:[]};c.pendingLevel=null;
+ await c.runOcr(1700000060000);await c.runOcr(1700000070000);assert.equal(c.state.samples.length,2,'Two fresh accepted frames must accumulate after resetting the session');c.updateRateHint();assert.match(q('#rateHint').textContent,/Estimated/);assert.equal(c.state.samples[0].exp,accepted.exp);
  }
- console.log('Percentage-only: rounding estimates, threshold/range validation, bare/bracketed detection, no truncated full amounts, readable-level requirement and exact-mode level-up passed.');
+ console.log('Percentage-only: rounding estimates, format/range validation, below-one-million level-ups, bare/bracketed detection, saved-session blockers, consecutive samples and exact-mode restoration passed.');
 })().catch(e=>{console.error(e);process.exitCode=1;});

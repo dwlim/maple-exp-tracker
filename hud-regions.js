@@ -58,7 +58,7 @@ function hasExpLabel(image,box){
 function detect(image,levelOcr,expOcr,previous){
  if(previous?.width===image.width&&previous?.height===image.height&&previous.level&&previous.exp){
   const box=r=>({x:Math.round(r.x*image.width),y:Math.round(r.y*image.height),w:Math.round(r.w*image.width),h:Math.round(r.h*image.height)}),l=box(previous.level),e=box(previous.exp),lr=levelOcr.recognize(crop(image,l)),er=expOcr.recognize(crop(image,e));
-  if(/^\d{1,3}$/.test(lr.data.text)&&hasLvLabel(image,l)&&(/^\d[\d.]*\[\d+\.\d{2}%\]$/.test(er.text)||(/^(?:\[\d{1,3}\.\d{2}%\]|\d{1,3}\.\d{2}%)$/.test(er.text)&&Number(lr.data.text)>=57&&hasExpLabel(image,e))))return {level:previous.level,exp:previous.exp};
+  if(/^\d{1,3}$/.test(lr.data.text)&&hasLvLabel(image,l)&&(/^\d[\d.]*\[\d+\.\d{2}%\]$/.test(er.text)||(/^(?:\[\d{1,3}\.\d{2}%\]|\d{1,3}\.\d{2}%)$/.test(er.text)&&hasExpLabel(image,e))))return {level:previous.level,exp:previous.exp};
  }
  const orange=components(image,'orange').filter(b=>b.h>=5&&b.h<=image.height*.09&&b.w>=b.h*.35&&b.w<=b.h*3.5),levels=[];
  for(const first of orange){const group=[first];let last=first;
@@ -83,13 +83,13 @@ function detect(image,levelOcr,expOcr,previous){
    else if(/^[\d?][\d.?]*\[[\d.?]+%\]$/.test(read.text))exps.push({box,score:read.text.length*20+read.confidence/100+left.y/image.height});
   }
  }
- // Percentage-only text still needs its EXP label and a currently readable high level.
+ // Percentage-only text still needs its EXP label and a recognizable EXP label.
  // This prevents a cropped full reading or an HP/MP percentage becoming estimated EXP.
- if(Number(levels[0]?.level)>=57&&Number(levels[0]?.level)<100&&!exps.some(e=>e.complete)){
-  const levelBox=levels[0].box;
+ if(!exps.some(e=>e.complete)){
+  const levelBox=levels[0]?.box;
   const consider=box=>{const read=expOcr.recognize(crop(image,box));if(/^(?:\[\d{1,3}\.\d{2}%\]|\d{1,3}\.\d{2}%)$/.test(read.text)&&hasExpLabel(image,box))exps.push({box,score:read.text.length*20+read.confidence/100});};
   for(const left of brackets)for(const right of brackets){const h=Math.max(left.h,right.h);if(right.x-left.x<h*3||right.x-left.x>h*14||Math.abs(left.y-right.y)>h*.3||Math.abs(left.h-right.h)>h*.4)continue;consider({x:left.x-1,y:Math.min(left.y,right.y)-1,w:right.x+right.w-left.x+3,h:Math.max(left.y+left.h,right.y+right.h)-Math.min(left.y,right.y)+2});}
-  for(const glyph of components(image,'white').filter(b=>b.h>=5&&b.w/b.h>.3&&b.w/b.h<1.5&&b.x>levelBox.x+levelBox.w&&Math.abs(b.y-levelBox.y)<levelBox.h*1.5)){
+  if(levelBox)for(const glyph of components(image,'white').filter(b=>b.h>=5&&b.w/b.h>.3&&b.w/b.h<1.5&&b.x>levelBox.x+levelBox.w&&Math.abs(b.y-levelBox.y)<levelBox.h*1.5)){
    const y=glyph.y-1,bottom=glyph.y+glyph.h+1;
    for(const span of whiteSpans(image,glyph.x-glyph.h*7,glyph.x,y,bottom)){if(span.h<glyph.h*.5)continue;consider({x:span.x-1,y,w:glyph.x+glyph.w-span.x+2,h:bottom-y});}
   }

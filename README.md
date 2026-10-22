@@ -39,7 +39,7 @@ Run `node tools/test-hud-font.cjs` to check the extracted HUD crops, including w
 
 In browser capture debug mode (`?debug=1`), only frames rejected by OCR request a timestamped PNG download; accepted readings never create screenshot files. These are full screenshots of the shared surface saved to the browser's download location; they are not uploaded. The browser may require allowing multiple automatic downloads, and save-location prompts depend on browser settings. Uncheck **Download screenshots with rejected readings** to stop downloads, or remove the debug flag. Normal mode never downloads screenshots automatically.
 
-The normal dashboard shows session metrics, character progress, connection status and recent readings. Automatic OCR continues in the background. Manual entry remains available.
+The normal dashboard shows session metrics, character progress, connection status and recent readings. The rate-card hint shows why a capture was rejected instead of leaving it at "waiting for more samples". A detected level that conflicts with the saved session shows both levels and asks you to start a new session when switching characters. Automatic OCR continues in the background. Manual entry remains available.
 
 Open `http://127.0.0.1:8000/?debug=1` for the captured game frame, highlighted regions, calibration buttons, raw OCR text, confidence and enlarged EXP crop. Remove `debug=1` to return to the normal dashboard.
 
@@ -49,9 +49,9 @@ The glyph matcher normalizes usable frame brightness and compares both pixel cov
 
 `node tools/stress-hud-font.cjs --strict` runs 238 original, brightness-adjusted and gamma-adjusted cases. The reviewed matcher reads 189 exactly and rejects 49, with no incorrect complete readings in this set (previous matcher: 146 exact, 92 rejected). These transformed crops measure regression robustness, not independent real-world accuracy. Several saved regression crops were also used to calibrate templates. Run `node tools/test-hud-font.cjs` for real crop regressions, 3/8/9 confusions, extra-padding and missing-bracket checks.
 
-## Percentage-only EXP above one million
+## Percentage-only EXP readouts
 
-When the HUD hides the amount and shows only a percentage, the tracker estimates current EXP from the displayed percentage and the EXP requirement for a clearly recognized level. Both bracketed (`[78.82%]`) and bare (`78.82%`) readouts are supported. Automatic detection also requires the EXP label; a clipped full reading is not treated as percentage-only. The inferred amount must reach the one-million threshold. Uncertain percentage digits or an unreadable level are skipped.
+When the HUD hides the amount and shows only a percentage, the tracker estimates current EXP from the displayed percentage and the EXP requirement for a clearly recognized level. Both bracketed (`[78.82%]`) and bare (`78.82%`) readouts are supported. Automatic detection also requires the EXP label; a clipped full reading is not treated as percentage-only. The displayed format selects this mode; readings remain supported below one million, including after a level-up. Uncertain percentage digits or an unreadable level are skipped.
 
 These amounts are approximate because the HUD rounds its percentage to two decimals. Estimated samples are marked in the capture log; affected totals/rates use `~` and the dashboard explains the estimate. A previous EXP value inside the displayed percentage's rounding interval is retained to avoid artificial gains/losses when switching formats. After leveling up, normal full-amount readings resume. `node tools/test-percentage-only.cjs` covers validation, detection with layouts composited from real glyph pixels, and switching back to exact readings; the supplied native HUD screenshot at level 60 with 92.09% is included as a regression case. Other display-specific variations may still require calibration.
 
