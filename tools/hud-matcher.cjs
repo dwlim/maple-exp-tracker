@@ -30,7 +30,7 @@ function recognizeNative(image){
   let top=h,bottom=0;for(let y=0;y<h;y++)for(let x=left;x<right;x++)if(mask[y*w+x]){top=Math.min(top,y);bottom=Math.max(bottom,y+1);}
   const gw=right-left,gh=bottom-top;if(!gh)return [];
   const v=coverage((x,y)=>mask[(top+y)*w+left+x],gw,gh),byChar=new Map();
-  for(const t of templates){if(!/^[0-9]$/.test(t.char))continue;const th=t.rows.length,tw=t.rows[0].length;t.vector ||= coverage((x,y)=>t.rows[y][x]==='1'?1:0,tw,th);let diff=0,n=0;
+  for(const t of templates){if(t.minHeight&&gh<t.minHeight)continue;if(!/^[0-9]$/.test(t.char))continue;const th=t.rows.length,tw=t.rows[0].length;t.vector ||= coverage((x,y)=>t.rows[y][x]==='1'?1:0,tw,th);let diff=0,n=0;
    for(let y=0;y<14;y++)for(let x=0;x<14;x++){const weight=x<5&&y>2&&y<12?1.5:1,nearest=mask[(top+Math.min(gh-1,Math.floor((y+.5)*gh/14)))*w+left+Math.min(gw-1,Math.floor((x+.5)*gw/14))] !== (t.rows[Math.min(th-1,Math.floor((y+.5)*th/14))][Math.min(tw-1,Math.floor((x+.5)*tw/14))]==='1'?1:0);diff+=(Math.abs(v[y*14+x]-t.vector[y*14+x])*.6+Number(nearest)*.4)*weight;n+=weight;}
    const error=diff/n+Math.abs(gw/gh-tw/th)*.15;if(!byChar.has(t.char)||error<byChar.get(t.char))byChar.set(t.char,error);
   }return [...byChar].map(([char,error])=>({char,error})).sort((a,b)=>a.error-b.error);
@@ -61,7 +61,7 @@ function recognizeNative(image){
   const gw=right-left,gh=bottom-top;
   if(gh<typicalHeight*.5){text+=(gw/gh>1.8&&!(gw<=typicalHeight*.4&&gw/gh<=3))?'?':'.';continue;}
   const candidates=[],vector=coverage((x,y)=>mask[(top+y)*w+left+x],gw,gh);
-  for(const t of templates){if(t.char==='.'||t.char===',')continue;const th=t.rows.length,tw=t.rows[0].length;let diff=0,n=0;
+  for(const t of templates){if(t.minHeight&&gh<t.minHeight)continue;if(t.char==='.'||t.char===',')continue;const th=t.rows.length,tw=t.rows[0].length;let diff=0,n=0;
    t.vector ||= coverage((x,y)=>t.rows[y][x]==='1'?1:0,tw,th);
    for(let y=0;y<14;y++)for(let x=0;x<14;x++){const weight=x<5&&y>2&&y<12?1.5:1;const nearest=mask[(top+Math.min(gh-1,Math.floor((y+.5)*gh/14)))*w+left+Math.min(gw-1,Math.floor((x+.5)*gw/14))] !== (t.rows[Math.min(th-1,Math.floor((y+.5)*th/14))][Math.min(tw-1,Math.floor((x+.5)*tw/14))]==='1'?1:0);diff+=(Math.abs(vector[y*14+x]-t.vector[y*14+x])*.6+Number(nearest)*.4)*weight;n+=weight;}
    candidates.push({char:t.char,error:diff/n+Math.abs(gw/gh-tw/th)*.15});

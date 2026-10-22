@@ -98,7 +98,7 @@ function detect(image,levelOcr,expOcr,previous){
    // Locate the labelled HUD even when recognition is uncertain. Saving still
    // requires the strict parser and frame agreement; detection never repairs text.
    if((clear||uncertain)&&hasExpLabel(image,box))exps.push({box,score:(clear?200:0)+read.text.length*20+read.confidence/100});};
-  for(const left of brackets)for(const right of brackets){const h=Math.max(left.h,right.h);if(right.x-left.x<h*3||right.x-left.x>h*14||Math.abs(left.y-right.y)>h*.3||Math.abs(left.h-right.h)>h*.4)continue;consider({x:left.x-1,y:Math.min(left.y,right.y)-1,w:right.x+right.w-left.x+3,h:Math.max(left.y+left.h,right.y+right.h)-Math.min(left.y,right.y)+2});}
+  for(const left of brackets)for(const right of brackets){const h=Math.max(left.h,right.h);if(right.x-left.x<h*3||right.x-left.x>h*14||Math.abs(left.y-right.y)>h*.3||Math.abs(left.h-right.h)>h*.6)continue;const top=Math.max(0,Math.min(left.y,right.y)-Math.ceil(h*.25));consider({x:left.x-1,y:top,w:right.x+right.w-left.x+3,h:Math.max(left.y+left.h,right.y+right.h)+2-top});}
   if(levelBox)for(const glyph of components(image,'white').filter(b=>b.h>=5&&b.w/b.h>.3&&b.w/b.h<1.5&&b.x>levelBox.x+levelBox.w&&Math.abs(b.y-levelBox.y)<levelBox.h*1.5)){
    const y=glyph.y-1,bottom=glyph.y+glyph.h+1;
    for(const span of whiteSpans(image,glyph.x-glyph.h*7,glyph.x,y,bottom)){if(span.h<glyph.h*.5)continue;consider({x:span.x-1,y,w:glyph.x+glyph.w-span.x+2,h:bottom-y});}

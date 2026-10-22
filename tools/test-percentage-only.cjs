@@ -66,7 +66,7 @@ vm.createContext(c);vm.runInContext(html.slice(html.indexOf('function updateRate
  c.readExpGlyphs=()=>({rawText:'12.345[0.92%]',rawConfidence:95,data:{text:'12.345[0.92%]',confidence:95},uncertain:false});
  await c.runOcr(1700000035000);assert.equal(c.state.samples.at(-1).level,62);assert.equal(c.state.samples.at(-1).exp,12345);assert.ok(!c.state.samples.at(-1).estimated,'Level-up returns to exact amount mode');
  // Full app pipeline using the real percentage-only HUD crops supplied by the user.
- for(const real of require('./hud-region-fixtures.json').filter(f=>f.percentageOnly)){
+ for(const real of [...require('./hud-region-fixtures.json'),...require('./downloaded-hud-fixtures.json')].filter(f=>f.percentageOnly)){
  const actual={width:real.width,height:real.height,data:new Uint8ClampedArray(real.width*real.height*4)};
  for(const p of real.patches)for(let y=0;y<p.height;y++)actual.data.set(p.data.slice(y*p.width*4,(y+1)*p.width*4),((p.y+y)*actual.width+p.x)*4);
  c.state={level:null,samples:[]};c.pendingLevel=c.pendingLevelFrame=c.inferredLevelPending=null;c.MapleLevelOcr=L;c.MapleHudOcr=H;
