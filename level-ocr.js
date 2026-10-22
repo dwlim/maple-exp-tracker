@@ -36,13 +36,17 @@ function softMask(image,tile,bounds){
  return {width:right-left,height:bottom-top,mask:Array.from({length:(right-left)*(bottom-top)},(_,i)=>mask[(top+Math.floor(i/(right-left)))*w+left+i%(right-left)])};
 }
 function sample(g,x,y){const ix=Math.floor(x),iy=Math.floor(y),fx=x-ix,fy=y-iy;const get=(a,b)=>a<0||b<0||a>=g.width||b>=g.height?0:g.mask[b*g.width+a];return get(ix,iy)*(1-fx)*(1-fy)+get(ix+1,iy)*fx*(1-fy)+get(ix,iy+1)*(1-fx)*fy+get(ix+1,iy+1)*fx*fy;}
-function vector(g,dx=0,dy=0,scale=1){const out=[];for(let y=0;y<18;y++)for(let x=0;x<14;x++){const nx=((x+.5)/14-.5)/scale+.5+dx,ny=((y+.5)/18-.5)/scale+.5+dy;out.push(sample(g,nx*g.width-.5,ny*g.height-.5));}return out;}
-function matchDigit(g){
+function vector(g,dx=0,dy=0,scale=1,integrated=false){const out=[];for(let y=0;y<18;y++)for(let x=0;x<14;x++){const nx=((x+.5)/14-.5)/scale+.5+dx,ny=((y+.5)/18-.5)/scale+.5+dy;// Integrate large HUD pixels into the canonical 14 x 18 glyph grid.
+ const steps=integrated?Math.min(4,Math.max(1,Math.ceil(Math.max(g.width/14,g.height/18)))):1,cx=nx*g.width-.5,cy=ny*g.height-.5;let value=0;
+ for(let sy=0;sy<steps;sy++)for(let sx=0;sx<steps;sx++)value+=sample(g,cx+((sx+.5)/steps-.5)*g.width/14/scale,cy+((sy+.5)/steps-.5)*g.height/18/scale);
+ out.push(value/(steps*steps));}return out;}
+function matchDigit(g,integrated=false){
  if(!g)return {text:'?',confidence:0,reason:'No clear white digit'};
  const candidates=[];const shifts=[[-.035,0],[0,0],[.035,0],[0,-.025],[0,.025]];
- for(const t of templates){let best=Infinity;const tv=t.vector||(t.vector=vector(t));for(const [dx,dy] of shifts)for(const scale of [.96,1,1.04]){const v=vector(g,dx,dy,scale);let error=0;for(let i=0;i<v.length;i++)error+=(v[i]-tv[i])**2;error=error/v.length+Math.abs(g.width/g.height-t.width/t.height)*.035;best=Math.min(best,error);}const prior=candidates.find(c=>c.text===t.text);if(prior)prior.error=Math.min(prior.error,best);else candidates.push({text:t.text,error:best});}
+ for(const t of templates){let best=Infinity;const tv=integrated?vector(t,0,0,1,true):(t.vector||(t.vector=vector(t)));for(const [dx,dy] of shifts)for(const scale of [.96,1,1.04]){const v=vector(g,dx,dy,scale,integrated);let error=0;for(let i=0;i<v.length;i++)error+=(v[i]-tv[i])**2;error=error/v.length+Math.abs(g.width/g.height-t.width/t.height)*.035;best=Math.min(best,error);}const prior=candidates.find(c=>c.text===t.text);if(prior)prior.error=Math.min(prior.error,best);else candidates.push({text:t.text,error:best});}
  candidates.sort((a,b)=>a.error-b.error);if(candidates.length<2)return {text:'?',confidence:0,reason:'Templates unavailable'};
  const [best,next]=candidates,margin=next.error-best.error,accepted=best.error<.105&&(margin>.016||(best.error<.004&&margin>.008));
+ if(!accepted&&!integrated)return matchDigit(g,true);
  return {text:accepted?best.text:'?',confidence:accepted?Math.round((1-best.error)*100):0,best:best.text,runnerUp:next.text,error:best.error,margin};
 }
 function recognize(image){const bounds=findTiles(image);if(!bounds)return {data:{text:'?',confidence:0},expectedDigits:0,details:[],reason:'Orange tiles not found'};const details=bounds.tiles.map(tile=>matchDigit(softMask(image,tile,bounds)));return {data:{text:details.map(d=>d.text).join(''),confidence:Math.min(...details.map(d=>d.confidence))},expectedDigits:bounds.digitCount,details};}

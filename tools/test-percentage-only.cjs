@@ -51,6 +51,14 @@ vm.createContext(c);vm.runInContext(html.slice(html.indexOf('function updateRate
 (async()=>{
  await c.runOcr(1700000000000);assert.equal(c.state.samples.length,1);assert.equal(c.state.samples[0].estimated,true);assert.equal(c.state.samples[0].exp,Math.round(required(61)*.7882));
  assert.match(q('#ocrOutput').textContent,/estimated from percentage/);
+ const beforeBurst=c.state.samples.length;
+ await c.runOcr(1700000001000,[{level:61,text:'[78.82%]'},{level:61,text:'[78.83%]'},null]);
+ assert.equal(c.state.samples.length,beforeBurst,'A single clear frame must not create a burst sample');
+ assert.match(q('#rateHint').textContent,/agreement/);
+ await c.runOcr(1700000002000,[{level:61,text:'[78.82%]'},null,{level:61,text:'[78.82%]'}]);
+ assert.equal(c.state.samples.length,beforeBurst+1,'Two matching fresh frames must save one sample');
+ c.state.samples.splice(1);
+
  c.MapleLevelOcr.recognize=()=>({data:{text:'??',confidence:0},expectedDigits:2});await c.runOcr(1700000010000);assert.equal(c.state.samples.length,1,'Percentage alone cannot recover an unreadable level');
  c.MapleLevelOcr.recognize=()=>({data:{text:'62',confidence:95},expectedDigits:2});
  c.readExpGlyphs=()=>({rawText:'[0.92%]',rawConfidence:95,data:{text:'[0.92%]',confidence:95},percentageOnly:H.percentageReading('[0.92%]',required(62)),uncertain:false});

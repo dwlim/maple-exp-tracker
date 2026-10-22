@@ -1,0 +1,17 @@
+const fs=require('node:fs'),vm=require('node:vm'),assert=require('node:assert/strict');
+const html=fs.readFileSync('index.html','utf8'),source=html.slice(html.indexOf('async function captureBrowserFrame('),html.indexOf('\nasync function connect('));
+async function run(times,cancel=false){
+ let clock=0,reads=0,passed;const video={readyState:2,videoWidth:800,videoHeight:600,get currentTime(){return times[clock];}},image={dataset:{},classList:{remove(){}},set src(v){this.onload();}};
+ const c={captureGeneration:1,captureBusy:false,ocrRunning:false,captureStream:{},q:id=>id==='#sharePreview'?video:id==='#latestFrame'?image:id==='#autoOcr'?{checked:true}:{style:{},classList:{add(){}}},
+ document:{createElement:()=>({getContext:()=>({drawImage(){}}),toBlob:fn=>fn({})})},
+ setTimeout(fn){clock++;if(cancel)c.captureGeneration++;fn();},URL:{createObjectURL:()=> 'blob:test',revokeObjectURL(){}},Date,
+ burstReading(){reads++;return {level:70,text:'[79.93%]'};},drawRegions(){},updateRegionStatus(){},setTrackingStatus(){},runOcr:async(t,burst)=>{passed=burst;}};
+ vm.createContext(c);vm.runInContext(source,c);await c.captureBrowserFrame();return {reads,passed,c};
+}
+(async()=>{
+ const fresh=await run([0,.25,.5]);assert.equal(fresh.reads,3);assert.equal(fresh.passed.filter(Boolean).length,3);assert.equal(fresh.c.captureBusy,false);
+ const frozen=await run([0,0,0]);assert.equal(frozen.reads,1);assert.equal(frozen.passed.filter(Boolean).length,1,'Repeated video frames cannot vote');
+ const partial=await run([0,.25,.25]);assert.equal(partial.reads,2);assert.equal(partial.passed.filter(Boolean).length,2);
+ const stopped=await run([0,.25,.5],true);assert.equal(stopped.passed,undefined,'Stopping sharing cancels the burst');assert.equal(stopped.c.captureBusy,false);
+ console.log('Burst capture: distinct video frames, frozen/partly frozen video, cancellation and lock cleanup passed.');
+})().catch(e=>{console.error(e);process.exitCode=1;});

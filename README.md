@@ -1,6 +1,6 @@
 # Maple Track
 
-A browser tracker for MapleStory Classic EXP. Share the game window and read EXP locally every 10 seconds.
+A browser tracker for MapleStory Classic EXP. Share the game window and read EXP locally every 10 seconds. Each automatic reading uses a short burst of three frames, spaced 250 ms apart, and needs two matching clear level/EXP readings. Repeated video frames do not count as additional votes. Uncertain bursts keep the last accepted value.
 
 **Open the tracker:** https://dwlim.github.io/maple-exp-tracker/
 
@@ -29,7 +29,7 @@ The app is published on GitHub Pages. Any ordinary HTTPS static host can serve `
 
 Run `node tools/test-browser-capture.cjs` for capture lifecycle checks. Live game-window sharing requires a manual browser picker test.
 
-Level and EXP both use dedicated glyph matchers built from this Classic client's actual HUD digits, rather than a substitute system font. It separates the green brackets from the white digits, compares digit shapes at native capture resolution, and rejects ambiguous glyphs. Commas read as periods are normalized only in the integer EXP amount. The displayed percentage must agree with the EXP table within 0.03 percentage points before saving. The enlarged crop below the OCR result shows exactly what the matcher sees.
+Level and EXP both use dedicated glyph matchers built from this Classic client's actual HUD digits, rather than a substitute system font. It separates the green brackets from the white digits, normalizes glyphs into fixed comparison grids, and rejects ambiguous glyphs. Oversized level glyphs also support area sampling. Unclear EXP crops are retried at two canonical glyph heights (18 and 24 pixels), and both must agree before recovering a reading. Joined EXP digits use several plausible low-ink boundaries, scored by the complete digit sequence; close competing sequences remain rejected. Commas read as periods are normalized only in the integer EXP amount. The displayed percentage must agree with the EXP table within 0.03 percentage points before saving. The enlarged crop below the OCR result shows exactly what the matcher sees.
 
 Use **Reset auto regions** to return from custom selections to automatic HUD detection. For custom selections, exclude the bold `EXP.` label and include all the digits, brackets and `%`, with a small margin. Different HUD layouts, scaling, or very long numbers may need a custom selection. Keep the dashboard tab open during the session. **Manual entry** remains available if a reading needs correction. All recognition runs locally with bundled templates.
 
