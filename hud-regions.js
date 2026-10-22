@@ -46,7 +46,14 @@ function hasExpLabel(image,box){
  // A bright panel border can join every column in a projection. Connected ink
  // components isolate the EXP letters from that border instead of widening the crop.
  const left=Math.max(0,Math.floor(box.x-box.h*5)),top=Math.max(0,Math.floor(box.y-box.h*.7)),patch=crop(image,{x:left,y:top,w:box.x-left,h:box.h*1.8});
- candidates.push(...components(patch,'white',0).map(b=>({...b,x:b.x+left,y:b.y+top})));
+ const ink=components(patch,'white',0).map(b=>({...b,x:b.x+left,y:b.y+top}));candidates.push(...ink);
+ // At some scales EX and P are disconnected, while a panel border joins the
+ // column projection. Group aligned letter components before checking the label.
+ for(const first of ink.filter(b=>b.h>=box.h*.65)){
+  const row=ink.filter(b=>b.x>=first.x&&Math.abs(b.y-first.y)<=first.h*.2&&Math.abs(b.h-first.h)<=first.h*.25).sort((a,b)=>a.x-b.x);
+  let right=first.x+first.w,bottom=first.y+first.h,top=first.y;
+  for(const next of row.slice(1)){if(next.x-right>first.h*.35)break;right=Math.max(right,next.x+next.w);top=Math.min(top,next.y);bottom=Math.max(bottom,next.y+next.h);candidates.push({x:first.x,y:top,w:right-first.x,h:bottom-top});}
+ }
  for(const {x,y,w,h} of candidates){
   if(h<box.h*.65||w/h<1.8||w/h>3.3||box.x-x-w>box.h*.8)continue;
   let error=0;for(let yy=0;yy<16;yy++)for(let xx=0;xx<36;xx++){const px=x+Math.min(w-1,Math.floor((xx+.5)*w/36)),py=y+Math.min(h-1,Math.floor((yy+.5)*h/16)),i=(py*image.width+px)*4,on=Math.min(image.data[i],image.data[i+1],image.data[i+2])>135;error+=Number(on)!==Number(expLabelMask[yy*36+xx]);}
