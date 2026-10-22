@@ -40,10 +40,20 @@ function vector(g,dx=0,dy=0,scale=1,integrated=false){const out=[];for(let y=0;y
  const steps=integrated?Math.min(4,Math.max(1,Math.ceil(Math.max(g.width/14,g.height/18)))):1,cx=nx*g.width-.5,cy=ny*g.height-.5;let value=0;
  for(let sy=0;sy<steps;sy++)for(let sx=0;sx<steps;sx++)value+=sample(g,cx+((sx+.5)/steps-.5)*g.width/14/scale,cy+((sy+.5)/steps-.5)*g.height/18/scale);
  out.push(value/(steps*steps));}return out;}
+// Stable enclosed counters distinguish an 8 from a blurred 0 without adding a font sample.
+function counters(g,threshold){
+ const seen=new Uint8Array(g.mask.length),holes=[];
+ for(let seed=0;seed<g.mask.length;seed++)if(!seen[seed]&&g.mask[seed]<threshold){let edge=false;const queue=[seed];seen[seed]=1;
+  for(let head=0;head<queue.length;head++){const i=queue[head],x=i%g.width,y=Math.floor(i/g.width);edge ||= x===0||y===0||x===g.width-1||y===g.height-1;
+   for(const [nx,ny] of [[x-1,y],[x+1,y],[x,y-1],[x,y+1]]){const j=ny*g.width+nx;if(nx>=0&&nx<g.width&&ny>=0&&ny<g.height&&!seen[j]&&g.mask[j]<threshold){seen[j]=1;queue.push(j);}}
+  }if(!edge&&queue.length>=Math.max(2,g.width*g.height*.02))holes.push(queue.length);
+ }return holes.length;
+}
 function matchDigit(g,integrated=false){
  if(!g)return {text:'?',confidence:0,reason:'No clear white digit'};
  const candidates=[];const shifts=[[-.035,0],[0,0],[.035,0],[0,-.025],[0,.025]];
  for(const t of templates){let best=Infinity;const tv=integrated?vector(t,0,0,1,true):(t.vector||(t.vector=vector(t)));for(const [dx,dy] of shifts)for(const scale of [.96,1,1.04]){const v=vector(g,dx,dy,scale,integrated);let error=0;for(let i=0;i<v.length;i++)error+=(v[i]-tv[i])**2;error=error/v.length+Math.abs(g.width/g.height-t.width/t.height)*.035;best=Math.min(best,error);}const prior=candidates.find(c=>c.text===t.text);if(prior)prior.error=Math.min(prior.error,best);else candidates.push({text:t.text,error:best});}
+ if(candidates.reduce((a,b)=>a.error<b.error?a:b).text==='8'&&counters(g,.3)===2&&counters(g,.4)===2){for(const c of candidates)if(c.text!=='8')c.error+=.03;}
  candidates.sort((a,b)=>a.error-b.error);if(candidates.length<2)return {text:'?',confidence:0,reason:'Templates unavailable'};
  const [best,next]=candidates,margin=next.error-best.error,accepted=best.error<.105&&(margin>.016||(best.error<.004&&margin>.008));
  if(!accepted&&!integrated)return matchDigit(g,true);

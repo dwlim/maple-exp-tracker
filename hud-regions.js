@@ -87,7 +87,10 @@ function detect(image,levelOcr,expOcr,previous){
  // This prevents a cropped full reading or an HP/MP percentage becoming estimated EXP.
  if(!exps.some(e=>e.complete)){
   const levelBox=levels[0]?.box;
-  const consider=box=>{const read=expOcr.recognize(crop(image,box));if(/^(?:\[\d{1,3}\.\d{2}%\]|\d{1,3}\.\d{2}%)$/.test(read.text)&&hasExpLabel(image,box))exps.push({box,score:read.text.length*20+read.confidence/100});};
+  const consider=box=>{const read=expOcr.recognize(crop(image,box)),clear=/^(?:\[\d{1,3}\.\d{2}%\]|\d{1,3}\.\d{2}%)$/.test(read.text),uncertain=/^\[[\d?.]{3,7}[%?]\]$/.test(read.text);
+   // Locate the labelled HUD even when recognition is uncertain. Saving still
+   // requires the strict parser and frame agreement; detection never repairs text.
+   if((clear||uncertain)&&hasExpLabel(image,box))exps.push({box,score:(clear?200:0)+read.text.length*20+read.confidence/100});};
   for(const left of brackets)for(const right of brackets){const h=Math.max(left.h,right.h);if(right.x-left.x<h*3||right.x-left.x>h*14||Math.abs(left.y-right.y)>h*.3||Math.abs(left.h-right.h)>h*.4)continue;consider({x:left.x-1,y:Math.min(left.y,right.y)-1,w:right.x+right.w-left.x+3,h:Math.max(left.y+left.h,right.y+right.h)-Math.min(left.y,right.y)+2});}
   if(levelBox)for(const glyph of components(image,'white').filter(b=>b.h>=5&&b.w/b.h>.3&&b.w/b.h<1.5&&b.x>levelBox.x+levelBox.w&&Math.abs(b.y-levelBox.y)<levelBox.h*1.5)){
    const y=glyph.y-1,bottom=glyph.y+glyph.h+1;

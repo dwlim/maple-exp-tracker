@@ -26,6 +26,11 @@ for(const fixture of fixtures)for(const scale of [.75,1,1.5,2])for(const dx of [
  const tracked=R.detect(f,L,MapleHudOcr,{...regions,width:f.width,height:f.height});assert.ok(tracked.level);
  count++;
 }
+// Localization must survive unreadable glyphs without turning them into accepted data.
+const labelled=frame(fixtures.find(f=>f.level==='68'));
+const uncertainOcr={...MapleHudOcr,recognize:image=>{const r=MapleHudOcr.recognize(image);return r.text==='[54.37%]'?{...r,text:'[?437%]'}:r;}};
+assert.ok(R.detect(labelled,L,uncertainOcr).exp,'A labelled percentage HUD must remain located when a digit or decimal is unclear');
+assert.equal(MapleHudOcr.percentageReading('[?437%]',1854143),null,'Locating an uncertain percentage must not make it valid');
 const blank={width:800,height:600,data:new Uint8ClampedArray(800*600*4)};
 assert.deepEqual(R.detect(blank,L,MapleHudOcr),{level:null,exp:null});
 const f=frame(fixtures[1]),before=R.detect(f,L,MapleHudOcr),moved=frame(fixtures[1],1,90,-20),after=R.detect(moved,L,MapleHudOcr,{...before,width:f.width,height:f.height});
