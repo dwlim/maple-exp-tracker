@@ -28,6 +28,8 @@ for(const fixture of fixtures)for(const scale of [.75,1,1.5,2])for(const dx of [
 }
 // Localization must survive unreadable glyphs without turning them into accepted data.
 const labelled=frame(fixtures.find(f=>f.level==='68'));
+const cached=R.detect(labelled,L,MapleHudOcr),noOcr={recognize(){throw Error('Stable layout must not rerun OCR during localization');}};
+assert.deepEqual(R.detect(labelled,noOcr,noOcr,{...cached,width:labelled.width,height:labelled.height}),cached,'Validate cached labels before any full-frame search');
 const uncertainOcr={...MapleHudOcr,recognize:image=>{const r=MapleHudOcr.recognize(image);return r.text==='[54.37%]'?{...r,text:'[?437%]'}:r;}};
 assert.ok(R.detect(labelled,L,uncertainOcr).exp,'A labelled percentage HUD must remain located when a digit or decimal is unclear');
 assert.equal(MapleHudOcr.percentageReading('[?437%]',1854143),null,'Locating an uncertain percentage must not make it valid');
@@ -49,7 +51,7 @@ for(const c of require('./hud-anchor-fixtures.json'))for(const scale of [.75,1,1
  const regions=R.detect(f,L,MapleHudOcr);assert.ok(regions.level&&regions.exp,'Registered HUD must locate both fields');
  assert.ok(regions.level.x<regions.exp.x&&regions.exp.x*f.width<anchor[0].x);
  // Remove the neighboring controls: a lone red panel must not register a HUD.
- const b=anchor[0];for(let y=b.y;y<Math.min(f.height,b.y+b.h);y++)for(let x=b.x+b.w;x<Math.min(f.width,b.x+b.w*3.2);x++)f.data.fill(0,(y*f.width+x)*4,(y*f.width+x)*4+4);
+ const b=anchor[0];for(let y=Math.floor(b.y);y<Math.min(f.height,Math.ceil(b.y+b.h));y++)for(let x=Math.floor(b.x+b.w);x<Math.min(f.width,Math.ceil(b.x+b.w*3.2));x++)f.data.fill(0,(y*f.width+x)*4,(y*f.width+x)*4+4);
  assert.equal(R.anchors(f).length,0,'Cash Shop color alone is insufficient');
 }
 const fs=require('node:fs'),vm=require('node:vm'),html=fs.readFileSync('index.html','utf8'),calibration={auto:false,level:{x:.1,y:.2,w:.1,h:.1},exp:{x:.4,y:.5,w:.2,h:.1}},context={state:{calibration}};

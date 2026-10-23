@@ -1,17 +1,17 @@
 (function(root,factory){const api=factory();if(typeof module==='object'&&module.exports)module.exports=api;else root.MapleHudRegions=api;})(typeof window==='undefined'?globalThis:window,function(){
 function crop(image,box){
  const x=Math.max(0,Math.floor(box.x)),y=Math.max(0,Math.floor(box.y)),width=Math.max(1,Math.min(image.width-x,Math.ceil(box.w))),height=Math.max(1,Math.min(image.height-y,Math.ceil(box.h))),data=new Uint8ClampedArray(width*height*4);
- for(let row=0;row<height;row++)data.set(image.data.slice(((y+row)*image.width+x)*4,((y+row)*image.width+x+width)*4),row*width*4);
+ for(let row=0;row<height;row++)data.set((image.data.subarray||image.data.slice).call(image.data,((y+row)*image.width+x)*4,((y+row)*image.width+x+width)*4),row*width*4);
  return {width,height,data};
 }
 function components(image,kind,from=.65){
- const {width,height,data}=image,top=Math.floor(height*from),h=height-top,mask=new Uint8Array(width*h),out=[];
+ const {width,height,data}=image,top=Math.floor(height*from),h=height-top,mask=new Uint8Array(width*h),queue=new Uint32Array(width*h),out=[];
  for(let y=top;y<height;y++)for(let x=0;x<width;x++){const i=(y*width+x)*4,r=data[i],g=data[i+1],b=data[i+2];mask[(y-top)*width+x]=kind==='orange'?(r>100&&g/r>.25&&g/r<.85&&b/r<.4):kind==='cash'?(r>110&&r>g*1.7&&r>b*1.3):kind==='white'?(Math.min(r,g,b)>135&&Math.max(r,g,b)-Math.min(r,g,b)<65):(g-r>12&&g-b>20);}
- for(let seed=0;seed<mask.length;seed++)if(mask[seed]){const queue=[seed];mask[seed]=0;let l=width,r=0,t=h,b=0;
-  for(let head=0;head<queue.length;head++){const i=queue[head],x=i%width,y=Math.floor(i/width);l=Math.min(l,x);r=Math.max(r,x+1);t=Math.min(t,y);b=Math.max(b,y+1);
-   for(let dy=-1;dy<=1;dy++)for(let dx=-1;dx<=1;dx++){const nx=x+dx,ny=y+dy,j=ny*width+nx;if(nx>=0&&nx<width&&ny>=0&&ny<h&&mask[j]){mask[j]=0;queue.push(j);}}
+ for(let seed=0;seed<mask.length;seed++)if(mask[seed]){let count=1;queue[0]=seed;mask[seed]=0;let l=width,r=0,t=h,b=0;
+  for(let head=0;head<count;head++){const i=queue[head],x=i%width,y=Math.floor(i/width);l=Math.min(l,x);r=Math.max(r,x+1);t=Math.min(t,y);b=Math.max(b,y+1);
+   for(let dy=-1;dy<=1;dy++)for(let dx=-1;dx<=1;dx++){const nx=x+dx,ny=y+dy,j=ny*width+nx;if(nx>=0&&nx<width&&ny>=0&&ny<h&&mask[j]){mask[j]=0;queue[count++]=j;}}
   }
-  if(queue.length>=3)out.push({x:l,y:t+top,w:r-l,h:b-t,area:queue.length});
+  if(count>=3)out.push({x:l,y:t+top,w:r-l,h:b-t,area:count});
  }
  return out;
 }
@@ -98,7 +98,8 @@ function detectText(image,levelOcr,expOcr,previous){
   levels.push({box,level:read.data.text,score:first.y/image.height+(read.data.text.includes('?')?0:1)+group.length*.05});
  }
  levels.sort((a,b)=>b.score-a.score);
- const brackets=components(image,'green').filter(b=>b.h>=2&&b.h<=image.height*.06&&b.w<=b.h),exps=[];
+ const row=levels[0]?.box;
+ const brackets=components(image,'green').filter(b=>b.h>=2&&b.h<=image.height*.06&&b.w<=b.h&&(!row||(b.x>row.x+row.w&&Math.abs(b.y-row.y)<row.h*2))).sort((a,b)=>b.y-a.y).slice(0,256),exps=[];
  for(const left of brackets)for(const right of brackets){
   const h=Math.max(left.h,right.h),gap=right.x-left.x-left.w;
   if(gap<h*2.5||gap>h*22||Math.abs(left.y-right.y)>h*.3||Math.abs(left.h-right.h)>h*.4)continue;
@@ -132,6 +133,12 @@ function detectText(image,levelOcr,expOcr,previous){
 // Register the native HUD using the red Cash Shop panel and its two blue
 // neighbors. Geometry proposes a search area; it never supplies digit labels.
 function anchors(image){
+ // Coarse alignment only: always read actual glyphs at native resolution.
+ if(image.width>1600){
+  const scale=1600/image.width,width=1600,height=Math.max(1,Math.round(image.height*scale)),data=new Uint8ClampedArray(width*height*4);
+  for(let y=Math.floor(height*.65);y<height;y++)for(let x=0;x<width;x++){const i=(Math.min(image.height-1,Math.floor(y/scale))*image.width+Math.floor(x/scale))*4,j=(y*width+x)*4;data[j]=image.data[i];data[j+1]=image.data[i+1];data[j+2]=image.data[i+2];data[j+3]=255;}
+  return anchors({width,height,data}).map(b=>({x:b.x/scale,y:b.y/scale,w:b.w/scale,h:b.h/scale,area:b.area/(scale*scale)}));
+ }
  const blue=(x,y)=>{x=Math.round(x);y=Math.round(y);if(x<0||y<0||x>=image.width||y>=image.height)return false;const i=(y*image.width+x)*4,r=image.data[i],g=image.data[i+1],b=image.data[i+2];return b>90&&b>r*1.4&&g>r*1.2;};
  return components(image,'cash').filter(b=>{
   if(b.h<12||b.w/b.h<1.6||b.w/b.h>2.6||b.area/(b.w*b.h)<.35)return false;
@@ -140,6 +147,10 @@ function anchors(image){
  }).sort((a,b)=>b.y-a.y);
 }
 function detect(image,levelOcr,expOcr,previous){
+ if(previous?.width===image.width&&previous?.height===image.height&&previous.level&&previous.exp){
+  const box=r=>({x:r.x*image.width,y:r.y*image.height,w:r.w*image.width,h:r.h*image.height}),l=box(previous.level),e=box(previous.exp);
+  if(hasLvLabel(image,l)&&hasExpLabel(image,e))return {level:previous.level,exp:previous.exp};
+ }
  for(const button of anchors(image)){
   const x=Math.max(0,Math.floor(button.x-button.w*9)),y=Math.max(0,Math.floor(button.y-button.h*3)),patch=crop(image,{x,y,w:button.x-x,h:button.h*4.2});
   const found=detectText(patch,levelOcr,expOcr);
