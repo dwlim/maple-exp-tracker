@@ -1,0 +1,9 @@
+{
+  "name": "maple-track-validation",
+  "private": true,
+  "devDependencies": {
+    "pngjs": "7.0.0",
+    "tesseract.js": "7.0.0"
+  },
+  "packageManager": "pnpm@11.25.0"
+}

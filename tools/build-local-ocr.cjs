@@ -1,0 +1,1 @@
+const fs=require('node:fs');const source=fs.readFileSync('local-ocr.js','utf8');let html=fs.readFileSync('index.html','utf8').replace(/<!-- LOCAL OCR START -->[\s\S]*?<!-- LOCAL OCR END -->\s*/,'');html=html.replace('</head>','<!-- LOCAL OCR START -->\n<script>'+source+'</script>\n<!-- LOCAL OCR END -->\n</head>');fs.writeFileSync('index.html',html);

@@ -4,7 +4,7 @@ A browser tracker for MapleStory Classic EXP. Share the game window and read EXP
 
 **Open the tracker:** https://dwlim.github.io/maple-exp-tracker/
 
-Pushes to `main` run the capture and OCR checks, then publish only the standalone dashboard through GitHub Pages. Test crops and developer scripts are not part of the deployed site.
+Pushes to `main` run the capture and OCR checks, then publish only the standalone dashboard through GitHub Pages. Private screenshots and developer scripts are excluded. A small set of public HUD crops is deployed for the browser OCR self-check.
 
 ## Browser capture (default)
 
@@ -14,7 +14,7 @@ Level recognition detects the orange tiles and uses the blue/red color ratio to 
 
 When the orange digits are unclear, the tracker can independently identify a level from the EXP amount and percentage. It requires exactly one matching EXP requirement and two consecutive distinct frames within 25 seconds, with at least 0.5% displayed. Clear level digits that conflict with a unique EXP-derived level are rejected. EXP glyphs repaired using a presumed level never count as independent evidence. Debug output marks a confirmed fallback as "level from EXP". `node tools/test-level-inference.cjs` checks this path and its safeguards.
 
-The level normally stays unchanged. A one-level increase needs confirmation on a second distinct frame; unexpected jumps are rejected. Use **New session** when switching characters or starting over. Both level and EXP use bundled local glyph matchers; no OCR model is downloaded. `node tools/test-level-ocr.cjs` covers actual saved crops, the optional local browser crop, padding, ambiguity and level continuity. The local expanded set reads 212/240 brightness/scaling cases exactly and rejects 28, with no wrong complete levels accepted in that set. These calibration/regression images do not establish accuracy on every user's display.
+The level normally stays unchanged. A one-level increase needs confirmation on a second distinct frame; unexpected jumps are rejected. Use **New session** when switching characters or starting over. Clear readings use bundled glyph matchers. Ambiguous levels and EXP can use a Tesseract.js neural OCR fallback in a local Web Worker; its runtime and model download from the same static site and are cached. Frames and readings are never uploaded. `node tools/test-level-ocr.cjs` covers actual saved crops, the optional local browser crop, padding, ambiguity and level continuity. The local expanded set reads 212/240 brightness/scaling cases exactly and rejects 28, with no wrong complete levels accepted in that set. These calibration/regression images do not establish accuracy on every user's display.
 
 `tools/build-level-font.py` extracts manually transcribed local crops, and `node tools/build-level-font.cjs` rebuilds the standalone level matcher and its embedded copy in `index.html`. `tools/build-level-stress.py` produces optional local scaling fixtures. Local diagnostic screenshots and test captures remain excluded from version control.
 
@@ -25,7 +25,7 @@ The level normally stays unchanged. A one-level increase needs confirmation on a
 
 For calibration and raw diagnostics, use `?debug=1`. Window borders, a different game resolution or HUD layout may require adjusting the regions in debug mode. The in-app preview may not expose screen sharing; use desktop Chrome or Edge if the app reports it unavailable. Manual entry remains available.
 
-The app is published on GitHub Pages. Any ordinary HTTPS static host can serve `index.html`; no application backend or local bridge is required. For local development, run `python -m http.server 8000 --bind 127.0.0.1` and open `http://127.0.0.1:8000/`.
+The app is published on GitHub Pages. Any ordinary HTTPS static host can serve `index.html` and the `assets/` directory; no application backend or local bridge is required. For local development, run `python -m http.server 8000 --bind 127.0.0.1` and open `http://127.0.0.1:8000/`.
 
 Run `node tools/test-browser-capture.cjs` for capture lifecycle checks. Live game-window sharing requires a manual browser picker test.
 
@@ -84,3 +84,11 @@ The curve formulas follow the [MeowDB MapleStory Classic EXP table](https://meow
 `tools/stream-holdout-fixtures.json` contains visually labelled native HUD crops from Shiphtur's public Twitch stream, separate from all font training inputs. Two fullscreen captures include 63 / 94.65% and 63 / 95.09%; a third capture includes 63 / 95.35% after an ad resized the game view. Only level and EXP patches are stored in the repository.
 
 Run `node tools/validate-stream-hud.cjs` to print accepted, rejected and wrong counts. Add `--strict` to fail unless every case passes. The initial baseline in `tools/stream-holdout-baseline.json` is **0 passed, 3 rejected, 0 wrong**; these are known recognition/detection failures, not successful validation. Font generators never read this file. `--write-report` explicitly replaces the baseline report.
+
+### Neural fallback and browser validation
+
+The EXP region can now be located from the bold EXP label without requiring recognizable bracket or digit text first. The local neural fallback keeps grayscale stroke detail, uses colour-aware preprocessing, and compares two prepared readings. The neural engine reads the percentage inside visually located green brackets. For full-amount readings, only an independently clear integer amount is retained and joined to that percentage; an unclear full amount cannot be silently reinterpreted as percentage-only EXP. A unique level inferred from an independent full amount and percentage still needs confirmation on another frame. Conflicting model readings and low-confidence agreement remain rejected. Existing level continuity, EXP-range checks, and two-of-three fresh-frame agreement still apply.
+
+Install test dependencies with `pnpm install --frozen-lockfile --ignore-scripts`, then run `node tools/test-local-ocr.cjs`. This runs the real pinned Tesseract model through the three original Shiphtur cases and a newly collected level-64 full-amount case and the actual application's burst decoding, conversion, sample-saving and single-vote rejection paths. The original native-matcher baseline remains available with `node tools/validate-stream-hud.cjs`; it intentionally measures the lightweight matcher alone. The hybrid engine passes all four cases, including both EXP formats. These cases have now been used for development and are regression tests; future independent captures are still needed to measure generalization.
+
+`/ocr-check.html` runs the same public HUD crops in the browser with the real self-hosted Web Worker and model. It does not ask for screen sharing or upload anything. Initial neural OCR setup downloads roughly 7 MB and may take several seconds; later reads reuse the worker and cached model. See `assets/ocr/NOTICE.md` for sources and licences.

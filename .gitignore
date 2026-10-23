@@ -7,3 +7,7 @@ tools/*.local.json
 tools/font-captures.json
 tools/*contact-sheet.png
 tools/check-labels.png
+
+tools/tesseract-local/
+node_modules/
+*.local.html

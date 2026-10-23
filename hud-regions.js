@@ -62,6 +62,27 @@ function hasExpLabel(image,box){
  return false;
 }
 
+// Locate the bold EXP label before asking any reader to decode its value.
+function labelledExpBoxes(image,levelBox){
+ if(!levelBox)return [];
+ const ink=components(image,'white').filter(b=>b.h>=6&&b.h<=levelBox.h*1.5&&Math.abs(b.y-levelBox.y)<levelBox.h*1.5&&b.x>levelBox.x+levelBox.w),labels=[],out=[];
+ for(const first of ink){
+  const row=ink.filter(b=>b.x>=first.x&&Math.abs(b.y-first.y)<first.h*.2&&Math.abs(b.h-first.h)<first.h*.25).sort((a,b)=>a.x-b.x);let right=first.x+first.w;
+  for(let n=0;n<Math.min(4,row.length);n++){
+   const next=row[n];if(next.x-right>first.h*.4)break;right=Math.max(right,next.x+next.w);const w=right-first.x,h=first.h;if(w/h<1.8||w/h>3.3)continue;
+   let error=0;for(let yy=0;yy<16;yy++)for(let xx=0;xx<36;xx++){const x=first.x+Math.min(w-1,Math.floor((xx+.5)*w/36)),y=first.y+Math.min(h-1,Math.floor((yy+.5)*h/16)),i=(y*image.width+x)*4;error+=Number(Math.min(image.data[i],image.data[i+1],image.data[i+2])>135)!==Number(expLabelMask[yy*36+xx]);}
+   if(error/576<.24)labels.push({x:first.x,y:first.y,w,h});
+  }
+ }
+ for(const label of labels){
+  const left=label.x+label.w+1,top=Math.max(0,label.y-1),bottom=Math.min(image.height,label.y+label.h+2);let last=left,started=false,gap=0;
+  for(let x=left;x<Math.min(image.width,left+label.h*24);x++){
+   let on=false;for(let y=label.y;y<label.y+label.h;y++){const i=(y*image.width+x)*4,r=image.data[i],g=image.data[i+1],b=image.data[i+2];if((Math.min(r,g,b)>120&&Math.max(r,g,b)-Math.min(r,g,b)<65)||(g-r>8&&g-b>12)){on=true;break;}}
+   if(on){last=x+1;started=true;gap=0;}else if(++gap>label.h*.8){break;}
+  }
+  if(started&&last-left>label.h*2)out.push({x:left,y:top,w:last-left+2,h:bottom-top});
+ }return out;
+}
 function detect(image,levelOcr,expOcr,previous){
  if(previous?.width===image.width&&previous?.height===image.height&&previous.level&&previous.exp){
   const box=r=>({x:Math.round(r.x*image.width),y:Math.round(r.y*image.height),w:Math.round(r.w*image.width),h:Math.round(r.h*image.height)}),l=box(previous.level),e=box(previous.exp),lr=levelOcr.recognize(crop(image,l)),er=expOcr.recognize(crop(image,e));
@@ -104,6 +125,7 @@ function detect(image,levelOcr,expOcr,previous){
    for(const span of whiteSpans(image,glyph.x-glyph.h*7,glyph.x,y,bottom)){if(span.h<glyph.h*.5)continue;consider({x:span.x-1,y,w:glyph.x+glyph.w-span.x+2,h:bottom-y});}
   }
  }
+ if(!exps.length)for(const box of labelledExpBoxes(image,levels[0]?.box))exps.push({box,score:1});
  exps.sort((a,b)=>b.score-a.score);
  return {level:levels[0]?normal(levels[0].box,image):null,exp:exps[0]?normal(exps[0].box,image):null};
 }
