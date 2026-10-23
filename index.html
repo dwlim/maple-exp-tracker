@@ -452,7 +452,7 @@ function read(input){
   const worker=async()=>{if(!workerPromise)workerPromise=(async()=>{
    if(typeof Tesseract==='undefined')await new Promise((resolve,reject)=>{const s=document.createElement('script');s.src=new URL('assets/ocr/tesseract.min.js',location.href).href;s.onload=resolve;s.onerror=()=>reject(Error('Local OCR runtime could not load'));document.head.appendChild(s);});
    const base=new URL('assets/ocr/',location.href).href;
-   return Tesseract.createWorker('eng',1,{workerPath:base+'worker.min.js',corePath:base,langPath:base,gzip:true});
+   return Tesseract.createWorker('eng',1,{workerPath:base+'worker.min.js',corePath:base,langPath:base,gzip:true,cachePath:'maple-track-eng-5dc5d8d6'});
   })().catch(e=>{workerPromise=null;throw e;});return workerPromise;};
   browserReader=createReader(async(pixels,kind)=>{const w=await worker();await w.setParameters({tessedit_pageseg_mode:7,tessedit_char_whitelist:kind==='level'?'LV.0123456789':'0123456789.[]%'});const c=document.createElement('canvas');c.width=pixels.width;c.height=pixels.height;c.getContext('2d').putImageData(new ImageData(pixels.data,pixels.width,pixels.height),0,0);const {data}=await w.recognize(c);return {text:data.text,confidence:data.confidence};});
  }return browserReader.read(input);
