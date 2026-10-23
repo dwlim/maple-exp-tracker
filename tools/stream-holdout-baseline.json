@@ -1,0 +1,44 @@
+{
+  "total": 3,
+  "passed": 0,
+  "rejected": 3,
+  "wrong": 0,
+  "results": [
+    {
+      "name": "shiphtur-live-1",
+      "expected": {
+        "level": "63",
+        "exp": "[94.65%]"
+      },
+      "actual": {
+        "level": "??",
+        "exp": null
+      },
+      "status": "rejected"
+    },
+    {
+      "name": "shiphtur-live-2",
+      "expected": {
+        "level": "63",
+        "exp": "[95.09%]"
+      },
+      "actual": {
+        "level": "?3",
+        "exp": null
+      },
+      "status": "rejected"
+    },
+    {
+      "name": "shiphtur-live-3",
+      "expected": {
+        "level": "63",
+        "exp": "[95.35%]"
+      },
+      "actual": {
+        "level": "?3",
+        "exp": null
+      },
+      "status": "rejected"
+    }
+  ]
+}

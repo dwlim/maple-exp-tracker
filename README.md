@@ -78,3 +78,9 @@ Open `index.html` in a modern browser and use **Manual entry** to add your level
 The sample shows Level 52 and `542,829 (68.74%)`; this matches the level 52 requirement of 789,631 EXP. The dashboard uses that HUD layout to set initial OCR regions automatically. It interprets the number as EXP within the current level, converts samples to total EXP for rates across level-ups, and computes the next-level remainder from the curve.
 
 The curve formulas follow the [MeowDB MapleStory Classic EXP table](https://meowdb.com/msclassic/guides/exp-table-level-1-to-100): levels 1–5 and 6–50 use separate formulas, levels 51–89 increase by 1.0548 per level, and levels 90–99 by 2.1. Level 100 is treated as the cap.
+
+### Independent live-stream validation
+
+`tools/stream-holdout-fixtures.json` contains visually labelled native HUD crops from Shiphtur's public Twitch stream, separate from all font training inputs. Two fullscreen captures include 63 / 94.65% and 63 / 95.09%; a third capture includes 63 / 95.35% after an ad resized the game view. Only level and EXP patches are stored in the repository.
+
+Run `node tools/validate-stream-hud.cjs` to print accepted, rejected and wrong counts. Add `--strict` to fail unless every case passes. The initial baseline in `tools/stream-holdout-baseline.json` is **0 passed, 3 rejected, 0 wrong**; these are known recognition/detection failures, not successful validation. Font generators never read this file. `--write-report` explicitly replaces the baseline report.
