@@ -160,7 +160,7 @@ function detect(image,levelOcr,expOcr,previous){
    const tiles=components(patch,'orange',0).filter(t=>Math.abs((x+t.x)-(button.x-button.w*7.25))<button.w*.65&&Math.abs((y+t.y)-(button.y+button.h*.3))<button.h*.35&&t.h>button.h*.2&&t.h<button.h*.8);
    if(tiles.length){const l=Math.min(...tiles.map(t=>t.x)),top=Math.min(...tiles.map(t=>t.y)),r=Math.max(...tiles.map(t=>t.x+t.w)),bottom=Math.max(...tiles.map(t=>t.y+t.h));found.level=normal({x:l-1,y:top-1,w:r-l+2,h:bottom-top+2},patch);}
   }
-  if(!found.exp)found.exp=normal({x:button.x-x-button.w*1.58,y:button.y-y,w:button.w*1.48,h:button.h*.48},patch);
+  if(!found.exp)found.exp=normal({x:button.x-x-button.w*1.55,y:button.y-y,w:button.w*1.48,h:button.h*.48},patch);
   if(!found.level)continue;
   const map=r=>({x:(x+r.x*patch.width)/image.width,y:(y+r.y*patch.height)/image.height,w:r.w*patch.width/image.width,h:r.h*patch.height/image.height});
   const level=map(found.level),exp=map(found.exp);
