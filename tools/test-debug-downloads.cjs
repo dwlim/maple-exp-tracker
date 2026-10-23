@@ -9,5 +9,5 @@ ctx.downloadDebugFrame(blob,stamp,false);assert.equal(clicked,1);assert.equal(fi
 ctx.downloadDebugFrame(blob,stamp,false);assert.equal(clicked,1,'Same frame must not download twice');
 checkbox.checked=false;ctx.downloadDebugFrame(blob,stamp+10000,false);assert.equal(clicked,1);
 ctx.debug=false;checkbox.checked=true;ctx.downloadDebugFrame(blob,stamp+10000,false);assert.equal(clicked,1);assert.equal(created,1);
-assert.ok(html.includes("if(debug&&!valid&&continuity.reason!=='Confirming level up on the next frame'&&levelResolution.reason!=='Confirming level from EXP on the next frame'){const rejectedBlob=await new Promise(resolve=>frame.toBlob"),'Download must use the exact rejected snapshot; expected level-up confirmations are not recognition failures');
+assert.ok(html.includes("if(debug&&!valid&&continuity.reason!=='Confirming level up on the next frame'&&levelResolution.reason!=='Confirming level from EXP on the next frame'){const rejectedBlob=frame._pngBlob||await new Promise(resolve=>frame.toBlob"),'Download must use the exact rejected snapshot; expected level-up confirmations are not recognition failures');
 console.log('Debug-only downloads, timestamp filenames, duplicate prevention, opt-out, normal-mode isolation and URL cleanup passed.');

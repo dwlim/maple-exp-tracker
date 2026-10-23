@@ -12,7 +12,7 @@ async function run(times,cancel=false,paused=false,debug=false){
  const paused=await run([0,.25,.5],false,true);assert.equal(paused.reads,0);assert.equal(paused.passed,undefined,'A paused session must not capture frames');
  const fresh=await run([0,.25,.5]);assert.equal(fresh.reads,3);assert.deepEqual(fresh.decodeClocks,[2,2,2],'Freeze the entire burst before starting expensive OCR');assert.equal(fresh.passed.filter(Boolean).length,3);assert.equal(fresh.c.captureBusy,false);assert.ok(fresh.canvases.every(canvas=>canvas.width===0&&canvas.height===0),'Release capture backing stores after the burst');
  assert.equal(fresh.encodes,0,'Normal tracking must skip full-frame PNG encoding');assert.equal(fresh.sourceFrame,fresh.canvases.at(-1),'Validation reuses the last captured frame');
- const diagnostics=await run([0,.25,.5],false,false,true);assert.equal(diagnostics.encodes,1,'Debug mode retains its screenshot preview');
+ const diagnostics=await run([0,.25,.5],false,false,true);assert.equal(diagnostics.encodes,1,'Debug mode retains its screenshot preview');assert.ok(diagnostics.sourceFrame._pngBlob,'Rejected-frame downloads can reuse the exact preview PNG');
  const frozen=await run([0,0,0]);assert.equal(frozen.reads,1);assert.equal(frozen.passed.filter(Boolean).length,1,'Repeated video frames cannot vote');
  const partial=await run([0,.25,.25]);assert.equal(partial.reads,2);assert.equal(partial.passed.filter(Boolean).length,2);
  const stopped=await run([0,.25,.5],true);assert.equal(stopped.passed,undefined,'Stopping sharing cancels the burst');assert.equal(stopped.c.captureBusy,false);assert.ok(stopped.canvases.every(canvas=>canvas.width===0&&canvas.height===0),'Cancellation releases allocated frames');

@@ -29,7 +29,8 @@ const {PNG}=require('pngjs'),{createWorker}=require('tesseract.js'),R=require('.
   const frame={width:f.width,height:f.height,getContext:()=>({getImageData:()=>image})},vote=await context.burstReading(frame);assert.equal(vote?.level,Number(f.level));assert.equal(vote?.text,f.exp);
   context.refineReadings=async()=>{throw Error('Decoded capture must not run neural OCR a fourth time');};
   await context.runOcr(1700000000000,[vote,vote,null],frame);if(!f.exp.startsWith('[')&&!recovered.level&&!/^\d{1,3}$/.test(nativeLevel.data.text)){assert.equal(context.state.samples.length,0,'An inferred level must await another distinct frame');await context.runOcr(1700000010000,[vote,vote,null],frame);}assert.equal(context.state.samples.length,1,JSON.stringify(context.status));assert.equal(context.state.samples[0].level,Number(f.level));if(f.exp.startsWith('['))assert.equal(context.state.samples[0].pct,Number(f.exp.match(/[\d.]+/)[0]));else{assert.equal(context.state.samples[0].exp,Number(f.exp.split('[')[0].replace(/\./g,'')));assert.ok(!context.state.samples[0].estimated);}
-  await context.runOcr(1700000020000,[vote,null,null],frame);assert.equal(context.state.samples.length,1,'One vote must not save even with the neural fallback');
+  let cachedDownloads=0;if(f.name==='clam-71-full-exp-browser'){frame._pngBlob={exactSnapshot:true};context.debug=true;context.downloadDebugFrame=blob=>{assert.equal(blob,frame._pngBlob);cachedDownloads++;};}
+  await context.runOcr(1700000020000,[vote,null,null],frame);assert.equal(context.state.samples.length,1,'One vote must not save even with the neural fallback');if(f.name==='clam-71-full-exp-browser')assert.equal(cachedDownloads,1,'Debug rejection reuses the existing PNG without encoding again');
   console.log(f.name+' passed real engine, burst decoding, conversion, sample saving and single-vote rejection');
  }
  let uncertain=0;
