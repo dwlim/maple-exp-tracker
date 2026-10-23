@@ -19,6 +19,7 @@ function recognize(image){
 }
 function recognizeNative(image){
  function coverage(get,width,height){const out=[];for(let y=0;y<14;y++)for(let x=0;x<14;x++){const l=x*width/14,r=(x+1)*width/14,t=y*height/14,b=(y+1)*height/14;let sum=0;for(let py=Math.floor(t);py<Math.ceil(b);py++)for(let px=Math.floor(l);px<Math.ceil(r);px++)sum+=get(px,py)*Math.max(0,Math.min(r,px+1)-Math.max(l,px))*Math.max(0,Math.min(b,py+1)-Math.max(t,py));out.push(sum/((r-l)*(b-t)));}return out;}
+ const sample=(get,width,height)=>{const out=new Uint8Array(196);for(let y=0;y<14;y++)for(let x=0;x<14;x++)out[y*14+x]=get(Math.min(width-1,Math.floor((x+.5)*width/14)),Math.min(height-1,Math.floor((y+.5)*height/14)));return out;};
  const {width:w,height:h}=image;let data=image.data;const mask=new Uint8Array(w*h),green=new Uint8Array(w);
  let peak=0;for(let i=0;i<data.length;i+=4)peak=Math.max(peak,Math.min(data[i],data[i+1],data[i+2]));
  if(peak<100)return {text:'',confidence:0,details:[],reason:'Frame is faded or too dark'};
@@ -37,14 +38,16 @@ function recognizeNative(image){
  const heights=spans.map(([l,r])=>{let t=h,b=0;for(let y=0;y<h;y++)for(let x=l;x<r;x++)if(mask[y*w+x]){t=Math.min(t,y);b=Math.max(b,y+1);}return b-t;}).sort((a,b)=>a-b);
  const typicalHeight=heights[Math.floor(heights.length/2)]||h;
  // Score plausible boundaries jointly. Width alone never licenses a digit split.
+ const rankCache=new Map();
  const rank=(left,right)=>{
+  const key=left*(w+1)+right;if(rankCache.has(key))return rankCache.get(key);
   let top=h,bottom=0;for(let y=0;y<h;y++)for(let x=left;x<right;x++)if(mask[y*w+x]){top=Math.min(top,y);bottom=Math.max(bottom,y+1);}
   const gw=right-left,gh=bottom-top;if(!gh)return [];
-  const v=coverage((x,y)=>mask[(top+y)*w+left+x],gw,gh),byChar=new Map();
-  for(const t of templates){if(t.minHeight&&gh<t.minHeight)continue;if(!/^[0-9]$/.test(t.char))continue;const th=t.rows.length,tw=t.rows[0].length;t.vector ||= coverage((x,y)=>t.rows[y][x]==='1'?1:0,tw,th);let diff=0,n=0;
-   for(let y=0;y<14;y++)for(let x=0;x<14;x++){const weight=x<5&&y>2&&y<12?1.5:1,nearest=mask[(top+Math.min(gh-1,Math.floor((y+.5)*gh/14)))*w+left+Math.min(gw-1,Math.floor((x+.5)*gw/14))] !== (t.rows[Math.min(th-1,Math.floor((y+.5)*th/14))][Math.min(tw-1,Math.floor((x+.5)*tw/14))]==='1'?1:0);diff+=(Math.abs(v[y*14+x]-t.vector[y*14+x])*.6+Number(nearest)*.4)*weight;n+=weight;}
+  const v=coverage((x,y)=>mask[(top+y)*w+left+x],gw,gh),nearestPixels=sample((x,y)=>mask[(top+y)*w+left+x],gw,gh),byChar=new Map();
+  for(const t of templates){if(t.minHeight&&gh<t.minHeight)continue;if(!/^[0-9]$/.test(t.char))continue;const th=t.rows.length,tw=t.rows[0].length;t.vector ||= coverage((x,y)=>t.rows[y][x]==='1'?1:0,tw,th);t.nearest ||= sample((x,y)=>t.rows[y][x]==='1'?1:0,tw,th);let diff=0,n=0;
+   for(let y=0;y<14;y++)for(let x=0;x<14;x++){const weight=x<5&&y>2&&y<12?1.5:1,nearest=nearestPixels[y*14+x] !== t.nearest[y*14+x];diff+=(Math.abs(v[y*14+x]-t.vector[y*14+x])*.6+Number(nearest)*.4)*weight;n+=weight;}
    const error=diff/n+Math.abs(gw/gh-tw/th)*.15;if(!byChar.has(t.char)||error<byChar.get(t.char))byChar.set(t.char,error);
-  }return [...byChar].map(([char,error])=>({char,error})).sort((a,b)=>a.error-b.error);
+  }const result=[...byChar].map(([char,error])=>({char,error})).sort((a,b)=>a.error-b.error);rankCache.set(key,result);return result;
  };
  const clear=r=>r.length>1&&r[0].error<.25&&r[1].error-r[0].error>.035&&(r[0].error<.22||r[1].error-r[0].error>.06);
  for(let index=0;index<spans.length;index++){
@@ -71,10 +74,10 @@ function recognizeNative(image){
   let top=h,bottom=0;for(let y=0;y<h;y++)for(let x=left;x<right;x++)if(mask[y*w+x]){top=Math.min(top,y);bottom=Math.max(bottom,y+1);}
   const gw=right-left,gh=bottom-top;
   if(gh<typicalHeight*.5){text+=(gw/gh>1.8&&!(gw<=typicalHeight*.4&&gw/gh<=3))?'?':'.';continue;}
-  const candidates=[],vector=coverage((x,y)=>mask[(top+y)*w+left+x],gw,gh);
+  const candidates=[],vector=coverage((x,y)=>mask[(top+y)*w+left+x],gw,gh),nearestPixels=sample((x,y)=>mask[(top+y)*w+left+x],gw,gh);
   for(const t of templates){if(t.minHeight&&gh<t.minHeight)continue;if(t.char==='.'||t.char===',')continue;const th=t.rows.length,tw=t.rows[0].length;let diff=0,n=0;
-   t.vector ||= coverage((x,y)=>t.rows[y][x]==='1'?1:0,tw,th);
-   for(let y=0;y<14;y++)for(let x=0;x<14;x++){const weight=x<5&&y>2&&y<12?1.5:1;const nearest=mask[(top+Math.min(gh-1,Math.floor((y+.5)*gh/14)))*w+left+Math.min(gw-1,Math.floor((x+.5)*gw/14))] !== (t.rows[Math.min(th-1,Math.floor((y+.5)*th/14))][Math.min(tw-1,Math.floor((x+.5)*tw/14))]==='1'?1:0);diff+=(Math.abs(vector[y*14+x]-t.vector[y*14+x])*.6+Number(nearest)*.4)*weight;n+=weight;}
+   t.vector ||= coverage((x,y)=>t.rows[y][x]==='1'?1:0,tw,th);t.nearest ||= sample((x,y)=>t.rows[y][x]==='1'?1:0,tw,th);
+   for(let y=0;y<14;y++)for(let x=0;x<14;x++){const weight=x<5&&y>2&&y<12?1.5:1;const nearest=nearestPixels[y*14+x] !== t.nearest[y*14+x];diff+=(Math.abs(vector[y*14+x]-t.vector[y*14+x])*.6+Number(nearest)*.4)*weight;n+=weight;}
    candidates.push({char:t.char,error:diff/n+Math.abs(gw/gh-tw/th)*.15});
   }
   candidates.sort((a,b)=>a.error-b.error);const best=candidates[0],second=candidates.find(c=>c.char!==best.char),margin=second.error-best.error;

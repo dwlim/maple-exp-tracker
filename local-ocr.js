@@ -30,9 +30,9 @@ function prepare(image,kind,mode){
  if(kind==='exp'&&mode==='binary')for(let i=0;i<gray.length;i++)gray[i]=gray[i]<150?0:255;
  const scale=kind==='level'&&mode==='blue'?4:mode==='large'?8:6,pad=20,width=sw*scale+pad*2,height=sh*scale+pad*2,out=new Uint8ClampedArray(width*height*4).fill(255);
  const sinc=x=>Math.abs(x)<1e-8?1:Math.sin(Math.PI*x)/(Math.PI*x),weights=(size)=>Array.from({length:size*scale},(_,d)=>{const center=(d+.5)/scale-.5,terms=[];let sum=0;for(let i=Math.max(0,Math.floor(center)-2);i<=Math.min(size-1,Math.floor(center)+3);i++){const delta=center-i,v=Math.abs(delta)<3?sinc(delta)*sinc(delta/3):0;terms.push([i,v]);sum+=v;}return terms.map(([i,v])=>[i,v/sum]);}),wx=weights(sw),wy=weights(sh),horizontal=new Float32Array(sw*scale*sh);
- for(let y=0;y<sh;y++)for(let x=0;x<sw*scale;x++)horizontal[y*sw*scale+x]=Math.max(0,Math.min(255,wx[x].reduce((sum,[i,v])=>sum+gray[y*sw+i]*v,0)));
+ for(let y=0;y<sh;y++)for(let x=0;x<sw*scale;x++){let sum=0;for(const [i,v] of wx[x])sum+=gray[y*sw+i]*v;horizontal[y*sw*scale+x]=Math.max(0,Math.min(255,sum));}
  for(let y=0;y<sh*scale;y++)for(let x=0;x<sw*scale;x++){
-  const v=wy[y].reduce((sum,[i,weight])=>sum+horizontal[i*sw*scale+x]*weight,0),j=((y+pad)*width+x+pad)*4;
+  let v=0;for(const [i,weight] of wy[y])v+=horizontal[i*sw*scale+x]*weight;const j=((y+pad)*width+x+pad)*4;
   out[j]=out[j+1]=out[j+2]=Math.max(0,Math.min(255,Math.round(v)));
  }return {width,height,data:out};
 }
@@ -80,13 +80,13 @@ function createReader(recognize){
 }
 let browserReader;
 function read(input){
- if(!browserReader){let workerPromise;
+ if(!browserReader){let workerPromise,configuredWorker,configuredKind;
   const worker=async()=>{if(!workerPromise)workerPromise=(async()=>{
    if(typeof Tesseract==='undefined')await new Promise((resolve,reject)=>{const s=document.createElement('script');s.src=new URL('assets/ocr/tesseract.min.js',location.href).href;s.onload=resolve;s.onerror=()=>reject(Error('Local OCR runtime could not load'));document.head.appendChild(s);});
    const base=new URL('assets/ocr/',location.href).href;
    return Tesseract.createWorker('eng',1,{workerPath:base+'worker.min.js',corePath:base,langPath:base,gzip:true,cachePath:'maple-track-eng-5dc5d8d6'});
   })().catch(e=>{workerPromise=null;throw e;});return workerPromise;};
-  browserReader=createReader(async(pixels,kind)=>{const w=await worker();await w.setParameters({tessedit_pageseg_mode:7,tessedit_char_whitelist:kind==='level'?'LV.0123456789':'0123456789.[]% '});const c=document.createElement('canvas');c.width=pixels.width;c.height=pixels.height;c.getContext('2d').putImageData(new ImageData(pixels.data,pixels.width,pixels.height),0,0);const {data}=await w.recognize(c);return {text:data.text,confidence:data.confidence};});
+  browserReader=createReader(async(pixels,kind)=>{const w=await worker();if(configuredWorker!==w||configuredKind!==kind){await w.setParameters({tessedit_pageseg_mode:7,tessedit_char_whitelist:kind==='level'?'LV.0123456789':'0123456789.[]% '});configuredWorker=w;configuredKind=kind;}const c=document.createElement('canvas');c.width=pixels.width;c.height=pixels.height;c.getContext('2d').putImageData(new ImageData(pixels.data,pixels.width,pixels.height),0,0);try{const {data}=await w.recognize(c);return {text:data.text,confidence:data.confidence};}finally{c.width=0;c.height=0;}});
  }return browserReader.read(input);
 }
 return {prepare,normalize,choose,createReader,read};
