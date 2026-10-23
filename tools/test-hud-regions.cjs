@@ -41,6 +41,17 @@ const orphan=frame({...fixtures[1],patches:[]});
 const levelTile=require('./level56-fixture.json');
 for(let y=0;y<levelTile.height;y++)orphan.data.set(levelTile.data.slice(y*levelTile.width*4,(y+1)*levelTile.width*4),((orphan.height-50+y)*orphan.width+20)*4);
 assert.equal(R.detect(orphan,L,MapleHudOcr).level,null,'Orange tiles without the LV label are not a level HUD');
+// Static native controls register a scaled HUD independently of OCR output.
+for(const c of require('./hud-anchor-fixtures.json'))for(const scale of [.75,1,1.5]){
+ const rgba=require('node:zlib').inflateSync(Buffer.from(c.rgba,'base64'));
+ const f=frame({width:c.width,height:c.height,patches:[{x:c.x,y:c.y,width:c.w,height:c.h,data:rgba}]},scale,35,-15);
+ const anchor=R.anchors(f);assert.equal(anchor.length,1,`Cash Shop alignment: ${c.name} at ${scale}`);
+ const regions=R.detect(f,L,MapleHudOcr);assert.ok(regions.level&&regions.exp,'Registered HUD must locate both fields');
+ assert.ok(regions.level.x<regions.exp.x&&regions.exp.x*f.width<anchor[0].x);
+ // Remove the neighboring controls: a lone red panel must not register a HUD.
+ const b=anchor[0];for(let y=b.y;y<Math.min(f.height,b.y+b.h);y++)for(let x=b.x+b.w;x<Math.min(f.width,b.x+b.w*3.2);x++)f.data.fill(0,(y*f.width+x)*4,(y*f.width+x)*4+4);
+ assert.equal(R.anchors(f).length,0,'Cash Shop color alone is insufficient');
+}
 const fs=require('node:fs'),vm=require('node:vm'),html=fs.readFileSync('index.html','utf8'),calibration={auto:false,level:{x:.1,y:.2,w:.1,h:.1},exp:{x:.4,y:.5,w:.2,h:.1}},context={state:{calibration}};
 vm.createContext(context);vm.runInContext(html.slice(html.indexOf('function currentRegions('),html.indexOf('\nfunction cropForOcr')),context);
 assert.equal(context.currentRegions({}),calibration,'Custom regions must bypass automatic detection');

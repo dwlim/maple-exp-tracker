@@ -6,7 +6,7 @@ function crop(image,box){
 }
 function components(image,kind,from=.65){
  const {width,height,data}=image,top=Math.floor(height*from),h=height-top,mask=new Uint8Array(width*h),out=[];
- for(let y=top;y<height;y++)for(let x=0;x<width;x++){const i=(y*width+x)*4,r=data[i],g=data[i+1],b=data[i+2];mask[(y-top)*width+x]=kind==='orange'?(r>100&&g/r>.25&&g/r<.85&&b/r<.4):kind==='white'?(Math.min(r,g,b)>135&&Math.max(r,g,b)-Math.min(r,g,b)<65):(g-r>12&&g-b>20);}
+ for(let y=top;y<height;y++)for(let x=0;x<width;x++){const i=(y*width+x)*4,r=data[i],g=data[i+1],b=data[i+2];mask[(y-top)*width+x]=kind==='orange'?(r>100&&g/r>.25&&g/r<.85&&b/r<.4):kind==='cash'?(r>110&&r>g*1.7&&r>b*1.3):kind==='white'?(Math.min(r,g,b)>135&&Math.max(r,g,b)-Math.min(r,g,b)<65):(g-r>12&&g-b>20);}
  for(let seed=0;seed<mask.length;seed++)if(mask[seed]){const queue=[seed];mask[seed]=0;let l=width,r=0,t=h,b=0;
   for(let head=0;head<queue.length;head++){const i=queue[head],x=i%width,y=Math.floor(i/width);l=Math.min(l,x);r=Math.max(r,x+1);t=Math.min(t,y);b=Math.max(b,y+1);
    for(let dy=-1;dy<=1;dy++)for(let dx=-1;dx<=1;dx++){const nx=x+dx,ny=y+dy,j=ny*width+nx;if(nx>=0&&nx<width&&ny>=0&&ny<h&&mask[j]){mask[j]=0;queue.push(j);}}
@@ -83,7 +83,7 @@ function labelledExpBoxes(image,levelBox){
   if(started&&last-left>label.h*2)out.push({x:left,y:top,w:last-left+2,h:bottom-top});
  }return out;
 }
-function detect(image,levelOcr,expOcr,previous){
+function detectText(image,levelOcr,expOcr,previous){
  if(previous?.width===image.width&&previous?.height===image.height&&previous.level&&previous.exp){
   const box=r=>({x:Math.round(r.x*image.width),y:Math.round(r.y*image.height),w:Math.round(r.w*image.width),h:Math.round(r.h*image.height)}),l=box(previous.level),e=box(previous.exp),lr=levelOcr.recognize(crop(image,l)),er=expOcr.recognize(crop(image,e));
   if(/^\d{1,3}$/.test(lr.data.text)&&hasLvLabel(image,l)&&(/^\d[\d.]*\[\d+\.\d{2}%\]$/.test(er.text)||(/^(?:\[\d{1,3}\.\d{2}%\]|\d{1,3}\.\d{2}%)$/.test(er.text)&&hasExpLabel(image,e))))return {level:previous.level,exp:previous.exp};
@@ -129,5 +129,35 @@ function detect(image,levelOcr,expOcr,previous){
  exps.sort((a,b)=>b.score-a.score);
  return {level:levels[0]?normal(levels[0].box,image):null,exp:exps[0]?normal(exps[0].box,image):null};
 }
-return {detect,crop};
+// Register the native HUD using the red Cash Shop panel and its two blue
+// neighbors. Geometry proposes a search area; it never supplies digit labels.
+function anchors(image){
+ const blue=(x,y)=>{x=Math.round(x);y=Math.round(y);if(x<0||y<0||x>=image.width||y>=image.height)return false;const i=(y*image.width+x)*4,r=image.data[i],g=image.data[i+1],b=image.data[i+2];return b>90&&b>r*1.4&&g>r*1.2;};
+ return components(image,'cash').filter(b=>{
+  if(b.h<12||b.w/b.h<1.6||b.w/b.h>2.6||b.area/(b.w*b.h)<.35)return false;
+  // Sample the plain upper corners, avoiding each button's central icon/text.
+  return [1,2].every(n=>[.12,.85].filter(t=>blue(b.x+b.w*(n+t),b.y+b.h*.18)).length===2);
+ }).sort((a,b)=>b.y-a.y);
+}
+function detect(image,levelOcr,expOcr,previous){
+ for(const button of anchors(image)){
+  const x=Math.max(0,Math.floor(button.x-button.w*9)),y=Math.max(0,Math.floor(button.y-button.h*3)),patch=crop(image,{x,y,w:button.x-x,h:button.h*4.2});
+  const found=detectText(patch,levelOcr,expOcr);
+  // When labels are too small to match, the independently checked control
+  // row still defines conservative field windows. Readers may reject the ink.
+  if(!found.level){
+   const tiles=components(patch,'orange',0).filter(t=>Math.abs((x+t.x)-(button.x-button.w*7.25))<button.w*.65&&Math.abs((y+t.y)-(button.y+button.h*.3))<button.h*.35&&t.h>button.h*.2&&t.h<button.h*.8);
+   if(tiles.length){const l=Math.min(...tiles.map(t=>t.x)),top=Math.min(...tiles.map(t=>t.y)),r=Math.max(...tiles.map(t=>t.x+t.w)),bottom=Math.max(...tiles.map(t=>t.y+t.h));found.level=normal({x:l-1,y:top-1,w:r-l+2,h:bottom-top+2},patch);}
+  }
+  if(!found.exp)found.exp=normal({x:button.x-x-button.w*1.58,y:button.y-y,w:button.w*1.48,h:button.h*.48},patch);
+  if(!found.level)continue;
+  const map=r=>({x:(x+r.x*patch.width)/image.width,y:(y+r.y*patch.height)/image.height,w:r.w*patch.width/image.width,h:r.h*patch.height/image.height});
+  const level=map(found.level),exp=map(found.exp);
+  // The native panels must share a row and retain the fixed left-to-right order.
+  if(level.x>=exp.x||Math.abs(level.y-exp.y)*image.height>button.h*.6||exp.x*image.width<button.x-button.w*2.5)continue;
+  return {level,exp};
+ }
+ return detectText(image,levelOcr,expOcr,previous);
+}
+return {detect,crop,anchors};
 });
