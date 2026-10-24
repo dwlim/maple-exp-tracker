@@ -25,14 +25,16 @@ events.get('pagehide')();assert.equal(events.has('storage'),false);
 assert.ok(html.includes(fs.readFileSync('stream-card.js','utf8')),'Embedded stream card must match tested source');
 console.log('Stream card: rates, level-ups, ETA, stale/offline state, local storage sync, malformed storage, read-only startup and cleanup passed.');
 
-// Ten-second normalization, level-up totals, gaps, invalid readings and percentage precision.
+// Thirty-second normalization, level-up totals, gaps, invalid readings and percentage precision.
 let g=C.graph({samples:[{level:32,exp:100,t:now-20000},{level:32,exp:140,t:now-10000},{level:32,exp:200,t:now}]},now,totalExp);
-assert.deepEqual(g.points.map(p=>p.value),[40,60]);assert.ok(g.path.startsWith('M'));assert.ok(g.path.includes('L'));
+assert.deepEqual(g.points.map(p=>p.value),[120,180]);assert.ok(g.path.startsWith('M'));assert.ok(g.path.includes('L'));
 assert.equal(C.graph(state,now,totalExp).points.length,0,'Long gaps must not invent ten-second gains');
-assert.equal(C.graph({samples:[{level:32,exp:100,t:now-5000},{level:32,exp:140,t:now}]},now,totalExp).points[0].value,80);
-assert.equal(C.graph({samples:[{level:31,exp:required(31)-100,t:now-10000},{level:32,exp:50,t:now,estimated:true}]},now,totalExp).points[0].value,150);
+assert.equal(C.graph({samples:[{level:32,exp:100,t:now-5000},{level:32,exp:140,t:now}]},now,totalExp).points[0].value,240);
+assert.equal(C.graph({samples:[{level:31,exp:required(31)-100,t:now-10000},{level:32,exp:50,t:now,estimated:true}]},now,totalExp).points[0].value,450);
 assert.equal(C.graph({samples:[{level:32,exp:100,t:now-10000},{level:32,exp:50,t:now}]},now,totalExp).points.length,0);
 assert.equal(C.graph({},now,totalExp).path,'');
 
 assert.ok(g.max>=Math.max(...g.points.map(p=>p.value)));
 assert.ok(Number(q("#cardAxisTop").textContent)>0,"Graph Y axis renders a positive upper bound");
+
+assert.equal(C.graph({samples:[{level:32,exp:100,t:now-30000},{level:32,exp:190,t:now}]},now,totalExp).points[0].value,90,"Thirty-second samples remain connected and show actual gain");

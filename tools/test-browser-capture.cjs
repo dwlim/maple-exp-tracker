@@ -7,7 +7,7 @@ function fixture(getDisplayMedia){
 (async()=>{
  let stopped=0,ended;const track={stop(){stopped++;},addEventListener(event,fn){assert.equal(event,'ended');ended=fn;}},stream={getTracks:()=>[track],getVideoTracks:()=>[track]};
  const c=fixture(async options=>{assert.equal(options.audio,false);assert.equal(options.video.displaySurface,'window');return stream;});
- await c.connect();assert.equal(c.state.running,true);assert.equal(c.intervalMs,10000);assert.equal(c.captured,1);assert.equal(c.captureStream,stream);
+ await c.connect();assert.equal(c.state.running,true);assert.equal(c.intervalMs,30000);assert.equal(c.captured,1);assert.equal(c.captureStream,stream);
  ended();assert.equal(stopped,1);assert.equal(c.captureStream,null);assert.equal(c.state.running,false);assert.equal(c.state.samples[0].exp,123);assert.equal(c.queuedOcrTimestamp,null);
  const cancelled=fixture(async()=>{throw Object.assign(new Error('cancelled'),{name:'NotAllowedError'});});await cancelled.connect();assert.equal(cancelled.captureStream,null);assert.equal(cancelled.q('#shareGameBtn').disabled,false);assert.match(cancelled.status.text,/cancelled/);
  const unsupported=fixture(undefined);await unsupported.connect();assert.match(unsupported.status.text,/unavailable/);
@@ -27,5 +27,5 @@ function fixture(getDisplayMedia){
   assert.deepEqual(timers,[5000],'Only the dashboard refresh timer starts before sharing');
   assert.ok(stored.has('maple-track-v1'),'Existing browser session storage remains supported');
  }
- console.log('Browser capture start, 10-second scheduling, audio disabled, ended cleanup, cancelled picker, unsupported browser and failed playback checks passed.');
+ console.log('Browser capture start, 30-second scheduling, audio disabled, ended cleanup, cancelled picker, unsupported browser and failed playback checks passed.');
 })().catch(e=>{console.error(e);process.exitCode=1;});
