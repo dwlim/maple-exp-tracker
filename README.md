@@ -1,6 +1,6 @@
 # Maple Track
 
-A browser tracker for MapleStory Classic EXP. Share the game window and read EXP locally every 30 seconds. Each automatic reading uses one frame. A clear reading saves immediately after confidence, EXP/percentage and level-continuity checks. An ambiguous reading gets at most one extra capture after 250 ms, provided the video has advanced. An unresolved reading keeps the last accepted value.
+A browser tracker for MapleStory Classic EXP. Share the game window and read EXP locally every 10 seconds. Each automatic reading uses one frame. A clear reading saves immediately after confidence, EXP/percentage and level-continuity checks. An ambiguous reading gets at most one extra capture after 250 ms, provided the video has advanced. An unresolved reading keeps the last accepted value.
 
 **Open the tracker:** https://dwlim.github.io/maple-exp-tracker/
 
