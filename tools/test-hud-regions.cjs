@@ -59,3 +59,10 @@ vm.createContext(context);vm.runInContext(html.slice(html.indexOf('function curr
 assert.equal(context.currentRegions({}),calibration,'Custom regions must bypass automatic detection');
 assert.ok(html.includes(fs.readFileSync('hud-regions.js','utf8')),'The deployed detector must match its tested source');
 console.log(`HUD detection: ${count} real-crop layouts at multiple scales/positions, tracking, reacquisition and blank rejection passed.`);
+
+// Real windowed capture: the geometric fallback used to include the P stem as a dot.
+for(const fixture of require('./windowed-hud-fixtures.json')){
+ const f=frame({...fixture,patches:fixture.patches.map(p=>({...p,data:require('node:zlib').inflateSync(Buffer.from(p.rgba,'base64'))}))}),regions=R.detect(f,L,MapleHudOcr);
+ assert.equal(L.recognize(R.crop(f,pixels(regions.level,f))).data.text,fixture.level);
+ assert.equal(MapleHudOcr.recognize(R.crop(f,pixels(regions.exp,f))).text,fixture.exp,'Label fallback must exclude EXP ink without dropping amount digits');
+}
