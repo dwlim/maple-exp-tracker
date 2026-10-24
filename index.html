@@ -669,10 +669,18 @@ async function captureBrowserFrame(force=false){
   const videoTime=video.currentTime;
   if(i&&videoTime===snapshots.videoTime){snapshots.push(null);continue;}
   c=document.createElement('canvas');captureCanvases.push(c);c.width=video.videoWidth;c.height=video.videoHeight;c.getContext('2d').drawImage(video,0,0);
-  snapshots.push(c);snapshots.videoTime=videoTime;
+  c._capturedAt=Date.now();snapshots.push(c);snapshots.videoTime=videoTime;
  }
- const capturedAt=Date.now();
- if(automatic)for(let i=0;i<snapshots.length;i++){if(generation!==captureGeneration||state.paused)return;await new Promise(resolve=>setTimeout(resolve,0));if(generation!==captureGeneration||state.paused)return;const snapshot=snapshots[i];burst.push(snapshot?await burstReading(snapshot):null);if(snapshot&&snapshot!==c){snapshot.width=0;snapshot.height=0;}snapshots[i]=null;}
+ let capturedAt=Date.now();
+ if(automatic)for(let i=0;i<snapshots.length;i++){if(generation!==captureGeneration||state.paused)return;await new Promise(resolve=>setTimeout(resolve,0));if(generation!==captureGeneration||state.paused)return;const snapshot=snapshots[i];burst.push(snapshot?await burstReading(snapshot):null);}
+ if(automatic){
+  // A valid two-frame majority can precede a final EXP increase. Validate its
+  // newest actual frame, keeping the existing two fresh votes and all checks.
+  const selected=burst.findLastIndex(vote=>vote&&burst.filter(other=>other&&other.level===vote.level&&other.text===vote.text).length>=2);
+  if(selected>=0){c=snapshots[selected];capturedAt=c._capturedAt;}
+  for(const snapshot of snapshots)if(snapshot&&snapshot!==c){snapshot.width=0;snapshot.height=0;}
+  snapshots.length=0;
+ }
  lastFrameTimestamp=capturedAt/1000;
  // Normal tracking stays in memory; PNG encoding is reserved for debug output.
  if(!debug&&automatic){await runOcr(lastFrameTimestamp,burst,c);return;}
