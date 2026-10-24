@@ -51,18 +51,15 @@ vm.createContext(c);vm.runInContext(html.slice(html.indexOf('function updateRate
 (async()=>{
  await c.runOcr(1700000000000);assert.equal(c.state.samples.length,1);assert.equal(c.state.samples[0].estimated,true);assert.equal(c.state.samples[0].exp,Math.round(required(61)*.7882));
  assert.match(q('#ocrOutput').textContent,/estimated from percentage/);
- const beforeBurst=c.state.samples.length;
- await c.runOcr(1700000001000,[{level:61,text:'[78.82%]'},{level:61,text:'[78.83%]'},null]);
- assert.equal(c.state.samples.length,beforeBurst,'A single clear frame must not create a burst sample');
- assert.match(q('#rateHint').textContent,/agreement/);
- await c.runOcr(1700000002000,[{level:61,text:'[78.82%]'},null,{level:61,text:'[78.82%]'}]);
- assert.equal(c.state.samples.length,beforeBurst+1,'Two matching fresh frames must save one sample');
+ const before=c.state.samples.length;
+ await c.runOcr(1700000001000);
+ assert.equal(c.state.samples.length,before+1,'One clear frame saves without a burst');
  c.state.samples.splice(1);
 
  c.MapleLevelOcr.recognize=()=>({data:{text:'??',confidence:0},expectedDigits:2});await c.runOcr(1700000010000);assert.equal(c.state.samples.length,1,'Percentage alone cannot recover an unreadable level');
  c.MapleLevelOcr.recognize=()=>({data:{text:'62',confidence:95},expectedDigits:2});
  c.readExpGlyphs=()=>({rawText:'[0.92%]',rawConfidence:95,data:{text:'[0.92%]',confidence:95},percentageOnly:H.percentageReading('[0.92%]',required(62)),uncertain:false});
- await c.runOcr(1700000020000);await c.runOcr(1700000030000);assert.equal(c.state.samples.at(-1).level,62);assert.equal(c.state.samples.at(-1).estimated,true,'Level-up must accept a percentage-only reading below one million');
+ const pending=await c.runOcr(1700000020000);assert.equal(pending.accepted,false);assert.equal(pending.retry,true,'A level-up requests fresh confirmation');const count=c.state.samples.length;await c.runOcr(1700000020000);assert.equal(c.state.samples.length,count,'The same captured frame cannot confirm its own level-up');await c.runOcr(1700000030000);assert.equal(c.state.samples.at(-1).level,62);assert.equal(c.state.samples.at(-1).estimated,true,'Level-up must accept a percentage-only reading below one million');
  c.readExpGlyphs=()=>({rawText:'12.345[0.92%]',rawConfidence:95,data:{text:'12.345[0.92%]',confidence:95},uncertain:false});
  await c.runOcr(1700000035000);assert.equal(c.state.samples.at(-1).level,62);assert.equal(c.state.samples.at(-1).exp,12345);assert.ok(!c.state.samples.at(-1).estimated,'Level-up returns to exact amount mode');
  // Full app pipeline using the real percentage-only HUD crops supplied by the user.
