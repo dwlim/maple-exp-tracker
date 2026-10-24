@@ -663,7 +663,7 @@ async function decodeFrame(frame){
 }
 async function captureBrowserFrame(force=false){
  const video=q('#sharePreview'),generation=captureGeneration;if(state.paused||captureBusy||ocrRunning||!captureStream||video.readyState<2||!video.videoWidth)return;
- const captureCanvases=[];captureBusy=true;
+ const captureCanvases=[],ocrStartedAt=Date.now();captureBusy=true;
  const cancelled=()=>generation!==captureGeneration||state.paused||!captureStream;
  const capture=()=>{const c=document.createElement('canvas');captureCanvases.push(c);c.width=video.videoWidth;c.height=video.videoHeight;c.getContext('2d').drawImage(video,0,0);c._capturedAt=Date.now();return c;};
  try{
@@ -688,7 +688,7 @@ async function captureBrowserFrame(force=false){
   }
   // Cached recognition is reused; a same-frame retry cannot confirm a level-up.
   if(automatic&&!result?.accepted)await runOcr(lastFrameTimestamp,c);
- }catch(error){if(generation===captureGeneration)setTrackingStatus('error','Could not read the shared window. Stop sharing and try again.');}finally{for(const canvas of captureCanvases){canvas.width=0;canvas.height=0;}captureBusy=false;}
+ }catch(error){if(generation===captureGeneration)setTrackingStatus('error','Could not read the shared window. Stop sharing and try again.');}finally{for(const canvas of captureCanvases){canvas.width=0;canvas.height=0;}captureBusy=false;if(debug&&generation===captureGeneration)q('#ocrOutput').textContent+='\nCapture + OCR: '+((Date.now()-ocrStartedAt)/1000).toFixed(2)+' s ('+captureCanvases.length+' frame'+(captureCanvases.length===1?'':'s')+')';}
 }
 async function connect(){
  if(!navigator.mediaDevices?.getDisplayMedia){setTrackingStatus('error','Screen sharing is unavailable here. Open this page in Chrome or Edge using HTTPS or localhost.');return;}
