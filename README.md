@@ -98,3 +98,11 @@ Install test dependencies with `pnpm install --frozen-lockfile --ignore-scripts`
 Normal automatic tracking decodes each of the three captured frames once and reuses the last frame's results for final validation. It skips the full-frame PNG encode/decode round trip; debug previews and rejected-frame downloads retain PNG output. Stable HUD regions are reused across frames, and the browser can paint between frame decodes. Chart and log markup only rebuild when their sample data changes.
 
 The EXP matcher reuses template sampling grids and repeated candidate-boundary scores within each recognition call. Run `node tools/benchmark-hud-ocr.cjs` for a repeatable local comparison against commit `0eeaa56`. It checks identical text, confidence, and candidate details before timing both implementations over the same 90 fixture reads. This is a matcher CPU benchmark, not a browser frame-rate measurement.
+
+### October 23 small-text regression
+
+`tools/oct23-hud-fixtures.json` contains 23 native HUD crops from rejected downloads through 7:25:40 PM America/Los_Angeles. Character name/job panels are removed. All show level 37 and `162,643 [75.09%]`, across two capture heights; these are repeated observations of one failure, not 23 independent recognition scenarios. `node tools/test-local-ocr.cjs` checks these plus the five earlier stream cases using the real model and application sample-saving pipeline.
+
+For very small full-amount text (green brackets at most eight pixels tall), the contextual OCR path compares two sharpened resamplings to avoid antialiasing producing extra digits. Larger text retains grayscale detail. This changes input preparation, not EXP limits, mathematical validation, continuity, confidence requirements, or fresh-frame agreement.
+
+References reviewed: [Maple Classic Exp Overlay preprocessing](https://github.com/beanguri/Maple-Classic-Exp-Overlay/blob/main/maple_exp.py) measures glyph scale and offers multiple OCR masks; [Maple Classic Tracker's guide](https://mapleclassictracker.app/guide) describes compensating for stretched fullscreen captures. The latter's authenticated recognition implementation was not inspected.

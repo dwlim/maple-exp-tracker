@@ -10,7 +10,8 @@ const {PNG}=require('pngjs'),{createWorker}=require('tesseract.js'),R=require('.
  const worker=await createWorker('eng',1,{langPath:path.resolve('assets/ocr'),gzip:true,cacheMethod:'none'});
  const reader=N.createReader(async(pixels,kind)=>{await worker.setParameters({tessedit_pageseg_mode:7,tessedit_char_whitelist:kind==='level'?'LV.0123456789':'0123456789.[]% '});const {data}=await worker.recognize(PNG.sync.write({width:pixels.width,height:pixels.height,data:Buffer.from(pixels.data)}));if(process.env.OCR_TRACE)console.log(kind,JSON.stringify(data.text.trim()),data.confidence);return {text:data.text,confidence:data.confidence};});
  try{
- for(const f of require('./stream-holdout-fixtures.json')){
+ const downloaded=require('./oct23-hud-fixtures.json').map(f=>({...f,patches:f.patches.map(p=>({...p,data:require('node:zlib').inflateSync(Buffer.from(p.rgba,'base64'))}))}));
+ for(const f of [...require('./stream-holdout-fixtures.json'),...downloaded]){
   const image={width:f.width,height:f.height,data:new Uint8ClampedArray(f.width*f.height*4)};for(const p of f.patches)for(let y=0;y<p.height;y++)image.data.set(p.data.slice(y*p.width*4,(y+1)*p.width*4),((p.y+y)*f.width+p.x)*4);
   const rs=R.detect(image,L,MapleHudOcr);assert.ok(rs.level&&rs.exp,f.name+' detection');
   const box=r=>({x:Math.round(r.x*f.width),y:Math.round(r.y*f.height),w:Math.round(r.w*f.width),h:Math.round(r.h*f.height)}),lb=box(rs.level),nativeLevel=L.recognize(R.crop(image,lb)),expImage=R.crop(image,box(rs.exp)),nativeExp=MapleHudOcr.recognize(expImage),levelImage=R.crop(image,{x:lb.x-lb.h*3,y:lb.y-lb.h*.6,w:lb.w+lb.h*3.4,h:lb.h*2}),recovered=await reader.read({levelImage,expImage,nativeLevel,nativeExp});

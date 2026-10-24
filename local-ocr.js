@@ -1,6 +1,6 @@
 (function(root,factory){const api=factory();if(typeof module==='object'&&module.exports)module.exports=api;else root.MapleLocalOcr=api;})(typeof window==='undefined'?globalThis:window,function(){
 function prepare(image,kind,mode){
- let {width:w,height:h,data}=image,l=0,t=0,r=w,b=h,bracketColumns=[];
+ let {width:w,height:h,data}=image,l=0,t=0,r=w,b=h,bracketColumns=[],crispContext=false;
  if(kind==='level'&&mode==='soft'){
   l=w;t=h;r=0;b=0;
   for(let y=0;y<h;y++)for(let x=0;x<w;x++){const i=(y*w+x)*4,R=data[i],G=data[i+1],B=data[i+2];if(R>100&&G/R>.25&&G/R<.85&&B/R<.4){l=Math.min(l,x);r=Math.max(r,x+1);t=Math.min(t,y);b=Math.max(b,y+1);}}
@@ -15,7 +15,7 @@ function prepare(image,kind,mode){
   if(kind==='exp-context'){
    bracketColumns=[groups[0],groups.at(-1)];r=groups.at(-1)[1];let top=h,bottom=0;
    for(const [left,right] of bracketColumns)for(let x=left;x<right;x++)for(let y=0;y<h;y++){const i=(y*w+x)*4;if(data[i+1]-data[i]>12&&data[i+1]-data[i+2]>20){top=Math.min(top,y);bottom=Math.max(bottom,y+1);}}
-   t=Math.max(0,top-2);b=Math.min(h,bottom+2);
+   crispContext=bottom-top<=8;t=Math.max(0,top-2);b=Math.min(h,bottom+2);
   }else{l=groups[0][1];r=groups.at(-1)[0];}if(r-l<3)return null;
  }
  const sw=r-l,sh=b-t,gray=new Float32Array(sw*sh);let low=255,high=0;
@@ -34,7 +34,11 @@ function prepare(image,kind,mode){
  for(let y=0;y<sh*scale;y++)for(let x=0;x<sw*scale;x++){
   let v=0;for(const [i,weight] of wy[y])v+=horizontal[i*sw*scale+x]*weight;const j=((y+pad)*width+x+pad)*4;
   out[j]=out[j+1]=out[j+2]=Math.max(0,Math.min(255,Math.round(v)));
- }return {width,height,data:out};
+ }
+ // Sharpen the separated full-EXP fields after resampling. This avoids tiny
+ // antialiased strokes turning into extra characters while keeping both fields.
+ if(crispContext){const threshold=mode==='large'?190:160;for(let i=0;i<out.length;i+=4)out[i]=out[i+1]=out[i+2]=out[i]<threshold?0:255;}
+ return {width,height,data:out};
 }
 function normalize(text,kind){
  text=text.trim().replace(/\s/g,'');
