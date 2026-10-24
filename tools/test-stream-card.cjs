@@ -33,3 +33,6 @@ assert.equal(C.graph({samples:[{level:32,exp:100,t:now-5000},{level:32,exp:140,t
 assert.equal(C.graph({samples:[{level:31,exp:required(31)-100,t:now-10000},{level:32,exp:50,t:now,estimated:true}]},now,totalExp).points[0].value,150);
 assert.equal(C.graph({samples:[{level:32,exp:100,t:now-10000},{level:32,exp:50,t:now}]},now,totalExp).points.length,0);
 assert.equal(C.graph({},now,totalExp).path,'');
+
+assert.ok(g.max>=Math.max(...g.points.map(p=>p.value)));
+assert.ok(Number(q("#cardAxisTop").textContent)>0,"Graph Y axis renders a positive upper bound");
