@@ -169,12 +169,16 @@ function detect(image,levelOcr,expOcr,previous){
   const level=map(found.level),exp=map(found.exp);
   // The native panels must share a row and retain the fixed left-to-right order.
   if(level.x>=exp.x||Math.abs(level.y-exp.y)*image.height>button.h*.6||exp.x*image.width<button.x-button.w*2.5)continue;
+  // A covering window can hide the amount and EXP label while leaving the
+  // percentage visible. The verified native control row anchors this field;
+  // require its unique complete bracket pair instead of reading the occluder.
+  const field={x:found.exp.x*patch.width,y:found.exp.y*patch.height,w:found.exp.w*patch.width,h:found.exp.h*patch.height};
+  if(!hasExpLabel(patch,field)){const percent=percentageRegion(patch,found.exp);if(percent)return {level,exp:map(percent)};}
   return {level,exp};
  }
  return detectText(image,levelOcr,expOcr,previous);
 }
-// Explicit percentage-only mode: isolate a complete bracket pair in the EXP field.
-// No amount characters are repaired or discarded in the normal reading mode.
+// Isolate a unique complete percentage bracket pair within an anchored EXP field.
 function percentageRegion(image,region){
  if(!region)return null;
  const origin={x:Math.round(region.x*image.width),y:Math.round(region.y*image.height),w:Math.round(region.w*image.width),h:Math.round(region.h*image.height)},patch=crop(image,origin),green=components(patch,'green',0).filter(b=>b.h>=3&&b.h<=patch.height&&b.w<=b.h*.8),pairs=[];
