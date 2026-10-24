@@ -112,3 +112,11 @@ References reviewed: [Maple Classic Exp Overlay preprocessing](https://github.co
 A normal clear reading is accepted from one capture after the usual confidence, valid EXP range, amount/percentage consistency, and level continuity checks. An ambiguous reading gets at most one extra capture after 250 ms. The video must advance before that extra capture can confirm a level change or EXP-inferred level. A frozen frame is not a new confirmation, and switching characters still requires a new session. No three-frame burst or majority vote runs.
 
 `tools/test-burst-capture.cjs` retains its original filename but now covers single-frame capture, conditional retries, distinct-frame timestamps, cancellation, pause/resume, debug PNG reuse and cleanup. `tools/monitor-oct23-hud-fixtures.json` retains the 22 readable rejected captures inspected during monitoring. Their individual readings pass replay; those downloaded stills did not include original burst votes.
+
+## Source layout and builds
+
+Recognition is split into `hud-regions.js` (HUD alignment), `level-ocr.js` and `hud-ocr.js` (font matchers), and `local-ocr.js` (Tesseract fallback). `stream-card.js` renders the read-only overlay. `index.html` owns capture, session validation and dashboard rendering, and embeds these modules for static hosting.
+
+After editing a module, run `npm run build`; `npm run check:build` verifies that the embedded copies match their sources. Embedding preserves script order and does not retrain digit templates. The individual build helpers use the same embedding implementation. CI rejects stale embedded modules.
+
+Each capture shares one pixel buffer across crop readers and releases it after processing. Stable percentage-only regions reuse alignment only while the level label, native control row and complete bracket pair still validate; a visible EXP label triggers reacquisition of the full amount. `node tools/benchmark-hud-tracking.cjs` measures this localization path on redacted real HUD fixtures; it does not measure browser capture latency.

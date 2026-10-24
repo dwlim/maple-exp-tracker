@@ -498,10 +498,20 @@ function anchors(image){
   return [1,2].every(n=>[.12,.85].filter(t=>blue(b.x+b.w*(n+t),b.y+b.h*.18)).length===2);
  }).sort((a,b)=>b.y-a.y);
 }
+function controlsMatch(image,box){
+ const color=(x,y,kind)=>{x=Math.round(x);y=Math.round(y);if(x<0||y<0||x>=image.width||y>=image.height)return false;const i=(y*image.width+x)*4,r=image.data[i],g=image.data[i+1],b=image.data[i+2];return kind==='cash'?r>110&&r>g*1.7&&r>b*1.3:b>90&&b>r*1.4&&g>r*1.2;};
+ return [.12,.85].every(t=>color(box.x+box.w*t,box.y+box.h*.18,'cash'))&&[1,2].every(n=>[.12,.85].every(t=>color(box.x+box.w*(n+t),box.y+box.h*.18,'blue')));
+}
 function detect(image,levelOcr,expOcr,previous){
  if(previous?.width===image.width&&previous?.height===image.height&&previous.level&&previous.exp){
   const box=r=>({x:r.x*image.width,y:r.y*image.height,w:r.w*image.width,h:r.h*image.height}),l=box(previous.level),e=box(previous.exp);
-  if(hasLvLabel(image,l)&&hasExpLabel(image,e))return {level:previous.level,exp:previous.exp};
+  if(hasLvLabel(image,l)){
+   if(previous.percentageOnly&&previous.anchor&&previous.field){
+    // Reuse alignment only while the control row, bracket pair and occlusion
+    // still match. A newly visible EXP label restores full-amount detection.
+    if(controlsMatch(image,box(previous.anchor))&&!hasExpLabel(image,box(previous.field))){const exp=percentageRegion(image,previous.exp);if(exp)return {...previous,exp};}
+   }else if(hasExpLabel(image,e))return {level:previous.level,exp:previous.exp};
+  }
  }
  for(const button of anchors(image)){
   const x=Math.max(0,Math.floor(button.x-button.w*9)),y=Math.max(0,Math.floor(button.y-button.h*3)),patch=crop(image,{x,y,w:button.x-x,h:button.h*4.2});
@@ -525,7 +535,7 @@ function detect(image,levelOcr,expOcr,previous){
   // percentage visible. The verified native control row anchors this field;
   // require its unique complete bracket pair instead of reading the occluder.
   const field={x:found.exp.x*patch.width,y:found.exp.y*patch.height,w:found.exp.w*patch.width,h:found.exp.h*patch.height};
-  if(!hasExpLabel(patch,field)){const percent=percentageRegion(patch,found.exp);if(percent)return {level,exp:map(percent)};}
+  if(!hasExpLabel(patch,field)){const percent=percentageRegion(patch,found.exp);if(percent)return {level,exp:map(percent),percentageOnly:true,field:exp,anchor:normal(button,image)};}
   return {level,exp};
  }
  return detectText(image,levelOcr,expOcr,previous);
@@ -608,16 +618,14 @@ function drawLog(ss){const key=ss.slice(-4).map(s=>s.t+':'+s.level+':'+s.exp+':'
 function notice(s){q('#notice').textContent=s;q('#notice').classList.add('show');setTimeout(()=>q('#notice').classList.remove('show'),4500)}
 
 function readExpGlyphs(region,frame,level){
- const c=document.createElement('canvas');c.width=Math.max(1,Math.round(region.w*frame.width));c.height=Math.max(1,Math.round(region.h*frame.height));
- const ctx=c.getContext('2d');ctx.drawImage(frame,Math.round(region.x*frame.width),Math.round(region.y*frame.height),c.width,c.height,0,0,c.width,c.height);
- const raw=MapleHudOcr.recognize(ctx.getImageData(0,0,c.width,c.height)),result=MapleHudOcr.resolveReading(raw,required(level));
- if(debug){let preview=q('#expGlyphPreview');if(!preview){preview=document.createElement('img');preview.id='expGlyphPreview';preview.alt='Exact EXP crop used by the digit matcher';preview.style.cssText='display:block;max-width:100%;height:56px;object-fit:contain;object-position:left;image-rendering:pixelated;margin:10px 4px';q('#ocrOutput').after(preview)}preview.src=c.toDataURL();}
+ const pixels=cropLevelDigits(region,frame),raw=MapleHudOcr.recognize(pixels),result=MapleHudOcr.resolveReading(raw,required(level));
+ if(debug){const c=document.createElement('canvas');c.width=pixels.width;c.height=pixels.height;c.getContext('2d').putImageData(new ImageData(pixels.data,pixels.width,pixels.height),0,0);let preview=q('#expGlyphPreview');if(!preview){preview=document.createElement('img');preview.id='expGlyphPreview';preview.alt='Exact EXP crop used by the digit matcher';preview.style.cssText='display:block;max-width:100%;height:56px;object-fit:contain;object-position:left;image-rendering:pixelated;margin:10px 4px';q('#ocrOutput').after(preview)}preview.src=c.toDataURL();c.width=0;c.height=0;}
  const prior=state.samples.at(-1),percentageOnly=MapleHudOcr.percentageReading(result.text,required(level),prior?.level===level?prior.exp:null);
  return {rawText:raw.text,rawConfidence:raw.confidence,data:{text:result.text,confidence:result.confidence},percentageOnly,uncertain:result.text.includes('?')||(!percentageOnly&&!/^\d[\d.]*\[\d+\.\d{2}%\]$/.test(result.text))};
 }
 function beginRegionSelection(name){if(state.calibration.auto!==false)state.calibration={...currentRegions(),auto:false};selecting=selecting===name?null:name;dragStart=dragCurrent=null;updateRegionStatus();drawRegions()}
 
-function cropLevelDigits(region,frame){const c=document.createElement('canvas');c.width=Math.max(1,Math.round(region.w*frame.width));c.height=Math.max(1,Math.round(region.h*frame.height));const ctx=c.getContext('2d');ctx.drawImage(frame,Math.round(region.x*frame.width),Math.round(region.y*frame.height),c.width,c.height,0,0,c.width,c.height);return ctx.getImageData(0,0,c.width,c.height);}
+function cropLevelDigits(region,frame){if(frame._pixels)return MapleHudRegions.crop(frame._pixels,{x:Math.round(region.x*frame.width),y:Math.round(region.y*frame.height),w:Math.max(1,Math.round(region.w*frame.width)),h:Math.max(1,Math.round(region.h*frame.height))});const c=document.createElement('canvas');c.width=Math.max(1,Math.round(region.w*frame.width));c.height=Math.max(1,Math.round(region.h*frame.height));const ctx=c.getContext('2d');ctx.drawImage(frame,Math.round(region.x*frame.width),Math.round(region.y*frame.height),c.width,c.height,0,0,c.width,c.height);return ctx.getImageData(0,0,c.width,c.height);}
 function currentRegions(image=q('#latestFrame')){
  if(state.calibration?.auto===false)return state.calibration;
  if(!image?.naturalWidth)return {level:null,exp:null};
@@ -671,7 +679,7 @@ function stopSharing(){
 }
 async function decodeFrame(frame){
  const pixels=frame.getContext('2d').getImageData(0,0,frame.width,frame.height),regions={...(state.calibration.auto===false?state.calibration:MapleHudRegions.detect(pixels,MapleLevelOcr,MapleHudOcr,q('#latestFrame')._trackedHud))};
- frame._hudRegions=regions;q('#latestFrame')._trackedHud={...regions,width:frame.width,height:frame.height};
+ frame._pixels=pixels;frame._hudRegions=regions;q('#latestFrame')._trackedHud={...regions,width:frame.width,height:frame.height};
  if(!regions?.exp)return;
  const crop=regions.level?cropLevelDigits(regions.level,frame):{width:1,height:1,data:new Uint8ClampedArray(4)};
  const levelResult=MapleLevelOcr.recognize(crop),expResult=readExpGlyphs(regions.exp,frame,Number(levelResult.data.text));
@@ -704,7 +712,7 @@ async function captureBrowserFrame(force=false){
   }
   // Cached recognition is reused; a same-frame retry cannot confirm a level-up.
   if(automatic&&!result?.accepted)await runOcr(lastFrameTimestamp,c);
- }catch(error){if(generation===captureGeneration){const detail=error?.message||String(error);setTrackingStatus('error','Could not read the shared window · '+captureStage+': '+detail);q('#ocrOutput').textContent='Capture failed during '+captureStage+': '+detail;if(debug){const failed=captureCanvases.findLast(canvas=>canvas.width>0&&canvas.height>0);if(failed)try{const blob=failed._pngBlob||await new Promise(resolve=>failed.toBlob(resolve,'image/png'));if(blob)downloadDebugFrame(blob,failed._capturedAt,false);}catch(downloadError){q('#ocrOutput').textContent+='\nCould not save diagnostic frame: '+(downloadError?.message||String(downloadError));}}}}finally{for(const canvas of captureCanvases){canvas.width=0;canvas.height=0;}captureBusy=false;if(debug&&generation===captureGeneration)q('#ocrOutput').textContent+='\nCapture + OCR: '+((Date.now()-ocrStartedAt)/1000).toFixed(2)+' s ('+captureCanvases.length+' frame'+(captureCanvases.length===1?'':'s')+')';}
+ }catch(error){if(generation===captureGeneration){const detail=error?.message||String(error);setTrackingStatus('error','Could not read the shared window · '+captureStage+': '+detail);q('#ocrOutput').textContent='Capture failed during '+captureStage+': '+detail;if(debug){const failed=captureCanvases.findLast(canvas=>canvas.width>0&&canvas.height>0);if(failed)try{const blob=failed._pngBlob||await new Promise(resolve=>failed.toBlob(resolve,'image/png'));if(blob)downloadDebugFrame(blob,failed._capturedAt,false);}catch(downloadError){q('#ocrOutput').textContent+='\nCould not save diagnostic frame: '+(downloadError?.message||String(downloadError));}}}}finally{for(const canvas of captureCanvases){canvas.width=0;canvas.height=0;delete canvas._pixels;}captureBusy=false;if(debug&&generation===captureGeneration)q('#ocrOutput').textContent+='\nCapture + OCR: '+((Date.now()-ocrStartedAt)/1000).toFixed(2)+' s ('+captureCanvases.length+' frame'+(captureCanvases.length===1?'':'s')+')';}
 }
 async function connect(){
  if(!navigator.mediaDevices?.getDisplayMedia){setTrackingStatus('error','Screen sharing is unavailable here. Open this page in Chrome or Edge using HTTPS or localhost.');return;}

@@ -1,0 +1,5 @@
+const fs=require('node:fs'),{render}=require('./embed-script.cjs');
+const modules=[['LEVEL FONT','level-ocr.js'],['HUD FONT','hud-ocr.js'],['HUD REGIONS','hud-regions.js'],['LOCAL OCR','local-ocr.js'],['STREAM CARD','stream-card.js']];
+const html=fs.readFileSync('index.html','utf8');let next=html;for(const [marker,file] of modules)next=render(next,marker,fs.readFileSync(file,'utf8'));
+if(process.argv.includes('--check')){if(next!==html){console.error('Embedded app modules are stale. Run npm run build.');process.exitCode=1;}else console.log('All embedded app modules match source.');}
+else if(next!==html){fs.writeFileSync('index.html',next);console.log('Updated embedded app modules in place.');}

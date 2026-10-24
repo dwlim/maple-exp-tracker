@@ -146,10 +146,20 @@ function anchors(image){
   return [1,2].every(n=>[.12,.85].filter(t=>blue(b.x+b.w*(n+t),b.y+b.h*.18)).length===2);
  }).sort((a,b)=>b.y-a.y);
 }
+function controlsMatch(image,box){
+ const color=(x,y,kind)=>{x=Math.round(x);y=Math.round(y);if(x<0||y<0||x>=image.width||y>=image.height)return false;const i=(y*image.width+x)*4,r=image.data[i],g=image.data[i+1],b=image.data[i+2];return kind==='cash'?r>110&&r>g*1.7&&r>b*1.3:b>90&&b>r*1.4&&g>r*1.2;};
+ return [.12,.85].every(t=>color(box.x+box.w*t,box.y+box.h*.18,'cash'))&&[1,2].every(n=>[.12,.85].every(t=>color(box.x+box.w*(n+t),box.y+box.h*.18,'blue')));
+}
 function detect(image,levelOcr,expOcr,previous){
  if(previous?.width===image.width&&previous?.height===image.height&&previous.level&&previous.exp){
   const box=r=>({x:r.x*image.width,y:r.y*image.height,w:r.w*image.width,h:r.h*image.height}),l=box(previous.level),e=box(previous.exp);
-  if(hasLvLabel(image,l)&&hasExpLabel(image,e))return {level:previous.level,exp:previous.exp};
+  if(hasLvLabel(image,l)){
+   if(previous.percentageOnly&&previous.anchor&&previous.field){
+    // Reuse alignment only while the control row, bracket pair and occlusion
+    // still match. A newly visible EXP label restores full-amount detection.
+    if(controlsMatch(image,box(previous.anchor))&&!hasExpLabel(image,box(previous.field))){const exp=percentageRegion(image,previous.exp);if(exp)return {...previous,exp};}
+   }else if(hasExpLabel(image,e))return {level:previous.level,exp:previous.exp};
+  }
  }
  for(const button of anchors(image)){
   const x=Math.max(0,Math.floor(button.x-button.w*9)),y=Math.max(0,Math.floor(button.y-button.h*3)),patch=crop(image,{x,y,w:button.x-x,h:button.h*4.2});
@@ -173,7 +183,7 @@ function detect(image,levelOcr,expOcr,previous){
   // percentage visible. The verified native control row anchors this field;
   // require its unique complete bracket pair instead of reading the occluder.
   const field={x:found.exp.x*patch.width,y:found.exp.y*patch.height,w:found.exp.w*patch.width,h:found.exp.h*patch.height};
-  if(!hasExpLabel(patch,field)){const percent=percentageRegion(patch,found.exp);if(percent)return {level,exp:map(percent)};}
+  if(!hasExpLabel(patch,field)){const percent=percentageRegion(patch,found.exp);if(percent)return {level,exp:map(percent),percentageOnly:true,field:exp,anchor:normal(button,image)};}
   return {level,exp};
  }
  return detectText(image,levelOcr,expOcr,previous);

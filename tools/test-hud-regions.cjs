@@ -66,3 +66,15 @@ for(const fixture of require('./windowed-hud-fixtures.json')){
  assert.equal(L.recognize(R.crop(f,pixels(regions.level,f))).data.text,fixture.level);
  assert.equal(MapleHudOcr.recognize(R.crop(f,pixels(regions.exp,f))).text,fixture.exp,'Label fallback must exclude EXP ink without dropping amount digits');
 }
+
+// Stable covered HUDs should not rerun full recognition. Layout changes must reacquire.
+for(const fixture of require('./covered-exp-fixtures.json')){
+ const unpacked={...fixture,patches:fixture.patches.map(p=>({...p,data:require('node:zlib').inflateSync(Buffer.from(p.rgba,'base64'))}))},f=frame(unpacked),r=R.detect(f,L,MapleHudOcr),previous={...r,width:f.width,height:f.height};
+ const cached=R.detect(f,noOcr,noOcr,previous);assert.deepEqual(cached.exp,r.exp,'Covered HUD fast path retains exact percentage pixels');
+ const moved=frame(unpacked,1,45),reacquired=R.detect(moved,L,MapleHudOcr,previous);assert.ok(reacquired.exp);assert.notEqual(reacquired.level.x,r.level.x,'Moved layouts must reacquire');
+ const broken={...f,data:f.data.slice()},a=pixels(r.anchor,f);for(let y=a.y;y<a.y+a.h;y++)for(let x=a.x;x<a.x+a.w;x++)broken.data.fill(0,(y*f.width+x)*4,(y*f.width+x+1)*4);
+ assert.ok(!R.detect(broken,L,MapleHudOcr,previous).percentageOnly,'Covered control row invalidates anchored percentage cache');
+}
+const fullFixture=require('./monitor-oct23-hud-fixtures.json')[0],full=frame({...fullFixture,patches:fullFixture.patches.map(p=>({...p,data:require('node:zlib').inflateSync(Buffer.from(p.rgba,'base64'))}))}),fullRegions=R.detect(full,L,MapleHudOcr),button=R.anchors(full)[0];
+const restored=R.detect(full,L,MapleHudOcr,{...fullRegions,percentageOnly:true,field:fullRegions.exp,anchor:{x:button.x/full.width,y:button.y/full.height,w:button.w/full.width,h:button.h/full.height},width:full.width,height:full.height});
+assert.ok(!restored.percentageOnly,'Visible EXP label restores exact amount detection');assert.equal(MapleHudOcr.recognize(R.crop(full,pixels(restored.exp,full))).text,fullFixture.exp);

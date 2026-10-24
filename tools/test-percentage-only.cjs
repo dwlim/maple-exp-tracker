@@ -31,8 +31,9 @@ for(const bare of [false,true]){
  const f=assemble(bare),regions=R.detect(f,highLevel,H);assert.ok(regions.exp,`Percentage-only layout ${bare?'bare':'bracketed'} must be detected`);
  const text=H.recognize(R.crop(f,pixels(regions.exp,f))).text;assert.ok(H.percentageReading(text,required(99)),text);
  const tracked=R.detect(f,highLevel,H,{...regions,width:f.width,height:f.height});assert.ok(tracked.exp);
- const crop=R.crop(f,pixels(regions.exp,f)),readContext={MapleHudOcr:H,required,state:{samples:[]},debug:false,document:{createElement:()=>({getContext:()=>({drawImage(){},getImageData:()=>crop})})}};
- vm.createContext(readContext);vm.runInContext(html.slice(html.indexOf('function readExpGlyphs('),html.indexOf('\nfunction beginRegionSelection')),readContext);
+ const crop=R.crop(f,pixels(regions.exp,f)),readContext={MapleHudOcr:H,MapleHudRegions:R,required,state:{samples:[]},debug:false,document:{createElement:()=>({getContext:()=>({drawImage(){},getImageData:()=>crop})})}};
+ vm.createContext(readContext);vm.runInContext(html.slice(html.indexOf('function cropLevelDigits('),html.indexOf('function currentRegions(')),readContext);vm.runInContext(html.slice(html.indexOf('function readExpGlyphs('),html.indexOf('\nfunction beginRegionSelection')),readContext);
+ f._pixels=f;readContext.document.createElement=()=>{throw Error('Cached crop must not allocate another canvas');};
  const result=readContext.readExpGlyphs(regions.exp,f,99);assert.equal(result.uncertain,false);assert.equal(result.percentageOnly.estimated,true);
  assert.equal(readContext.readExpGlyphs(regions.exp,f,NaN).uncertain,true,'Actual crop path must reject percentages with no readable level');
 }

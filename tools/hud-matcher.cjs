@@ -2,10 +2,7 @@ const fs=require('node:fs');
 const templates=JSON.parse(fs.readFileSync('tools/hud-font-templates.json'));
 const source=`/* Digit shapes extracted from local Classic HUD screenshots. */\n(function(root){\nconst templates=${JSON.stringify(templates)};\n${normalizeScale.toString()}\n${recognize.toString()}\n${recognizeNative.toString()}\n${resolveReading.toString()}\n${percentageReading.toString()}\nroot.MapleHudOcr={recognize,resolveReading,percentageReading};\n})(typeof window==='undefined'?globalThis:window);\n`;
 fs.writeFileSync('hud-ocr.js',source);
-let html=fs.readFileSync('index.html','utf8');
-html=html.replace(/<!-- HUD FONT START -->[\s\S]*?<!-- HUD FONT END -->\s*/,'');
-html=html.replace('</head>','<!-- HUD FONT START -->\n<script>'+source+'</script>\n<!-- HUD FONT END -->\n</head>');
-fs.writeFileSync('index.html',html);
+require('./embed-script.cjs').write('HUD FONT',source);
 function recognizeNative(image){
  function coverage(get,width,height){const out=[];for(let y=0;y<14;y++)for(let x=0;x<14;x++){const l=x*width/14,r=(x+1)*width/14,t=y*height/14,b=(y+1)*height/14;let sum=0;for(let py=Math.floor(t);py<Math.ceil(b);py++)for(let px=Math.floor(l);px<Math.ceil(r);px++)sum+=get(px,py)*Math.max(0,Math.min(r,px+1)-Math.max(l,px))*Math.max(0,Math.min(b,py+1)-Math.max(t,py));out.push(sum/((r-l)*(b-t)));}return out;}
  const sample=(get,width,height)=>{const out=new Uint8Array(196);for(let y=0;y<14;y++)for(let x=0;x<14;x++)out[y*14+x]=get(Math.min(width-1,Math.floor((x+.5)*width/14)),Math.min(height-1,Math.floor((y+.5)*height/14)));return out;};

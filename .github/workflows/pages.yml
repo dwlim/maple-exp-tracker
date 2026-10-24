@@ -29,6 +29,8 @@ jobs:
         run: npx --yes pnpm@11.25.0 install --frozen-lockfile --ignore-scripts
       - name: Check browser capture and OCR
         run: |
+          node tools/build-app.cjs --check
+          node tools/test-build.cjs
           node tools/test-browser-capture.cjs
           node tools/test-burst-capture.cjs
           node tools/test-stream-card.cjs
