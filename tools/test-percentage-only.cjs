@@ -79,3 +79,11 @@ vm.createContext(c);vm.runInContext(html.slice(html.indexOf('function updateRate
  }
  console.log('Percentage-only: rounding estimates, format/range validation, below-one-million level-ups, bare/bracketed detection, saved-session blockers, consecutive samples and exact-mode restoration passed.');
 })().catch(e=>{console.error(e);process.exitCode=1;});
+
+// Explicit occlusion mode must find a unique complete bracket pair, never guess one.
+for(const fixture of require('./covered-exp-fixtures.json')){
+ const image={width:fixture.width,height:fixture.height,data:new Uint8ClampedArray(fixture.width*fixture.height*4)};
+ for(const p of fixture.patches){const data=require('node:zlib').inflateSync(Buffer.from(p.rgba,'base64'));for(let y=0;y<p.height;y++)image.data.set(data.subarray(y*p.width*4,(y+1)*p.width*4),((p.y+y)*image.width+p.x)*4);}
+ const region=R.detect(image,L,H).exp,percent=R.percentageRegion(image,region);assert.ok(percent);assert.ok(percent.w<region.w,'Percentage mode excludes occluding inventory fragments');
+ const blank={...image,data:new Uint8ClampedArray(image.data.length)};assert.equal(R.percentageRegion(blank,region),null,'Missing brackets must reject rather than fall back to covered text');
+}

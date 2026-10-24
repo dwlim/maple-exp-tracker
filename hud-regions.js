@@ -173,5 +173,14 @@ function detect(image,levelOcr,expOcr,previous){
  }
  return detectText(image,levelOcr,expOcr,previous);
 }
-return {detect,crop,anchors};
+// Explicit percentage-only mode: isolate a complete bracket pair in the EXP field.
+// No amount characters are repaired or discarded in the normal reading mode.
+function percentageRegion(image,region){
+ if(!region)return null;
+ const origin={x:Math.round(region.x*image.width),y:Math.round(region.y*image.height),w:Math.round(region.w*image.width),h:Math.round(region.h*image.height)},patch=crop(image,origin),green=components(patch,'green',0).filter(b=>b.h>=3&&b.h<=patch.height&&b.w<=b.h*.8),pairs=[];
+ for(const left of green)for(const right of green){const h=Math.max(left.h,right.h);if(right.x-left.x<h*3||right.x-left.x>h*14||Math.abs(left.y-right.y)>h*.3||Math.abs(left.h-right.h)>h*.6)continue;const y=Math.max(0,Math.min(left.y,right.y)-Math.ceil(h*.3)),box={x:Math.max(0,left.x-1),y,w:right.x+right.w-left.x+3,h:Math.min(patch.height,Math.max(left.y+left.h,right.y+right.h)+2)-y};pairs.push(box);}
+ if(pairs.length!==1)return null;
+ const b=pairs[0];return normal({x:origin.x+b.x,y:origin.y+b.y,w:b.w,h:b.h},image);
+}
+return {detect,crop,anchors,percentageRegion};
 });
