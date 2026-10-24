@@ -1,16 +1,16 @@
 const fs=require('node:fs'),vm=require('node:vm'),assert=require('node:assert/strict');
 const html=fs.readFileSync('index.html','utf8'),source=html.slice(html.indexOf('async function captureBrowserFrame('),html.indexOf('\nasync function connect('));
-async function run({times=[1,2],outcomes=[{accepted:true,retry:false}],debug=false,paused=false,cancel=null,automatic=true,frameCounts=null}={}){
- let clock=0,decodes=0,encodes=0;const calls=[],canvases=[],delays=[];
+async function run({times=[1,2],outcomes=[{accepted:true,retry:false}],debug=false,paused=false,cancel=null,automatic=true,frameCounts=null,decodeError=null}={}){
+ let clock=0,decodes=0,encodes=0;const downloads=[],statuses=[],output={textContent:''};const calls=[],canvases=[],delays=[];
  class TestDate extends Date{static now(){return 1700000000000+clock*250;}}
  const video={readyState:2,videoWidth:800,videoHeight:600,get currentTime(){return times[clock];}},image={dataset:{},classList:{remove(){}},set src(v){this.onload();}};
  if(frameCounts)video.getVideoPlaybackQuality=()=>({totalVideoFrames:frameCounts[clock]});
- const c={debug,state:{paused},captureGeneration:1,captureBusy:false,ocrRunning:false,captureStream:{},q:id=>id==='#sharePreview'?video:id==='#latestFrame'?image:id==='#autoOcr'?{checked:automatic}:{style:{},classList:{add(){}}},
+ const c={debug,state:{paused},captureGeneration:1,captureBusy:false,ocrRunning:false,captureStream:{},q:id=>id==='#ocrOutput'?output:id==='#sharePreview'?video:id==='#latestFrame'?image:id==='#autoOcr'?{checked:automatic}:{style:{},classList:{add(){}}},
  document:{createElement:()=>{const canvas={getContext:()=>({drawImage(){}}),toBlob:fn=>{encodes++;fn({});}};canvases.push(canvas);return canvas;}},
  setTimeout(fn,ms){delays.push(ms);if(ms===250)clock++;if(cancel==='yield'||(cancel==='retry'&&ms===250))c.captureGeneration++;fn();},URL:{createObjectURL:()=> 'blob:test',revokeObjectURL(){}},Date:TestDate,
- decodeFrame(frame){assert.ok(frame.width&&frame.height);decodes++;if(cancel==='decode')c.captureGeneration++;},drawRegions(){},updateRegionStatus(){},setTrackingStatus(){},
+ decodeFrame(frame){assert.ok(frame.width&&frame.height);decodes++;if(decodeError)throw Error(decodeError);if(cancel==='decode')c.captureGeneration++;},drawRegions(){},updateRegionStatus(){},setTrackingStatus(kind,text){statuses.push({kind,text});},downloadDebugFrame(blob,t,accepted){downloads.push({blob,t,accepted});},
  runOcr:async(t,frame,options)=>{calls.push({t,frame,options});return outcomes[Math.min(calls.length-1,outcomes.length-1)];}};
- vm.createContext(c);vm.runInContext(source,c);await c.captureBrowserFrame();return {c,calls,canvases,decodes,encodes,delays};
+ vm.createContext(c);vm.runInContext(source,c);await c.captureBrowserFrame();return {c,calls,canvases,decodes,encodes,delays,downloads,statuses,output};
 }
 (async()=>{
  const clear=await run();assert.equal(clear.decodes,1);assert.equal(clear.canvases.length,1);assert.equal(clear.calls.length,1,'A clear reading is validated once');assert.equal(clear.encodes,0);assert.ok(!clear.delays.includes(250),'No burst delay for a clear frame');assert.equal(Math.round(clear.calls[0].t*1000),clear.calls[0].frame._capturedAt);
@@ -22,6 +22,8 @@ async function run({times=[1,2],outcomes=[{accepted:true,retry:false}],debug=fal
  const paused=await run({paused:true});assert.equal(paused.decodes,0);assert.equal(paused.canvases.length,0);
  for(const cancel of ['yield','decode','retry']){const stopped=await run({cancel,outcomes:[{accepted:false,retry:true}]});assert.ok(stopped.calls.length<2,'Cancellation prevents a later confirmation');assert.equal(stopped.c.captureBusy,false);assert.ok(stopped.canvases.every(canvas=>canvas.width===0&&canvas.height===0));}
  const diagnostics=await run({debug:true,outcomes:[{accepted:false,retry:true},{accepted:false,retry:false}]});assert.equal(diagnostics.encodes,1);assert.ok(diagnostics.calls.at(-1).frame._pngBlob,'Final debug rejection reuses its exact preview PNG');
+ const failure=await run({debug:true,decodeError:'Test recognition failure'});assert.match(failure.statuses.at(-1).text,/recognition: Test recognition failure/);assert.equal(failure.downloads.length,1);assert.equal(failure.downloads[0].accepted,false);assert.equal(failure.c.captureBusy,false);assert.ok(failure.canvases.every(c=>c.width===0));
+ const privateFailure=await run({decodeError:'Test recognition failure'});assert.equal(privateFailure.downloads.length,0,'Normal mode never downloads error frames');
  const manual=await run({automatic:false});assert.equal(manual.decodes,0);assert.equal(manual.encodes,1);assert.equal(manual.calls.length,0);
  for(const result of [clear,retry,frozen,wrongCharacter,diagnostics,manual]){assert.equal(result.c.captureBusy,false);assert.ok(result.canvases.every(canvas=>canvas.width===0&&canvas.height===0),'All capture backing stores are released');}
  const pauseContext={captureStream:{},state:{paused:false,running:true,samples:[{level:68,exp:100}]},captureGeneration:2,queuedOcrTimestamp:123,pendingLevel:69,pendingLevelFrame:1,inferredLevelPending:{},setTrackingStatus(k,t){this.status=t;},update(){},captureBrowserFrame(){pauseContext.resumes=(pauseContext.resumes||0)+1;}};

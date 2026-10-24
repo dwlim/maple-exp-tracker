@@ -666,32 +666,32 @@ async function decodeFrame(frame){
 }
 async function captureBrowserFrame(force=false){
  const video=q('#sharePreview'),generation=captureGeneration;if(state.paused||captureBusy||ocrRunning||!captureStream||video.readyState<2||!video.videoWidth)return;
- const captureCanvases=[],ocrStartedAt=Date.now();captureBusy=true;
+ const captureCanvases=[],ocrStartedAt=Date.now();let captureStage='capture';captureBusy=true;
  const cancelled=()=>generation!==captureGeneration||state.paused||!captureStream;
  const capture=()=>{const c=document.createElement('canvas');captureCanvases.push(c);c.width=video.videoWidth;c.height=video.videoHeight;c.getContext('2d').drawImage(video,0,0);c._capturedAt=Date.now();return c;};
  try{
   const automatic=force||q('#autoOcr').checked,firstTime=video.currentTime,firstFrame=video.getVideoPlaybackQuality?.().totalVideoFrames;let c=capture(),result;
   if(automatic){
    await new Promise(resolve=>setTimeout(resolve,0));if(cancelled())return;
-   await decodeFrame(c);if(cancelled())return;
+   captureStage='recognition';await decodeFrame(c);if(cancelled())return;
    result=await runOcr(c._capturedAt/1000,c,{report:false});if(cancelled())return;
    if(result?.retry){
     await new Promise(resolve=>setTimeout(resolve,250));if(cancelled())return;
     // Only an ambiguous reading needs a second, distinct video frame.
     const fresh=Number.isFinite(firstFrame)&&firstFrame>0?video.getVideoPlaybackQuality?.().totalVideoFrames>firstFrame:video.currentTime!==firstTime;
-    if(fresh){const prior=c;c=capture();prior.width=0;prior.height=0;await decodeFrame(c);if(cancelled())return;}
+    if(fresh){const prior=c;c=capture();prior.width=0;prior.height=0;captureStage='retry recognition';await decodeFrame(c);if(cancelled())return;}
    }
   }
   lastFrameTimestamp=c._capturedAt/1000;
   if(debug||!automatic){
-   const image=q('#latestFrame'),blob=await new Promise(resolve=>c.toBlob(resolve,'image/png'));if(!blob||cancelled())return;
+   captureStage='preview';const image=q('#latestFrame'),blob=await new Promise(resolve=>c.toBlob(resolve,'image/png'));if(!blob||cancelled())return;
    c._pngBlob=blob;const url=URL.createObjectURL(blob),prior=image.dataset.url;await new Promise((resolve,reject)=>{image.onload=resolve;image.onerror=reject;image.src=url;});if(prior)URL.revokeObjectURL(prior);image.dataset.url=url;if(cancelled())return;
    if(c._hudRegions){image._autoRegions=c._hudRegions;image._autoRegionSource=image.src;image._trackedHud={...c._hudRegions,width:c.width,height:c.height};}
    image.classList.remove('hidden');q('#frameStage').style.display='inline-block';q('#frameEmpty').classList.add('hidden');q('#frameStatus').textContent='CAPTURE · '+new Date(c._capturedAt).toLocaleTimeString();drawRegions();updateRegionStatus();
   }
   // Cached recognition is reused; a same-frame retry cannot confirm a level-up.
   if(automatic&&!result?.accepted)await runOcr(lastFrameTimestamp,c);
- }catch(error){if(generation===captureGeneration)setTrackingStatus('error','Could not read the shared window. Stop sharing and try again.');}finally{for(const canvas of captureCanvases){canvas.width=0;canvas.height=0;}captureBusy=false;if(debug&&generation===captureGeneration)q('#ocrOutput').textContent+='\nCapture + OCR: '+((Date.now()-ocrStartedAt)/1000).toFixed(2)+' s ('+captureCanvases.length+' frame'+(captureCanvases.length===1?'':'s')+')';}
+ }catch(error){if(generation===captureGeneration){const detail=error?.message||String(error);setTrackingStatus('error','Could not read the shared window · '+captureStage+': '+detail);q('#ocrOutput').textContent='Capture failed during '+captureStage+': '+detail;if(debug){const failed=captureCanvases.findLast(canvas=>canvas.width>0&&canvas.height>0);if(failed)try{const blob=failed._pngBlob||await new Promise(resolve=>failed.toBlob(resolve,'image/png'));if(blob)downloadDebugFrame(blob,failed._capturedAt,false);}catch(downloadError){q('#ocrOutput').textContent+='\nCould not save diagnostic frame: '+(downloadError?.message||String(downloadError));}}}}finally{for(const canvas of captureCanvases){canvas.width=0;canvas.height=0;}captureBusy=false;if(debug&&generation===captureGeneration)q('#ocrOutput').textContent+='\nCapture + OCR: '+((Date.now()-ocrStartedAt)/1000).toFixed(2)+' s ('+captureCanvases.length+' frame'+(captureCanvases.length===1?'':'s')+')';}
 }
 async function connect(){
  if(!navigator.mediaDevices?.getDisplayMedia){setTrackingStatus('error','Screen sharing is unavailable here. Open this page in Chrome or Edge using HTTPS or localhost.');return;}
