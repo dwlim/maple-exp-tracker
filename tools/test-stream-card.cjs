@@ -13,7 +13,7 @@ assert.equal(C.metrics({samples:[{level:32,exp:-1,t:now},{level:32,exp:0,t:now+6
 
 // Boot the actual stream URL: it must only render, never request capture or write session data.
 const nodes=new Map(),events=new Map(),intervals=[];let writes=0,stored=JSON.stringify(state);
-const q=id=>{if(!nodes.has(id))nodes.set(id,{style:{},classList:{add(){},toggle(){}},innerHTML:''});return nodes.get(id);};
+const q=id=>{if(!nodes.has(id))nodes.set(id,{style:{},setAttribute(name,value){this[name]=value;},classList:{add(){},toggle(){}},innerHTML:''});return nodes.get(id);};
 const storage={getItem:()=>stored,setItem(){writes++;}};
 const win={addEventListener:(name,fn)=>events.set(name,fn),removeEventListener:name=>events.delete(name),setInterval(fn,ms){intervals.push({fn,ms});return 1;},clearInterval(id){assert.equal(id,1);}};
 const context={document:{querySelector:q,body:q('body')},window:win,location:{search:'?stream=1'},URLSearchParams,localStorage:storage,MapleStreamCard:C,setInterval(){throw Error('Dashboard loop must not run in the stream card');},navigator:{mediaDevices:{getDisplayMedia(){throw Error('Card must not capture');}}}};
@@ -24,3 +24,12 @@ stored='invalid';events.get('storage')({key:null});assert.equal(q('#cardLevel').
 events.get('pagehide')();assert.equal(events.has('storage'),false);
 assert.ok(html.includes(fs.readFileSync('stream-card.js','utf8')),'Embedded stream card must match tested source');
 console.log('Stream card: rates, level-ups, ETA, stale/offline state, local storage sync, malformed storage, read-only startup and cleanup passed.');
+
+// Ten-second normalization, level-up totals, gaps, invalid readings and percentage precision.
+let g=C.graph({samples:[{level:32,exp:100,t:now-20000},{level:32,exp:140,t:now-10000},{level:32,exp:200,t:now}]},now,totalExp);
+assert.deepEqual(g.points.map(p=>p.value),[40,60]);assert.ok(g.path.startsWith('M'));assert.ok(g.path.includes('L'));
+assert.equal(C.graph(state,now,totalExp).points.length,0,'Long gaps must not invent ten-second gains');
+assert.equal(C.graph({samples:[{level:32,exp:100,t:now-5000},{level:32,exp:140,t:now}]},now,totalExp).points[0].value,80);
+assert.equal(C.graph({samples:[{level:31,exp:required(31)-100,t:now-10000},{level:32,exp:50,t:now,estimated:true}]},now,totalExp).points[0].value,150);
+assert.equal(C.graph({samples:[{level:32,exp:100,t:now-10000},{level:32,exp:50,t:now}]},now,totalExp).points.length,0);
+assert.equal(C.graph({},now,totalExp).path,'');
