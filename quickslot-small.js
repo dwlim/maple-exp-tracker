@@ -11,6 +11,7 @@
         palette: native[0]?.palette,
         templates: native.map((t) => ({
           ...t,
+          mask: t.smallMask,
           shape: Float32Array.from(t.smallCell, (c) => parseInt(c, 16) / 15),
         })),
       };
@@ -31,9 +32,9 @@
               48,
         );
   }
-  // The native small font advances eight pixels, except its four-pixel-wide 1.
-  // Keep its row gradient: icon pixels behind the transparent text are not ink.
-  function cell(image, palette, cursor, top, digit) {
+  // The native font advances eight pixels per digit and five for 1.
+  // Match grayscale only on stable glyph/outline pixels. The icon is not evidence.
+  function cell(image, cursor, top, digit) {
     const width = digit === "1" ? 3 : 7,
       shape = [];
     for (let y = 1; y <= 9; y++)
@@ -44,12 +45,10 @@
           return null;
         const i = (yy * image.width + xx) * 4;
         shape.push(
-          value(
-            image.data[i],
-            image.data[i + 1],
-            image.data[i + 2],
-            palette[Math.floor(((y + 0.5) / 12) * 20)],
-          ),
+          (image.data[i] * 0.299 +
+            image.data[i + 1] * 0.587 +
+            image.data[i + 2] * 0.114) /
+            255,
         );
       }
     return shape;
@@ -105,30 +104,60 @@
             valid = false;
             break;
           }
-          const scores = new Map(),
-            wide = cell(image, palette, cursor, top, "0"),
-            narrow = cell(image, palette, cursor, top, "1");
+          const strength = new Map(),
+            scores = new Map(),
+            wide = cell(image, cursor, top, "0"),
+            narrow = cell(image, cursor, top, "1");
           for (const t of templates) {
             const shape = t.digit === "1" ? narrow : wide;
             if (!shape) continue;
-            let e = 0,
-              expected = 0,
-              overlap = 0;
-            for (let i = 0; i < shape.length; i++) {
-              e += Math.abs(shape[i] - t.shape[i]);
-              expected += t.shape[i];
-              overlap += Math.min(shape[i], t.shape[i]);
-            }
-            e /= shape.length;
-            if (expected < 5 || overlap / expected < 0.65) e = 1;
-            if (!scores.has(t.digit) || e < scores.get(t.digit))
+            // Masked normalized correlation ignores the changing icon background.
+            let n = 0,
+              a = 0,
+              b = 0,
+              aa = 0,
+              bb = 0,
+              ab = 0;
+            for (let i = 0; i < shape.length; i++)
+              if (t.mask[i]) {
+                const x = shape[i],
+                  y = t.shape[i];
+                n++;
+                a += x;
+                b += y;
+                aa += x * x;
+                bb += y * y;
+                ab += x * y;
+              }
+            const av = aa - (a * a) / n,
+              bv = bb - (b * b) / n;
+            const e =
+              n < 12 || av < 0.0001 * n || bv < 0.0001 * n
+                ? 1
+                : 1 -
+                  Math.max(
+                    -1,
+                    Math.min(1, (ab - (a * b) / n) / Math.sqrt(av * bv)),
+                  );
+            if (!scores.has(t.digit) || e < scores.get(t.digit)) {
               scores.set(t.digit, e);
+              // A tiny mask cannot win by ignoring distinguishing strokes.
+              strength.set(
+                t.digit,
+                -0.5 *
+                  (n - 3) *
+                  Math.log(Math.max(0.0001, 1 - (1 - e) * (1 - e))),
+              );
+            }
           }
-          const sorted = [...scores].sort((a, b) => a[1] - b[1]);
+          const sorted = [...scores].sort(
+            (a, b) => strength.get(b[0]) - strength.get(a[0]),
+          );
           if (
             sorted.length < 2 ||
             sorted[0][1] > 0.08 ||
-            sorted[1][1] - sorted[0][1] < 0.045
+            strength.get(sorted[0][0]) - strength.get(sorted[1][0]) <
+              Math.log(100)
           ) {
             valid = false;
             break;
@@ -139,7 +168,7 @@
             confidence,
             Math.round((1 - sorted[0][1]) * 100),
           );
-          cursor += sorted[0][0] === "1" ? 4 : 8;
+          cursor += sorted[0][0] === "1" ? 5 : 8;
         }
         if (valid && text && !/^0\d/.test(text)) {
           const r = {

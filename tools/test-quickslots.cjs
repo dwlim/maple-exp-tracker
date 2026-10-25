@@ -149,6 +149,20 @@ for (const f of cases) {
       f.name + " complete automatic quantity in slot " + slot,
     );
   }
+  for (const slot of f.unreadableSlots || []) {
+    const q = found.slots[slot].quantity,
+      crop = require("../hud-regions").crop(im, {
+        x: q.x * im.width,
+        y: q.y * im.height,
+        w: q.w * im.width,
+        h: q.h * im.height,
+      });
+    assert.equal(
+      Q.recognizeSlot(crop),
+      null,
+      "Skill/empty tile must not invent quantity: " + f.name + " " + slot,
+    );
+  }
   assert.equal(found.cols, 4);
   assert.equal(found.slots.length, f.expected);
   assert.equal(
@@ -305,7 +319,7 @@ const eight = packedFrame(cases.find((f) => f.name === "native-8-10")),
     getCapture: () => capture,
   });
   const pending = ui2.process(frame(eight), 1000);
-  assert.match(active.url.href, /tracker\/quickslot-worker.js\?v=3$/);
+  assert.match(active.url.href, /tracker\/quickslot-worker.js\?v=4$/);
   ui2.invalidate();
   await pending;
   assert.equal(active.stopped, true);
@@ -411,6 +425,25 @@ const eight = packedFrame(cases.find((f) => f.name === "native-8-10")),
     "Disabled potion tracking cannot request downloads",
   );
   smallUI.dispose();
+  const fresh = cases.filter((f) => f.name.startsWith("fresh-quantity-")),
+    freshUI = Items.mount({
+      ...dom(),
+      storage: { getItem: () => null, setItem() {} },
+      getCapture: () => capture,
+    });
+  await freshUI.process(
+    frame(packedFrame(fresh[0])),
+    fresh[0].timestamp - 10000,
+  );
+  freshUI.assignSlot(1, "hp");
+  freshUI.assignSlot(2, "mp");
+  for (const f of fresh)
+    await freshUI.process(frame(packedFrame(f)), f.timestamp);
+  assert.equal(freshUI.store.state.items[0].count, 160);
+  assert.equal(freshUI.store.state.items[0].used, 3);
+  assert.equal(freshUI.store.state.items[1].count, 323);
+  assert.equal(freshUI.store.state.items[1].used, 0);
+  freshUI.dispose();
   const smallImage = packedFrame(sequence[0]),
     sl = Layout.detect(smallImage).slots[2].quantity,
     smallCrop = require("../hud-regions").crop(smallImage, {

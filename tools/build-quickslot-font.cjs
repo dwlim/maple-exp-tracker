@@ -37,21 +37,23 @@ const palette = Array.from({ length: 20 }, (_, v) => {
         (Math.round(best[2] / best[0]) << 8) |
         Math.round(best[3] / best[0]);
 });
-const Small = require("../quickslot-small");
+const Small = require("../quickslot-small"),
+  masks = require("./quickslot-invariant-masks.json").glyphs;
 const font = [];
 for (const f of fixtures) {
   const data = z.inflateSync(Buffer.from(f.rgba, "base64"));
   let cursor = 0;
   for (let k = 0; k < f.text.length; k++) {
     if (f.height === 12) {
-      const cell = Small.cell({ ...f, data }, palette, cursor, 0, f.text[k]);
+      const cell = Small.cell({ ...f, data }, cursor, 0, f.text[k]);
       if (!cell) throw Error("Incomplete manually labelled crop: " + f.name);
       font.push({
         digit: f.text[k],
         palette,
+        smallMask: masks[f.text[k]],
         smallCell: cell.map((v) => Math.round(v * 15).toString(16)).join(""),
       });
-      cursor += f.text[k] === "1" ? 4 : 8;
+      cursor += f.text[k] === "1" ? 5 : 8;
       continue;
     }
     let mask = "";
@@ -75,5 +77,5 @@ for (const f of fixtures) {
 }
 fs.writeFileSync(
   "quickslot-font.js",
-  `// Generated from manually transcribed quantity-only crops. Rebuild with node tools/build-quickslot-font.cjs.\n(function(root){const font=${JSON.stringify(font)};if(typeof module==='object'&&module.exports)module.exports=font;else root.MapleQuickslotFont=font;})(typeof window==='undefined'?globalThis:window);\n`,
+  `// Generated from manually transcribed quantity-only crops. Invariant masks adapted from beanguri/Maple-Classic-Exp-Overlay (MIT); see third_party/maple-classic-exp-overlay/LICENSE.txt. Rebuild with node tools/build-quickslot-font.cjs.\n(function(root){const font=${JSON.stringify(font)};if(typeof module==='object'&&module.exports)module.exports=font;else root.MapleQuickslotFont=font;})(typeof window==='undefined'?globalThis:window);\n`,
 );

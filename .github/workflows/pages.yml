@@ -35,6 +35,7 @@ jobs:
           mkdir -p _site
           cp index.html _site/index.html
           cp -R assets _site/assets
+          cp -R third_party _site/third_party
           cp level-ocr.js hud-ocr.js hud-regions.js local-ocr.js session.js quickslot-worker.js quickslot-font.js quickslot-small.js quickslot-ocr.js quickslot-layout.js quickslot-session.js quickslots.js _site/
           cp tools/browser-ocr-check.html _site/ocr-check.html
           cp tools/browser-quickslot-check.html _site/quickslot-check.html

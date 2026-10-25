@@ -91,7 +91,7 @@
         if (!worker) {
           try {
             worker = new window.Worker(
-              new URL("quickslot-worker.js?v=3", window.location.href),
+              new URL("quickslot-worker.js?v=4", window.location.href),
             );
           } catch {
             workerFailed = true;
