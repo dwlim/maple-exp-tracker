@@ -70,6 +70,28 @@ require("../hud-ocr");
     null,
     "An uncertain full amount cannot become a percentage-only estimate",
   );
+  const evidence = { text: "13?.680[51.24%]", requiredExp: 266682 },
+    good = { text: "136.660[51.24%]", confidence: 84 },
+    wrong = { text: "136.660[51.29%]", confidence: 78 };
+  assert.equal(
+    N.choose([good, wrong], "exp", evidence),
+    null,
+    "Math alone cannot turn one neural vote into acceptance",
+  );
+  assert.equal(
+    N.choose([good, wrong, { ...good, confidence: 52 }], "exp", evidence).text,
+    good.text,
+    "Two matching variants plus EXP math recover the observed value",
+  );
+  assert.equal(
+    N.choose(
+      [good, { ...good }, { text: "136.650[51.24%]", confidence: 90 }],
+      "exp",
+      evidence,
+    ),
+    null,
+    "Multiple math-consistent readings stay ambiguous",
+  );
   const worker = await createWorker("eng", 1, {
     langPath: path.resolve("assets/ocr"),
     gzip: true,
@@ -98,6 +120,7 @@ require("../hud-ocr");
       ...require("./monitor-oct23-hud-fixtures.json"),
       ...require("./windowed-hud-fixtures.json"),
       ...require("./covered-exp-fixtures.json"),
+      ...require("./fallback-exp-fixtures.json"),
     ].map((f) => ({
       ...f,
       patches: f.patches.map((p) => ({
@@ -139,6 +162,11 @@ require("../hud-ocr");
           h: lb.h * 2,
         }),
         recovered = await reader.read({
+          requiredExp:
+            /^\d{1,3}$/.test(nativeLevel.data.text) &&
+            nativeLevel.data.confidence >= 35
+              ? require("../session").required(Number(nativeLevel.data.text))
+              : null,
           levelImage,
           expImage,
           nativeLevel,
@@ -155,6 +183,14 @@ require("../hud-ocr");
         f.exp,
         f.name + " EXP",
       );
+      if(f.name.startsWith('full-exp-39-')) {
+        const p=require('./test-helpers.cjs').pipeline({image,localOcr:{read:async()=>({})}}),frame={width:image.width,height:image.height,getContext:()=>({getImageData:()=>image})};
+        await p.recognition.decodeFrame(frame);
+        assert.ok(Array.isArray(frame._reading.expResult.rawReading.details),'An unsuccessful fallback preserves native glyph candidates');
+        await p.reader.read(frame,1700000000000);
+        assert.equal(p.session.state.samples.length,0,'Unresolved glyphs reject without crashing or saving a guessed value');
+        assert.notDeepEqual(N.prepare(expImage,'exp-context','soft').data,N.prepare(expImage,'exp-context','binary').data,'The third pass must use different actual pixels');
+      }
       if (f.name === "clam-71-full-exp-browser") {
         let variant = 0;
         const conflicting = N.createReader(async () => ({
@@ -240,6 +276,14 @@ require("../hud-ocr");
           Number(f.exp.split("[")[0].replace(/\./g, "")),
         );
         assert.ok(!p.session.state.samples[0].estimated);
+      }
+      if(f.name.startsWith('full-exp-39-')) {
+        const p=require('./test-helpers.cjs').pipeline({image,localOcr:{read:async()=>({})}}),frame={width:image.width,height:image.height,getContext:()=>({getImageData:()=>image})};
+        await p.recognition.decodeFrame(frame);
+        assert.ok(Array.isArray(frame._reading.expResult.rawReading.details),'An unsuccessful fallback preserves native glyph candidates');
+        await p.reader.read(frame,1700000000000);
+        assert.equal(p.session.state.samples.length,0,'Unresolved glyphs reject without crashing or saving a guessed value');
+        assert.notDeepEqual(N.prepare(expImage,'exp-context','soft').data,N.prepare(expImage,'exp-context','binary').data,'The third pass must use different actual pixels');
       }
       if (f.name === "clam-71-full-exp-browser") {
         frame._reading = {

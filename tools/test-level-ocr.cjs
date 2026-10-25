@@ -30,5 +30,5 @@ const html=fs.readFileSync('index.html','utf8'),fallback=fs.readFileSync('local-
 assert.ok(!fs.readFileSync('level-ocr.js','utf8').includes('Tesseract'),'The fast glyph matcher remains independent of the neural engine');
 assert.ok(html.includes(fallback),'The deployed fallback must match its tested source');
 assert.ok(!/https?:\/\/|fetch\(|XMLHttpRequest/.test(fallback),'Fallback code must not upload captures or load third-party runtime URLs');
-assert.ok(fallback.includes("workerPath:base+'worker.min.js',corePath:base,langPath:base"),'Worker, core and language data must all be self-hosted');
+assert.ok(fallback.replace(/\s+/g,'').replace(/"/g,"'").includes("workerPath:base+'worker.min.js',corePath:base,langPath:base"),'Worker, core and language data must all be self-hosted');
 console.log(`Level matcher: baseline/browser 31, blank rejection, continuity and level-up confirmation passed; ${exact}/${checked} transformed local captures exact, ${rejected} safely rejected.`);

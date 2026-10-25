@@ -27,6 +27,7 @@
           prior?.level === level ? prior.exp : null,
         );
       return {
+        rawReading: raw,
         rawText: raw.text,
         rawConfidence: raw.confidence,
         data: { text: result.text, confidence: result.confidence },
@@ -101,6 +102,11 @@
       const result = await localOcr.read({
         levelImage: panel ? cropLevelDigits(panel, frame) : null,
         expImage: cropLevelDigits(regions.exp, frame),
+        requiredExp:
+          /^\d{1,3}$/.test(levelResult.data.text) &&
+          levelResult.data.confidence >= 35
+            ? required(Number(levelResult.data.text))
+            : null,
         nativeLevel: levelResult,
         nativeExp: {
           text: expResult.rawText,
@@ -116,10 +122,11 @@
           },
           engine: "tesseract",
         };
-      const raw = result.exp || {
-          text: expResult.rawText,
-          confidence: expResult.rawConfidence,
-        },
+      const raw = result.exp ||
+          expResult.rawReading || {
+            text: expResult.rawText,
+            confidence: expResult.rawConfidence,
+          },
         level = Number(levelResult.data.text),
         resolved = hudOcr.resolveReading(raw, required(level)),
         prior = state.samples.at(-1),
@@ -129,6 +136,7 @@
           prior?.level === level ? prior.exp : null,
         );
       expResult = {
+        rawReading: raw,
         rawText: raw.text,
         rawConfidence: raw.confidence,
         data: { text: resolved.text, confidence: resolved.confidence },

@@ -89,7 +89,7 @@ function recognizeNative(image){
  return {text,confidence:scores.length?Math.min(...scores)*100:0,details,glyphHeight:typicalHeight};
 }
 function resolveReading(result,requiredExp){
- if(!Number.isFinite(requiredExp)||requiredExp<=0||!result.text.includes('?'))return result;
+ if(!Number.isFinite(requiredExp)||requiredExp<=0||!result.text.includes('?')||!Array.isArray(result.details))return result;
  const uncertain=result.details.filter(d=>d.char==='?');if(!uncertain.length||uncertain.length>6||uncertain.some(d=>!d.options?.length))return result;
  let variants=[result.text];for(const d of uncertain){variants=variants.flatMap(text=>d.options.map(o=>text.slice(0,d.charIndex)+o.char+text.slice(d.charIndex+1)));if(variants.length>729)return result;}
  const valid=new Set();for(const text of variants){const m=text.match(/^(\d[\d.]*)\[(\d+\.\d{2})%\]$/);if(!m)continue;const amount=m[1].replace(/\./g,'');if(!/^\d+$/.test(amount))continue;const exp=Number(amount),pct=Number(m[2]);if(exp<=requiredExp&&Math.abs(exp/requiredExp*100-pct)<=.0051)valid.add(text);}

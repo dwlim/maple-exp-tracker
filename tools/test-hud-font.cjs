@@ -156,3 +156,10 @@ assert.equal(
 console.log(
   `${exact}/30 exact, ${rejected} safely rejected; ${heldOut}/${fixtures.filter((f) => !f.training).length} held-out frames exact; both OBS frames, blank crop, parser and syntax checks passed.`,
 );
+
+const noDetails = { text: "137.388[51.?1%]", confidence: 80 };
+assert.equal(
+  MapleHudOcr.resolveReading(noDetails, 266682),
+  noDetails,
+  "An uncertain reading without glyph metadata must reject safely rather than throw",
+);
