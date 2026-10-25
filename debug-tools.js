@@ -41,12 +41,12 @@
       }
     }
 
-    async function rejectFrame(frame, timestamp) {
-      if (!enabled || !frame) return;
+    async function rejectFrame(frame, timestamp, cancelled = () => false) {
+      if (!enabled || !frame || !isDownloadEnabled() || cancelled()) return;
       const blob =
         frame._pngBlob ||
         (await new Promise((resolve) => frame.toBlob(resolve, "image/png")));
-      if (blob) downloadDebugFrame(blob, timestamp, false);
+      if (blob && !cancelled()) downloadDebugFrame(blob, timestamp, false);
     }
     return { downloadFrame: downloadDebugFrame, rejectFrame };
   }

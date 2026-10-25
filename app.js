@@ -111,6 +111,7 @@
         document,
         window,
         video: q("#sharePreview"),
+        onRejectedFrame: debug ? debugTools.rejectFrame : null,
         storage,
         getCapture: () => capture,
       });

@@ -1,9 +1,10 @@
 /* Only HUD crops are transferred to this local worker. No upload or server recognition. */
 importScripts(
-  "hud-regions.js?v=2",
-  "quickslot-layout.js?v=2",
-  "quickslot-font.js?v=2",
-  "quickslot-ocr.js?v=2",
+  "hud-regions.js?v=3",
+  "quickslot-layout.js?v=3",
+  "quickslot-font.js?v=3",
+  "quickslot-small.js?v=3",
+  "quickslot-ocr.js?v=3",
 );
 self.onmessage = ({ data: { id, kind, image, geometry } }) => {
   try {

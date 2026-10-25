@@ -105,10 +105,14 @@
     }
     const best = [];
     for (const rows of [2, 3]) {
-      let top = null;
-      for (const wf of [1.94, 1.98, 2.02, 2.06])
-        for (const dx of [-0.04, -0.02, 0, 0.02, 0.04])
-          for (const dy of [-0.08, -0.04, 0, 0.04, 0.08])
+      for (const wf of [1.94, 1.98, 2.02, 2.06, 2.1])
+        for (const dx of [
+          -0.12, -0.08, -0.04, -0.02, 0, 0.02, 0.04, 0.08, 0.12,
+        ])
+          for (const dy of [
+            -0.24, -0.18, -0.12, -0.08, -0.06, -0.04, 0, 0.04, 0.06, 0.08, 0.12,
+            0.18, 0.24,
+          ])
             for (const hf of [0.97, 1, 1.03]) {
               const w = a.w * wf,
                 h = ((w * rows) / 4) * hf,
@@ -117,71 +121,71 @@
                 box = { x, y, w, h };
               if (x < 0 || y < 0 || x + w > width || y + h > height) continue;
               const result = score(box);
-              if (!top || result.quality > top.quality)
-                top = { ...box, ...result, rows };
+              if (result.quality >= 0.6 && Math.min(...result.sides) >= 0.4)
+                best.push({ ...box, ...result, rows });
             }
-      if (top) best.push(top);
     }
     best.sort((a, b) => b.quality - a.quality);
-    const b = best[0];
-    if (!b || b.quality < 0.6 || Math.min(...b.sides) < 0.4) return null;
-    const crossbar = [0.25, 0.5, 0.75].map((u) =>
-      edge(b.x + b.w * u, b.y, false),
-    );
-    if (crossbar.filter((v) => v > 0.45).length < 2) return null;
-    const cols = 4,
-      slots = [];
-    for (let row = 0; row < b.rows; row++)
-      for (let col = 0; col < cols; col++) {
-        const pitchX = (b.w - a.h * 0.18) / 4,
-          pitchY = (b.h - a.h * 0.2) / b.rows,
-          x = b.x + a.h * 0.1 + pitchX * col,
-          y = b.y + a.h * 0.1 + pitchY * row;
-        slots.push({
-          index: row * 4 + col,
-          row,
-          col,
-          box: { x, y, w: pitchX, h: pitchY },
-          quantity: {
-            x: (x - a.h * 0.02) / width,
-            y: (y + pitchY * 0.615) / height,
-            w: (pitchX * 0.98) / width,
-            h: (pitchY * 0.34) / height,
-          },
-        });
+    for (const b of best) {
+      const crossbar = [0.25, 0.5, 0.75].map((u) =>
+        edge(b.x + b.w * u, b.y, false),
+      );
+      if (crossbar.filter((v) => v > 0.45).length < 2) continue;
+      const cols = 4,
+        slots = [];
+      for (let row = 0; row < b.rows; row++)
+        for (let col = 0; col < cols; col++) {
+          const pitchX = (b.w - a.h * 0.18) / 4,
+            pitchY = (b.h - a.h * 0.2) / b.rows,
+            x = b.x + a.h * 0.1 + pitchX * col,
+            y = b.y + a.h * 0.1 + pitchY * row;
+          slots.push({
+            index: row * 4 + col,
+            row,
+            col,
+            box: { x, y, w: pitchX, h: pitchY },
+            quantity: {
+              x: (x - a.h * 0.02) / width,
+              y: (y + pitchY * 0.615 - 1) / height,
+              w: (pitchX * 0.98) / width,
+              h: (pitchY * 0.34 + 2) / height,
+            },
+          });
+        }
+      let verified = 0;
+      for (const slot of slots) {
+        const q = slot.box;
+        let ink = 0;
+        for (const yy of [0.15, 0.25])
+          for (const xx of [0.2, 0.35, 0.5, 0.65, 0.8])
+            ink += value(q.x + q.w * xx, q.y + q.h * yy);
+        ink /= 10;
+        let gap = 1;
+        for (const dx of [-0.07, -0.04, -0.01])
+          gap = Math.min(
+            gap,
+            (value(q.x + q.w * dx, q.y + q.h * 0.3) +
+              value(q.x + q.w * dx, q.y + q.h * 0.6)) /
+              2,
+          );
+        if (ink > 0.35 && ink - gap > 0.08) verified++;
       }
-    let verified = 0;
-    for (const slot of slots) {
-      const q = slot.box;
-      let ink = 0;
-      for (const yy of [0.15, 0.25])
-        for (const xx of [0.2, 0.35, 0.5, 0.65, 0.8])
-          ink += value(q.x + q.w * xx, q.y + q.h * yy);
-      ink /= 10;
-      let gap = 1;
-      for (const dx of [-0.07, -0.04, -0.01])
-        gap = Math.min(
-          gap,
-          (value(q.x + q.w * dx, q.y + q.h * 0.3) +
-            value(q.x + q.w * dx, q.y + q.h * 0.6)) /
-            2,
-        );
-      if (ink > 0.35 && ink - gap > 0.08) verified++;
+      if (verified < Math.ceil(slots.length * 0.6)) continue;
+      return {
+        verified,
+        rows: b.rows,
+        cols,
+        count: b.rows * 4,
+        kind: "4x" + b.rows,
+        slots,
+        box: { x: b.x, y: b.y, w: b.w, h: b.h },
+        quality: b.quality,
+        anchor: a,
+        width,
+        height,
+      };
     }
-    if (verified < Math.ceil(slots.length * 0.6)) return null;
-    return {
-      verified,
-      rows: b.rows,
-      cols,
-      count: b.rows * 4,
-      kind: "4x" + b.rows,
-      slots,
-      box: { x: b.x, y: b.y, w: b.w, h: b.h },
-      quality: b.quality,
-      anchor: a,
-      width,
-      height,
-    };
+    return null;
   }
   function detect(image, previous) {
     const p = prepare(image, previous);

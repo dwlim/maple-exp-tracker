@@ -71,6 +71,35 @@ assert.equal(created, 1);
   assert.equal(encodes, 0, "Debug downloads reuse the exact preview PNG");
   await Debug.create(config).rejectFrame(frame, stamp + 30000);
   assert.equal(clicked, 2, "Normal mode cannot download error frames");
+  checked = false;
+  await d.rejectFrame(
+    {
+      toBlob() {
+        throw Error("Unchecked diagnostics must not encode PNGs");
+      },
+    },
+    stamp + 40000,
+  );
+  checked = true;
+  let finish,
+    cancelled = false;
+  const pending = d.rejectFrame(
+    {
+      toBlob(cb) {
+        finish = cb;
+      },
+    },
+    stamp + 50000,
+    () => cancelled,
+  );
+  cancelled = true;
+  finish(blob);
+  await pending;
+  assert.equal(
+    clicked,
+    2,
+    "Cancellation during PNG encoding suppresses the download",
+  );
   console.log(
     "Debug module: explicit rejection, timestamp, duplication, opt-out, PNG reuse and cleanup passed.",
   );

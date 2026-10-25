@@ -30,7 +30,14 @@
       ["both", "HP + MP potion"],
       ["other", "Other consumable"],
     ].map(([value, label]) => ({ value, label }));
-    function mount({ document, window, storage, getCapture, now = Date.now }) {
+    function mount({
+      document,
+      window,
+      storage,
+      getCapture,
+      onRejectedFrame = null,
+      now = Date.now,
+    }) {
       const q = (id) => document.querySelector(id),
         profiles = new Map(),
         cards = new Map(),
@@ -84,7 +91,7 @@
         if (!worker) {
           try {
             worker = new window.Worker(
-              new URL("quickslot-worker.js?v=2", window.location.href),
+              new URL("quickslot-worker.js?v=3", window.location.href),
             );
           } catch {
             workerFailed = true;
@@ -312,6 +319,7 @@
                 .drawImage(frame, b.x, b.y, b.w, b.h, 0, 0, 48, 48);
           }
           if (!store.state.enabled) return;
+          let unreadable = false;
           for (const item of [...store.state.items]) {
             if (stopped() || !store.state.enabled) return;
             const slot = found.slots[item.slot];
@@ -339,6 +347,15 @@
             if (stopped() || !store.state.enabled) return;
             cache.set(item.id, { key, result });
             store.observe(item.id, result, t);
+            if (!Number.isInteger(result?.count) || result.confidence < 90)
+              unreadable = true;
+          }
+          if (unreadable && !stopped()) {
+            try {
+              await onRejectedFrame?.(frame, t, stopped);
+            } catch {
+              /* Saving diagnostics must not interrupt tracking. */
+            }
           }
         } catch (e) {
           fault = "Potion reading unavailable: " + (e.message || String(e));

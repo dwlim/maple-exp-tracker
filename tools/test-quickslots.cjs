@@ -16,15 +16,16 @@ assert.deepEqual(
   new Set("0123456789"),
 );
 for (const value of [0, 100, 255])
-  assert.equal(
-    Q.recognize({
-      width: 30,
-      height: 16,
-      data: new Uint8Array(30 * 16 * 4).fill(value),
-    }),
-    null,
-    "A blank slot cannot become a zero count",
-  );
+  for (const height of [12, 14, 16])
+    assert.equal(
+      Q.recognize({
+        width: 30,
+        height,
+        data: new Uint8Array(30 * height * 4).fill(value),
+      }),
+      null,
+      "A blank slot cannot become a zero count",
+    );
 assert.equal(
   Q.recognize({ width: 300, height: 100, data: new Uint8Array(120000) }),
   null,
@@ -134,6 +135,20 @@ for (const f of cases) {
   const im = packedFrame(f),
     found = Layout.detect(im);
   assert.equal(found?.count, f.expected, f.name);
+  for (const [slot, count] of Object.entries(f.expectedCounts || {})) {
+    const q = found.slots[slot].quantity,
+      crop = require("../hud-regions").crop(im, {
+        x: q.x * im.width,
+        y: q.y * im.height,
+        w: q.w * im.width,
+        h: q.h * im.height,
+      });
+    assert.equal(
+      Q.recognizeSlot(crop)?.count,
+      count,
+      f.name + " complete automatic quantity in slot " + slot,
+    );
+  }
   assert.equal(found.cols, 4);
   assert.equal(found.slots.length, f.expected);
   assert.equal(
@@ -290,7 +305,7 @@ const eight = packedFrame(cases.find((f) => f.name === "native-8-10")),
     getCapture: () => capture,
   });
   const pending = ui2.process(frame(eight), 1000);
-  assert.match(active.url.href, /tracker\/quickslot-worker.js\?v=2$/);
+  assert.match(active.url.href, /tracker\/quickslot-worker.js\?v=3$/);
   ui2.invalidate();
   await pending;
   assert.equal(active.stopped, true);
@@ -337,6 +352,78 @@ const eight = packedFrame(cases.find((f) => f.name === "native-8-10")),
     messages[0].result.count,
     12,
     "The actual worker entry point detects the real 12-slot reference",
+  );
+  const sequence = require("./quickslot-sequence-fixtures.json"),
+    rejected = [],
+    smallUI = Items.mount({
+      ...dom(),
+      storage: { getItem: () => null, setItem() {} },
+      getCapture: () => capture,
+      onRejectedFrame: (...args) => rejected.push(args),
+    });
+  await smallUI.process(
+    frame(packedFrame(sequence[0])),
+    sequence[0].timestamp - 10000,
+  );
+  for (const slot of [1, 2, 3, 5, 7])
+    smallUI.assignSlot(slot, slot === 2 ? "mana" : "hp");
+  for (const f of sequence) {
+    const source = frame(packedFrame(f));
+    await smallUI.process(source, f.timestamp);
+    for (const [slot, count] of Object.entries(f.expectedCounts))
+      assert.equal(
+        smallUI.store.state.items.find((i) => i.slot === Number(slot)).count,
+        count,
+        "Native declining quantity " + f.name + " slot " + slot,
+      );
+  }
+  const hp = smallUI.store.state.items.find((i) => i.slot === 1),
+    mp = smallUI.store.state.items.find((i) => i.slot === 2);
+  assert.equal(hp.used, 1);
+  assert.equal(mp.used, 2);
+  assert.ok(Math.abs(smallUI.store.rate(hp) - 90) < 0.02);
+  assert.ok(Math.abs(smallUI.store.rate(mp) - 180) < 0.02);
+  assert.equal(
+    rejected.length,
+    0,
+    "Successful count reads do not request downloads",
+  );
+  smallUI.assignSlot(0, "other");
+  smallUI.assignSlot(6, "other");
+  const failedFrame = frame(packedFrame(sequence[3])),
+    t = sequence[3].timestamp + 10000;
+  await smallUI.process(failedFrame, t);
+  assert.equal(
+    rejected.length,
+    1,
+    "Multiple unreadable assigned slots request one actual frame",
+  );
+  assert.equal(rejected[0][0], failedFrame);
+  assert.equal(rejected[0][1], t);
+  assert.equal(rejected[0][2](), false);
+  await smallUI.process(failedFrame, t + 10000, () => true);
+  assert.equal(rejected.length, 1, "Cancelled reads cannot request downloads");
+  smallUI.store.enable(false);
+  await smallUI.process(failedFrame, t + 20000);
+  assert.equal(
+    rejected.length,
+    1,
+    "Disabled potion tracking cannot request downloads",
+  );
+  smallUI.dispose();
+  const smallImage = packedFrame(sequence[0]),
+    sl = Layout.detect(smallImage).slots[2].quantity,
+    smallCrop = require("../hud-regions").crop(smallImage, {
+      x: sl.x * smallImage.width,
+      y: sl.y * smallImage.height,
+      w: sl.w * smallImage.width,
+      h: sl.h * smallImage.height,
+    });
+  scope.self.onmessage({ data: { id: 9, kind: "slot", image: smallCrop } });
+  assert.equal(
+    messages[1].result.count,
+    232,
+    "Actual worker imports the small-font decoder",
   );
   console.log(
     "Quickslots: real 8/12-slot HUDs, automatic quantities, potion assignments, separate saved layouts, usage/refills, cancellation, missing panels, worker imports and cached counts passed.",

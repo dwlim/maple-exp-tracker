@@ -1,14 +1,25 @@
 (function (root, factory) {
   if (typeof module === "object" && module.exports)
-    module.exports = factory(require("./quickslot-font"));
-  else root.MapleQuickslotOcr = factory(root.MapleQuickslotFont);
-})(typeof window === "undefined" ? globalThis : window, function (font) {
+    module.exports = factory(
+      require("./quickslot-font"),
+      require("./quickslot-small"),
+    );
+  else
+    root.MapleQuickslotOcr = factory(
+      root.MapleQuickslotFont,
+      root.MapleQuickslotSmall,
+    );
+})(typeof window === "undefined" ? globalThis : window, function (font, Small) {
   "use strict";
-  const templates = font.map((t) => ({
-    digit: t.digit,
-    data: Float32Array.from(t.mask, (c) => parseInt(c, 16) / 15),
-  }));
+  const templates = font
+    .filter((t) => !t.smallCell)
+    .map((t) => ({
+      digit: t.digit,
+      data: Float32Array.from(t.mask, (c) => parseInt(c, 16) / 15),
+    }));
   function recognize(image, { digits = null, diagnostic = false } = {}) {
+    if (image.height <= 15 && font.some((t) => t.smallCell))
+      return Small.recognize(image, font);
     const { width, height, data } = image;
     if (
       width < 5 ||
@@ -112,6 +123,7 @@
   // Quantities share their row with icon graphics. Do not accept an extra
   // weak glyph from the icon or truncate a plausible uncertain continuation.
   function recognizeSlot(image) {
+    if (image.height <= 15) return Small.recognize(image, font);
     if (
       image.height < 8 ||
       image.width < 5 ||
@@ -122,24 +134,31 @@
     const candidates = new Map(),
       widths = new Set(),
       uncertain = [];
-    for (let n = 1; n <= 5; n++) {
-      const width = Math.min(image.width, Math.round(image.height * 0.75 * n));
-      if (widths.has(width)) continue;
-      widths.add(width);
-      const data = new Uint8ClampedArray(width * image.height * 4);
-      for (let y = 0; y < image.height; y++)
-        data.set(
-          image.data.slice(y * image.width * 4, (y * image.width + width) * 4),
-          y * width * 4,
+    for (let n = 1; n <= 5; n++)
+      for (const padding of [0, 2, 4]) {
+        const width = Math.min(
+          image.width,
+          Math.round((image.height - 2) * 0.75 * n) + padding,
         );
-      const r = recognize(
-        { width, height: image.height, data },
-        { digits: n, diagnostic: true },
-      );
-      if (r?.accepted && r.worstError <= 0.08)
-        candidates.set(String(r.count), r);
-      else if (r && r.worstError <= 0.16 && r.error <= 0.1) uncertain.push(n);
-    }
+        if (widths.has(n + ":" + width)) continue;
+        widths.add(n + ":" + width);
+        const data = new Uint8ClampedArray(width * image.height * 4);
+        for (let y = 0; y < image.height; y++)
+          data.set(
+            image.data.slice(
+              y * image.width * 4,
+              (y * image.width + width) * 4,
+            ),
+            y * width * 4,
+          );
+        const r = recognize(
+          { width, height: image.height, data },
+          { digits: n, diagnostic: true },
+        );
+        if (r?.accepted && r.worstError <= 0.08)
+          candidates.set(String(r.count), r);
+        else if (r && r.worstError <= 0.16 && r.error <= 0.1) uncertain.push(n);
+      }
     const sorted = [...candidates].sort((a, b) => b[0].length - a[0].length),
       best = sorted[0];
     if (
