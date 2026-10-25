@@ -124,131 +124,198 @@ assert.equal(
 loaded.reset();
 assert.equal(loaded.state.items[0].used, 0);
 assert.equal(loaded.rate(loaded.state.items[0]), null);
-for (let i = 0; i < 7; i++) s.add("item" + i, region, 1000, 1000);
-assert.equal(s.add("ninth", region, 1000, 1000), null);
-const { dom } = require("./test-helpers.cjs"),
-  d = dom(),
-  video = d.node("#video"),
-  capture = { stream: {} },
-  ui = Items.mount({
-    ...d,
-    video,
-    storage: { getItem: () => null, setItem() {} },
-    getCapture: () => capture,
-  });
-assert.equal(d.node("#trackItems").checked, false, "Item tracking is opt-in");
-const f = fixtures.find((f) => f.text === "305"),
-  image = {
-    width: f.width,
-    height: f.height,
-    data: z.inflateSync(Buffer.from(f.rgba, "base64")),
-  };
-const tracked = ui.store.add(
-  "<script>HP</script>",
-  { x: 0, y: 0, w: 1, h: 1 },
-  f.width,
-  f.height,
-);
-ui.store.enable(true);
-(async () => {
-  const frame = { width: image.width, height: image.height, _pixels: image };
-  await ui.process(frame, 1000);
+for (let i = 0; i < 11; i++) s.add("item" + i, region, 1000, 1000);
+assert.equal(s.add("thirteenth", region, 1000, 1000), null);
+
+const { dom, packedFrame } = require("./test-helpers.cjs"),
+  Layout = require("../quickslot-layout"),
+  cases = require("./quickslot-layout-fixtures.json");
+for (const f of cases) {
+  const im = packedFrame(f),
+    found = Layout.detect(im);
+  assert.equal(found?.count, f.expected, f.name);
+  assert.equal(found.cols, 4);
+  assert.equal(found.slots.length, f.expected);
   assert.equal(
-    tracked.count,
-    305,
-    "The real matcher feeds the item store through the capture hook",
+    Layout.detect(im, found)?.count,
+    f.expected,
+    "Cached control anchoring must retain the real layout",
   );
-  await ui.process(frame, 11000);
-  assert.equal(tracked.used, 0);
-  await ui.process(
-    {
-      ...frame,
-      _pixels: {
-        ...image,
-        width: image.width + 1,
-        data: new Uint8Array((image.width + 1) * image.height * 4),
-      },
-    },
-    21000,
+  const blank = packedFrame({
+    ...f,
+    patches: f.patches.filter((p) => p.role === "controls"),
+  });
+  assert.equal(
+    Layout.detect(blank),
+    null,
+    "Controls alone do not imply a slot layout",
   );
-  assert.match(tracked.status, /size changed/);
-  assert.equal(tracked.count, 305);
-  ui.invalidate();
-  assert.equal(tracked.at, null);
+}
+const ref = cases.find((f) => f.expected === 12),
+  refImage = packedFrame(ref),
+  refLayout = Layout.detect(refImage),
+  covered = { ...refImage, data: new Uint8ClampedArray(refImage.data) };
+for (
+  let y = Math.max(0, Math.floor(refLayout.box.y) - 5);
+  y < refLayout.box.y + refLayout.box.h / 3;
+  y++
+)
+  for (
+    let x = Math.max(0, Math.floor(refLayout.box.x) - 5);
+    x < refLayout.box.x + refLayout.box.w + 5;
+    x++
+  ) {
+    const p = (y * covered.width + x) * 4;
+    covered.data[p] = covered.data[p + 1] = covered.data[p + 2] = 0;
+  }
+assert.equal(
+  Layout.detect(covered),
+  null,
+  "A covered third row must not silently become an eight-slot layout",
+);
+for (const f of [cases[10], ref])
+  for (const scale of [0.75, 1.25]) {
+    const src = packedFrame(f),
+      w = Math.round(src.width * scale),
+      h = Math.round(src.height * scale),
+      data = new Uint8ClampedArray(w * h * 4);
+    for (let y = 0; y < h; y++)
+      for (let x = 0; x < w; x++) {
+        const a =
+            (Math.min(src.height - 1, Math.floor(y / scale)) * src.width +
+              Math.min(src.width - 1, Math.floor(x / scale))) *
+            4,
+          b = (y * w + x) * 4;
+        data[b] = src.data[a];
+        data[b + 1] = src.data[a + 1];
+        data[b + 2] = src.data[a + 2];
+        data[b + 3] = 255;
+      }
+    assert.equal(
+      Layout.detect({ width: w, height: h, data })?.count,
+      f.expected,
+      "Scaled actual HUD preserves row count",
+    );
+  }
+const eight = packedFrame(cases.find((f) => f.name === "native-8-10")),
+  twelve = packedFrame(cases.find((f) => f.expected === 12)),
+  frame = (im) => ({ width: im.width, height: im.height, _pixels: im }),
+  d = dom(),
+  capture = { stream: {} },
+  ui = Items.mount({ ...d, storage, getCapture: () => capture });
+(async () => {
+  await ui.process(frame(eight), 1000);
+  assert.equal(ui.layout.count, 8);
+  assert.equal(
+    ui.store.state.enabled,
+    false,
+    "Detection does not opt users into count tracking",
+  );
+  assert.ok(ui.assignSlot(1, "red"));
+  assert.ok(ui.assignSlot(2, "mana"));
+  assert.equal(ui.store.state.items.length, 2);
+  await ui.process(frame(eight), 11000);
+  assert.equal(
+    ui.store.state.items.find((i) => i.slot === 1).count,
+    66,
+    "Automatic region excludes the bone graphic that resembles an extra 6",
+  );
+  assert.equal(ui.store.state.items.find((i) => i.slot === 2).count, 305);
+  await ui.process(frame(twelve), 21000);
+  assert.equal(ui.layout.count, 12);
+  assert.equal(
+    ui.store.state.items.length,
+    0,
+    "A different layout must not silently inherit slot assignments",
+  );
+  assert.ok(ui.assignSlot(11, "other"));
+  assert.equal(ui.assignSlot(12, "red"), false);
+  await ui.process(frame(eight), 31000);
+  assert.equal(
+    ui.store.state.items.find((i) => i.slot === 1).potionType,
+    "red",
+    "Eight-slot choices survive a layout switch",
+  );
+  assert.equal(
+    ui.store.state.items.find((i) => i.slot === 1).used,
+    0,
+    "Do not count the period spent in the other layout",
+  );
+  const blank = packedFrame({ ...cases[10], patches: [] });
+  await ui.process(frame(blank), 41000);
+  assert.equal(ui.layout, null);
+  assert.equal(ui.store.state.items[0].count, 66);
+  ui.resetSession();
+  assert.equal(ui.store.state.items[0].used, 0);
   ui.dispose();
+  const a = Items.createStore({ storage, key: "profile-a" }),
+    b = Items.createStore({ storage, key: "profile-b" });
+  a.add("A", region, 1000, 1000, null, { slot: 0, potionType: "red" });
+  assert.equal(b.state.items.length, 0);
+  assert.equal(
+    Items.createStore({ storage, key: "profile-a" }).state.items[0].potionType,
+    "red",
+    "Persist potion type and position independently for each profile",
+  );
   const d2 = dom();
-  let activeWorker,
-    jobs = 0;
+  let active,
+    hold = true,
+    slotJobs = 0;
   d2.window.location = { href: "https://example.test/tracker/" };
   d2.window.setTimeout = () => 1;
   d2.window.clearTimeout = () => {};
   d2.window.Worker = class {
     constructor(url) {
+      active = this;
       this.url = url;
-      activeWorker = this;
     }
     postMessage(m) {
-      this.message = m;
-      jobs++;
+      if (m.kind === "slot") slotJobs++;
+      if (!hold)
+        queueMicrotask(() => {
+          const result =
+            m.kind === "layout"
+              ? Layout.scan({ ...m.geometry, patch: m.image })
+              : Q.recognizeSlot(m.image);
+          this.onmessage?.({ data: { id: m.id, result } });
+        });
     }
     terminate() {
       this.stopped = true;
     }
   };
   const ui2 = Items.mount({
-      ...d2,
-      video: d2.node("#video"),
-      storage: { getItem: () => null, setItem() {} },
-      getCapture: () => capture,
-    }),
-    i2 = ui2.store.add(
-      "MP",
-      { x: 0, y: 0, w: 1, h: 1 },
-      image.width,
-      image.height,
-    );
-  ui2.store.enable(true);
-  const pending = ui2.process(
-    { width: image.width, height: image.height, _pixels: image },
-    1000,
-  );
-  assert.match(activeWorker.url.href, /tracker\/quickslot-worker.js$/);
+    ...d2,
+    storage: { getItem: () => null, setItem() {} },
+    getCapture: () => capture,
+  });
+  const pending = ui2.process(frame(eight), 1000);
+  assert.match(active.url.href, /tracker\/quickslot-worker.js\?v=2$/);
   ui2.invalidate();
   await pending;
-  assert.equal(activeWorker.stopped, true);
+  assert.equal(active.stopped, true);
   assert.equal(
-    i2.count,
+    ui2.layout,
     null,
-    "A stopped or reconfigured worker must not save its outstanding result",
+    "A cancelled layout read must not update the UI",
   );
-  const work = ui2.process(
-    { width: image.width, height: image.height, _pixels: image },
-    2000,
-  );
-  activeWorker.onmessage({
-    data: { id: activeWorker.message.id, result: Q.recognize(image) },
-  });
-  await work;
-  assert.equal(i2.count, 305);
-  const before = jobs;
-  await ui2.process(
-    { width: image.width, height: image.height, _pixels: image },
-    12000,
-  );
-  assert.equal(jobs, before, "Unchanged count pixels reuse their result");
+  hold = false;
+  await ui2.process(frame(eight), 2000);
+  ui2.assignSlot(1, "red");
+  await ui2.process(frame(eight), 12000);
+  assert.equal(ui2.store.state.items[0].count, 66);
+  const before = slotJobs;
+  await ui2.process(frame(eight), 22000);
+  assert.equal(slotJobs, before, "Unchanged quantities reuse their result");
   ui2.dispose();
-  assert.equal(
-    activeWorker.stopped,
-    true,
-    "Page disposal terminates the item worker",
-  );
+  assert.equal(active.stopped, true);
   const { createContext, runInContext } = require("node:vm"),
     messages = [],
     scope = {
       self: { postMessage: (m) => messages.push(m) },
       importScripts: (...files) => {
         for (const file of files)
-          runInContext(fs.readFileSync(file, "utf8"), ctx);
+          runInContext(fs.readFileSync(file.split("?")[0], "utf8"), ctx);
       },
       Uint8Array,
       Uint8ClampedArray,
@@ -261,15 +328,18 @@ ui.store.enable(true);
   scope.globalThis = scope;
   const ctx = createContext(scope);
   runInContext(fs.readFileSync("quickslot-worker.js", "utf8"), ctx);
-  scope.self.onmessage({ data: { id: 7, image } });
-  assert.equal(messages[0].id, 7);
+  const p = Layout.prepare(twelve),
+    { patch, ...geometry } = p;
+  scope.self.onmessage({
+    data: { id: 8, kind: "layout", image: patch, geometry },
+  });
   assert.equal(
     messages[0].result.count,
-    305,
-    "Actual worker entry point imports the real font and matcher",
+    12,
+    "The actual worker entry point detects the real 12-slot reference",
   );
   console.log(
-    `Quickslots: ${fixtures.length} manually transcribed quantity crops, blank rejection, real worker pipeline, usage, restocks, fresh confirmation, pause/reload, bounded settings and resolution changes passed.`,
+    "Quickslots: real 8/12-slot HUDs, automatic quantities, potion assignments, separate saved layouts, usage/refills, cancellation, missing panels, worker imports and cached counts passed.",
   );
 })().catch((e) => {
   console.error(e);

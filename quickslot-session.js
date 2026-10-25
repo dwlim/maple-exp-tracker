@@ -16,16 +16,16 @@
       r.y + r.h <= 1.00001
     );
   }
-  function createStore({ storage, onChange = () => {} } = {}) {
+  function createStore({ storage, key = KEY, onChange = () => {} } = {}) {
     let saved;
     try {
-      saved = JSON.parse(storage?.getItem(KEY) || "null");
+      saved = JSON.parse(storage?.getItem(key) || "null");
     } catch {}
     const state = { enabled: saved?.enabled === true, items: [] },
       seen = new Map();
     let serial = 0;
     for (const v of Array.isArray(saved?.items)
-      ? saved.items.slice(0, 8)
+      ? saved.items.slice(0, 12)
       : []) {
       if (
         !validRegion(v.region) ||
@@ -39,6 +39,12 @@
       state.items.push({
         id: ++serial,
         label: v.label.slice(0, 40),
+        slot:
+          Number.isInteger(v.slot) && v.slot >= 0 && v.slot < 12
+            ? v.slot
+            : null,
+        potionType:
+          typeof v.potionType === "string" ? v.potionType.slice(0, 40) : null,
         region: { ...v.region },
         width: v.width,
         height: v.height,
@@ -56,7 +62,7 @@
     function changed() {
       try {
         storage?.setItem(
-          KEY,
+          key,
           JSON.stringify({
             enabled: state.enabled,
             items: state.items.map(({ at, pending, status, ...v }) => v),
@@ -74,7 +80,7 @@
       }
       onChange();
     }
-    function add(label, region, width, height, id) {
+    function add(label, region, width, height, id, meta = {}) {
       if (
         typeof label !== "string" ||
         !label.trim() ||
@@ -87,12 +93,20 @@
         return null;
       let item = state.items.find((v) => v.id === id);
       if (!item) {
-        if (state.items.length >= 8) return null;
+        if (state.items.length >= 12) return null;
         item = { id: ++serial, used: 0, seconds: 0 };
         state.items.push(item);
       }
       Object.assign(item, {
         label: label.trim().slice(0, 40),
+        slot:
+          Number.isInteger(meta.slot) && meta.slot >= 0 && meta.slot < 12
+            ? meta.slot
+            : null,
+        potionType:
+          typeof meta.potionType === "string"
+            ? meta.potionType.slice(0, 40)
+            : null,
         region: { ...region },
         width,
         height,

@@ -8,7 +8,7 @@
     digit: t.digit,
     data: Float32Array.from(t.mask, (c) => parseInt(c, 16) / 15),
   }));
-  function recognize(image) {
+  function recognize(image, { digits = null, diagnostic = false } = {}) {
     const { width, height, data } = image;
     if (
       width < 5 ||
@@ -27,7 +27,7 @@
         b = data[i + 2],
         mn = Math.min(r, g, b);
       gray[p] =
-        Math.max(r, g, b) - mn > 80
+        Math.max(r, g, b) - mn > 80 || b + 8 < r || g + 8 < r
           ? 0
           : Math.max(0, Math.min(1, (mn - 45) / 130));
       if (gray[p] > 0.4) ink++;
@@ -42,8 +42,15 @@
             for (let b = -1; b <= 2; b++) {
               const w = width - l - r,
                 h = height - t - b;
-              if (w / n / h < 0.65 || w / n / h > 0.85 || h < 8) continue;
+              if (
+                (digits && n !== digits) ||
+                w / n / h < 0.65 ||
+                w / n / h > 0.85 ||
+                h < 8
+              )
+                continue;
               let error = 0,
+                worstError = 0,
                 margin = 1,
                 text = "",
                 valid = true;
@@ -74,10 +81,11 @@
                 const sorted = [...scores].sort((a, b) => a[1] - b[1]);
                 text += sorted[0][0];
                 error += sorted[0][1];
+                worstError = Math.max(worstError, sorted[0][1]);
                 margin = Math.min(margin, sorted[1][1] - sorted[0][1]);
               }
               if (!valid || /^0\d/.test(text)) continue;
-              const score = { text, error: error / n, margin };
+              const score = { text, error: error / n, margin, worstError };
               if (!choices.has(text) || choices.get(text).error > score.error)
                 choices.set(text, score);
             }
@@ -89,13 +97,58 @@
       best.margin < 0.045 ||
       (sorted[1] && sorted[1].error - best.error < 0.025)
     )
-      return null;
+      return diagnostic && best
+        ? { ...best, count: Number(best.text), accepted: false }
+        : null;
     return {
+      accepted: true,
+      worstError: best.worstError,
       count: Number(best.text),
       confidence: Math.round((1 - best.error) * 100),
       error: best.error,
       margin: best.margin,
     };
   }
-  return { recognize };
+  // Quantities share their row with icon graphics. Do not accept an extra
+  // weak glyph from the icon or truncate a plausible uncertain continuation.
+  function recognizeSlot(image) {
+    if (
+      image.height < 8 ||
+      image.width < 5 ||
+      image.width > 240 ||
+      image.height > 80
+    )
+      return null;
+    const candidates = new Map(),
+      widths = new Set(),
+      uncertain = [];
+    for (let n = 1; n <= 5; n++) {
+      const width = Math.min(image.width, Math.round(image.height * 0.75 * n));
+      if (widths.has(width)) continue;
+      widths.add(width);
+      const data = new Uint8ClampedArray(width * image.height * 4);
+      for (let y = 0; y < image.height; y++)
+        data.set(
+          image.data.slice(y * image.width * 4, (y * image.width + width) * 4),
+          y * width * 4,
+        );
+      const r = recognize(
+        { width, height: image.height, data },
+        { digits: n, diagnostic: true },
+      );
+      if (r?.accepted && r.worstError <= 0.08)
+        candidates.set(String(r.count), r);
+      else if (r && r.worstError <= 0.16 && r.error <= 0.1) uncertain.push(n);
+    }
+    const sorted = [...candidates].sort((a, b) => b[0].length - a[0].length),
+      best = sorted[0];
+    if (
+      !best ||
+      uncertain.some((n) => n > best[0].length) ||
+      sorted.some(([text]) => !best[0].startsWith(text))
+    )
+      return null;
+    return best[1];
+  }
+  return { recognize, recognizeSlot };
 });

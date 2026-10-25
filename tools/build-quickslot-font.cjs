@@ -15,7 +15,7 @@ for (const f of require("./quickslot-font-fixtures.json")) {
           b = data[i + 2],
           mn = Math.min(r, g, b),
           value =
-            Math.max(r, g, b) - mn > 80
+            Math.max(r, g, b) - mn > 80 || b + 8 < r || g + 8 < r
               ? 0
               : Math.max(0, Math.min(1, (mn - 45) / 130));
         mask += Math.round(value * 15).toString(16);
