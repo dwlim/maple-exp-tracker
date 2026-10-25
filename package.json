@@ -8,6 +8,7 @@
   "packageManager": "pnpm@11.25.0",
   "scripts": {
     "build": "node tools/build-app.cjs",
-    "check:build": "node tools/build-app.cjs --check"
+    "check:build": "node tools/build-app.cjs --check",
+    "test": "node tools/test-app.cjs"
   }
 }

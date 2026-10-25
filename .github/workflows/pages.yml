@@ -28,27 +28,14 @@ jobs:
       - name: Install OCR validation dependencies
         run: npx --yes pnpm@11.25.0 install --frozen-lockfile --ignore-scripts
       - name: Check browser capture and OCR
-        run: |
-          node tools/build-app.cjs --check
-          node tools/test-build.cjs
-          node tools/test-browser-capture.cjs
-          node tools/test-burst-capture.cjs
-          node tools/test-stream-card.cjs
-          node tools/test-debug-downloads.cjs
-          node tools/test-level-ocr.cjs
-          node tools/test-level-inference.cjs
-          node tools/test-hud-regions.cjs
-          node tools/test-percentage-only.cjs
-          node tools/test-local-ocr.cjs
-          node tools/test-hud-font.cjs
-          node tools/stress-hud-font.cjs --strict
+        run: node tools/test-app.cjs
       - uses: actions/configure-pages@v5
       - name: Prepare public app files
         run: |
           mkdir -p _site
           cp index.html _site/index.html
           cp -R assets _site/assets
-          cp level-ocr.js hud-ocr.js hud-regions.js local-ocr.js _site/
+          cp level-ocr.js hud-ocr.js hud-regions.js local-ocr.js session.js _site/
           cp tools/browser-ocr-check.html _site/ocr-check.html
           mkdir -p _site/assets/validation
           cp tools/stream-holdout-fixtures.json _site/assets/validation/

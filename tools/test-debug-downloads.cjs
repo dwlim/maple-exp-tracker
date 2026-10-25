@@ -1,13 +1,80 @@
-const fs=require('node:fs'),vm=require('node:vm'),assert=require('node:assert/strict'),html=fs.readFileSync('index.html','utf8');
-let clicked=0,created=0,revoked=0,filename='',timer;
-const checkbox={checked:true},status={};
-const ctx={debug:false,q:id=>id==='#debugDownloads'?checkbox:status,URL:{createObjectURL(){created++;return 'blob:test';},revokeObjectURL(){revoked++;}},document:{body:{appendChild(){}},createElement(){return {click(){clicked++;filename=this.download;},remove(){}};}},setTimeout(fn){timer=fn;},Date};
-vm.createContext(ctx);vm.runInContext(html.slice(html.indexOf('function downloadDebugFrame'),html.indexOf('function stopSharing')),ctx);
-const stamp=Date.UTC(2026,9,16,16,0,0),blob={};ctx.downloadDebugFrame(blob,stamp,false);assert.equal(clicked,0);
-ctx.debug=true;ctx.downloadDebugFrame(blob,stamp,true);ctx.downloadDebugFrame(blob,stamp);assert.equal(clicked,0,'Accepted or missing outcomes must never download');
-ctx.downloadDebugFrame(blob,stamp,false);assert.equal(clicked,1);assert.equal(filename,'maple-track-2026-10-16T16-00-00-000Z.png');assert.match(status.textContent,/requested/);timer();assert.equal(revoked,1);
-ctx.downloadDebugFrame(blob,stamp,false);assert.equal(clicked,1,'Same frame must not download twice');
-checkbox.checked=false;ctx.downloadDebugFrame(blob,stamp+10000,false);assert.equal(clicked,1);
-ctx.debug=false;checkbox.checked=true;ctx.downloadDebugFrame(blob,stamp+10000,false);assert.equal(clicked,1);assert.equal(created,1);
-assert.ok(html.includes("if(debug&&report&&!valid&&continuity.reason!=='Confirming level up on the next frame'&&levelResolution.reason!=='Confirming level from EXP on the next frame'){const rejectedBlob=frame._pngBlob||await new Promise(resolve=>frame.toBlob"),'Download must use the exact rejected snapshot; expected level-up confirmations are not recognition failures');
-console.log('Debug-only downloads, timestamp filenames, duplicate prevention, opt-out, normal-mode isolation and URL cleanup passed.');
+const assert = require("node:assert/strict"),
+  Debug = require("../debug-tools");
+let clicked = 0,
+  created = 0,
+  revoked = 0,
+  filename = "",
+  timer,
+  status,
+  checked = true;
+const config = {
+  enabled: false,
+  isDownloadEnabled: () => checked,
+  onDownload: (text) => (status = text),
+  URL: {
+    createObjectURL() {
+      created++;
+      return "blob:test";
+    },
+    revokeObjectURL() {
+      revoked++;
+    },
+  },
+  document: {
+    body: { appendChild() {} },
+    createElement() {
+      return {
+        click() {
+          clicked++;
+          filename = this.download;
+        },
+        remove() {},
+      };
+    },
+  },
+  setTimeout(fn) {
+    timer = fn;
+  },
+};
+const stamp = Date.UTC(2026, 9, 16, 16),
+  blob = {};
+let d = Debug.create(config);
+d.downloadFrame(blob, stamp, false);
+assert.equal(clicked, 0);
+d = Debug.create({ ...config, enabled: true });
+d.downloadFrame(blob, stamp, true);
+d.downloadFrame(blob, stamp);
+assert.equal(clicked, 0);
+d.downloadFrame(blob, stamp, false);
+assert.equal(clicked, 1);
+assert.equal(filename, "maple-track-2026-10-16T16-00-00-000Z.png");
+assert.match(status, /requested/);
+timer();
+assert.equal(revoked, 1);
+d.downloadFrame(blob, stamp, false);
+assert.equal(clicked, 1);
+checked = false;
+d.downloadFrame(blob, stamp + 10000, false);
+assert.equal(clicked, 1);
+Debug.create(config).downloadFrame(blob, stamp + 10000, false);
+assert.equal(created, 1);
+(async () => {
+  checked = true;
+  let encodes = 0;
+  const frame = {
+    _pngBlob: blob,
+    toBlob() {
+      encodes++;
+    },
+  };
+  await d.rejectFrame(frame, stamp + 20000);
+  assert.equal(encodes, 0, "Debug downloads reuse the exact preview PNG");
+  await Debug.create(config).rejectFrame(frame, stamp + 30000);
+  assert.equal(clicked, 2, "Normal mode cannot download error frames");
+  console.log(
+    "Debug module: explicit rejection, timestamp, duplication, opt-out, PNG reuse and cleanup passed.",
+  );
+})().catch((e) => {
+  console.error(e);
+  process.exitCode = 1;
+});

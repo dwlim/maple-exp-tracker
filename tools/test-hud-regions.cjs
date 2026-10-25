@@ -1,80 +1,334 @@
-const assert=require('node:assert/strict'),R=require('../hud-regions'),L=require('../level-ocr');require('../hud-ocr');
-const fixtures=require('./hud-region-fixtures.json');
+const assert = require("node:assert/strict"),
+  R = require("../hud-regions"),
+  L = require("../level-ocr");
+require("../hud-ocr");
+const fixtures = require("./hud-region-fixtures.json");
 // Only real HUD crops are stored. Composite them onto blank frames to vary position and size.
-function frame(f,scale=1,dx=0,dy=0){
- const width=Math.round(f.width*scale)+Math.max(dx,0),height=Math.round(f.height*scale),data=new Uint8ClampedArray(width*height*4);
- for(const p of f.patches)for(let y=0;y<Math.round(p.height*scale);y++)for(let x=0;x<Math.round(p.width*scale);x++){
-  const nx=Math.round(p.x*scale)+x+dx,ny=Math.round(p.y*scale)+y+dy;
-  if(nx<0||nx>=width||ny<0||ny>=height)continue;
-  const i=(Math.min(p.height-1,Math.floor(y/scale))*p.width+Math.min(p.width-1,Math.floor(x/scale)))*4;
-  data.set(p.data.slice(i,i+4),(ny*width+nx)*4);
- }
- return {width,height,data};
+function frame(f, scale = 1, dx = 0, dy = 0) {
+  const width = Math.round(f.width * scale) + Math.max(dx, 0),
+    height = Math.round(f.height * scale),
+    data = new Uint8ClampedArray(width * height * 4);
+  for (const p of f.patches)
+    for (let y = 0; y < Math.round(p.height * scale); y++)
+      for (let x = 0; x < Math.round(p.width * scale); x++) {
+        const nx = Math.round(p.x * scale) + x + dx,
+          ny = Math.round(p.y * scale) + y + dy;
+        if (nx < 0 || nx >= width || ny < 0 || ny >= height) continue;
+        const i =
+          (Math.min(p.height - 1, Math.floor(y / scale)) * p.width +
+            Math.min(p.width - 1, Math.floor(x / scale))) *
+          4;
+        data.set(p.data.slice(i, i + 4), (ny * width + nx) * 4);
+      }
+  return { width, height, data };
 }
-const pixels=(r,f)=>({x:Math.round(r.x*f.width),y:Math.round(r.y*f.height),w:Math.round(r.w*f.width),h:Math.round(r.h*f.height)});
-let count=0;
-for(const fixture of fixtures)for(const scale of [.75,1,1.5,2])for(const dx of [0,45]){
- const f=frame(fixture,scale,dx,dx?-20:0),regions=R.detect(f,L,MapleHudOcr);
- assert.ok(regions.level,`Missing level ${fixture.level}, scale ${scale}, shift ${dx}`);
- const text=L.recognize(R.crop(f,pixels(regions.level,f))).data.text;
- assert.ok(text===fixture.level||text.includes('?'),`Wrong level ${text}`);
- if(!fixture.occludedExp&&(fixture.percentageOnly?scale===1||regions.exp:scale>=1||regions.exp)){assert.ok(regions.exp,`Missing EXP at scale ${scale}`);const exp=MapleHudOcr.recognize(R.crop(f,pixels(regions.exp,f)));const expected=fixture.exp||(fixture.level==='2'?'5[14.71%]':'18[0.02%]');assert.ok(exp.text===expected||exp.text.includes('?'),`Wrong accepted EXP: ${exp.text}, expected ${expected}`);
-  if(fixture.percentageOnly&&scale===1){assert.equal(text,fixture.level);assert.equal(exp.text,fixture.exp,'Real compressed screenshot must preserve the percentage and exclude the panel border');assert.equal(MapleHudOcr.percentageReading(exp.text,fixture.requiredExp||1209994).exp,fixture.estimatedExp||1114283);}
-  if(fixture.level==='44'&&scale===1){assert.equal(text,'44','Blended tile seams must preserve both digits');assert.equal(MapleHudOcr.resolveReading(exp,428280).text,expected,'Level 44 must uniquely validate the EXP percentage');}
-  if(fixture.level==='32'&&scale===1){assert.equal(text,'32');assert.equal(exp.text,'412[0.34%]','Resized HUD must exclude the clipped EXP label and retain its decimal point');}
- }
- const tracked=R.detect(f,L,MapleHudOcr,{...regions,width:f.width,height:f.height});assert.ok(tracked.level);
- count++;
-}
+const pixels = (r, f) => ({
+  x: Math.round(r.x * f.width),
+  y: Math.round(r.y * f.height),
+  w: Math.round(r.w * f.width),
+  h: Math.round(r.h * f.height),
+});
+let count = 0;
+for (const fixture of fixtures)
+  for (const scale of [0.75, 1, 1.5, 2])
+    for (const dx of [0, 45]) {
+      const f = frame(fixture, scale, dx, dx ? -20 : 0),
+        regions = R.detect(f, L, MapleHudOcr);
+      assert.ok(
+        regions.level,
+        `Missing level ${fixture.level}, scale ${scale}, shift ${dx}`,
+      );
+      const text = L.recognize(R.crop(f, pixels(regions.level, f))).data.text;
+      assert.ok(
+        text === fixture.level || text.includes("?"),
+        `Wrong level ${text}`,
+      );
+      if (
+        !fixture.occludedExp &&
+        (fixture.percentageOnly
+          ? scale === 1 || regions.exp
+          : scale >= 1 || regions.exp)
+      ) {
+        assert.ok(regions.exp, `Missing EXP at scale ${scale}`);
+        const exp = MapleHudOcr.recognize(R.crop(f, pixels(regions.exp, f)));
+        const expected =
+          fixture.exp || (fixture.level === "2" ? "5[14.71%]" : "18[0.02%]");
+        assert.ok(
+          exp.text === expected || exp.text.includes("?"),
+          `Wrong accepted EXP: ${exp.text}, expected ${expected}`,
+        );
+        if (fixture.percentageOnly && scale === 1) {
+          assert.equal(text, fixture.level);
+          assert.equal(
+            exp.text,
+            fixture.exp,
+            "Real compressed screenshot must preserve the percentage and exclude the panel border",
+          );
+          assert.equal(
+            MapleHudOcr.percentageReading(
+              exp.text,
+              fixture.requiredExp || 1209994,
+            ).exp,
+            fixture.estimatedExp || 1114283,
+          );
+        }
+        if (fixture.level === "44" && scale === 1) {
+          assert.equal(
+            text,
+            "44",
+            "Blended tile seams must preserve both digits",
+          );
+          assert.equal(
+            MapleHudOcr.resolveReading(exp, 428280).text,
+            expected,
+            "Level 44 must uniquely validate the EXP percentage",
+          );
+        }
+        if (fixture.level === "32" && scale === 1) {
+          assert.equal(text, "32");
+          assert.equal(
+            exp.text,
+            "412[0.34%]",
+            "Resized HUD must exclude the clipped EXP label and retain its decimal point",
+          );
+        }
+      }
+      const tracked = R.detect(f, L, MapleHudOcr, {
+        ...regions,
+        width: f.width,
+        height: f.height,
+      });
+      assert.ok(tracked.level);
+      count++;
+    }
 // Localization must survive unreadable glyphs without turning them into accepted data.
-const labelled=frame(fixtures.find(f=>f.level==='68'));
-const cached=R.detect(labelled,L,MapleHudOcr),noOcr={recognize(){throw Error('Stable layout must not rerun OCR during localization');}};
-assert.deepEqual(R.detect(labelled,noOcr,noOcr,{...cached,width:labelled.width,height:labelled.height}),cached,'Validate cached labels before any full-frame search');
-const uncertainOcr={...MapleHudOcr,recognize:image=>{const r=MapleHudOcr.recognize(image);return r.text==='[54.37%]'?{...r,text:'[?437%]'}:r;}};
-assert.ok(R.detect(labelled,L,uncertainOcr).exp,'A labelled percentage HUD must remain located when a digit or decimal is unclear');
-assert.equal(MapleHudOcr.percentageReading('[?437%]',1854143),null,'Locating an uncertain percentage must not make it valid');
-const blank={width:800,height:600,data:new Uint8ClampedArray(800*600*4)};
-assert.deepEqual(R.detect(blank,L,MapleHudOcr),{level:null,exp:null});
-const f=frame(fixtures[1]),before=R.detect(f,L,MapleHudOcr),moved=frame(fixtures[1],1,90,-20),after=R.detect(moved,L,MapleHudOcr,{...before,width:f.width,height:f.height});
-assert.ok(after.level.x*moved.width>before.level.x*f.width+80,'Resize/move must reacquire the HUD');
-const shifted=frame(fixtures[1],1,-90,-20),reacquired=R.detect(shifted,L,MapleHudOcr,{...before,width:f.width,height:f.height});
-assert.ok(reacquired.level.x*shifted.width<before.level.x*f.width-80,'A move within the same surface must reacquire the HUD');
-const orphan=frame({...fixtures[1],patches:[]});
-const levelTile=require('./level56-fixture.json');
-for(let y=0;y<levelTile.height;y++)orphan.data.set(levelTile.data.slice(y*levelTile.width*4,(y+1)*levelTile.width*4),((orphan.height-50+y)*orphan.width+20)*4);
-assert.equal(R.detect(orphan,L,MapleHudOcr).level,null,'Orange tiles without the LV label are not a level HUD');
+const labelled = frame(fixtures.find((f) => f.level === "68"));
+const cached = R.detect(labelled, L, MapleHudOcr),
+  noOcr = {
+    recognize() {
+      throw Error("Stable layout must not rerun OCR during localization");
+    },
+  };
+assert.deepEqual(
+  R.detect(labelled, noOcr, noOcr, {
+    ...cached,
+    width: labelled.width,
+    height: labelled.height,
+  }),
+  cached,
+  "Validate cached labels before any full-frame search",
+);
+const uncertainOcr = {
+  ...MapleHudOcr,
+  recognize: (image) => {
+    const r = MapleHudOcr.recognize(image);
+    return r.text === "[54.37%]" ? { ...r, text: "[?437%]" } : r;
+  },
+};
+assert.ok(
+  R.detect(labelled, L, uncertainOcr).exp,
+  "A labelled percentage HUD must remain located when a digit or decimal is unclear",
+);
+assert.equal(
+  MapleHudOcr.percentageReading("[?437%]", 1854143),
+  null,
+  "Locating an uncertain percentage must not make it valid",
+);
+const blank = {
+  width: 800,
+  height: 600,
+  data: new Uint8ClampedArray(800 * 600 * 4),
+};
+assert.deepEqual(R.detect(blank, L, MapleHudOcr), { level: null, exp: null });
+const f = frame(fixtures[1]),
+  before = R.detect(f, L, MapleHudOcr),
+  moved = frame(fixtures[1], 1, 90, -20),
+  after = R.detect(moved, L, MapleHudOcr, {
+    ...before,
+    width: f.width,
+    height: f.height,
+  });
+assert.ok(
+  after.level.x * moved.width > before.level.x * f.width + 80,
+  "Resize/move must reacquire the HUD",
+);
+const shifted = frame(fixtures[1], 1, -90, -20),
+  reacquired = R.detect(shifted, L, MapleHudOcr, {
+    ...before,
+    width: f.width,
+    height: f.height,
+  });
+assert.ok(
+  reacquired.level.x * shifted.width < before.level.x * f.width - 80,
+  "A move within the same surface must reacquire the HUD",
+);
+const orphan = frame({ ...fixtures[1], patches: [] });
+const levelTile = require("./level56-fixture.json");
+for (let y = 0; y < levelTile.height; y++)
+  orphan.data.set(
+    levelTile.data.slice(
+      y * levelTile.width * 4,
+      (y + 1) * levelTile.width * 4,
+    ),
+    ((orphan.height - 50 + y) * orphan.width + 20) * 4,
+  );
+assert.equal(
+  R.detect(orphan, L, MapleHudOcr).level,
+  null,
+  "Orange tiles without the LV label are not a level HUD",
+);
 // Static native controls register a scaled HUD independently of OCR output.
-for(const c of require('./hud-anchor-fixtures.json'))for(const scale of [.75,1,1.5]){
- const rgba=require('node:zlib').inflateSync(Buffer.from(c.rgba,'base64'));
- const f=frame({width:c.width,height:c.height,patches:[{x:c.x,y:c.y,width:c.w,height:c.h,data:rgba}]},scale,35,-15);
- const anchor=R.anchors(f);assert.equal(anchor.length,1,`Cash Shop alignment: ${c.name} at ${scale}`);
- const regions=R.detect(f,L,MapleHudOcr);assert.ok(regions.level&&regions.exp,'Registered HUD must locate both fields');
- assert.ok(regions.level.x<regions.exp.x&&regions.exp.x*f.width<anchor[0].x);
- // Remove the neighboring controls: a lone red panel must not register a HUD.
- const b=anchor[0];for(let y=Math.floor(b.y);y<Math.min(f.height,Math.ceil(b.y+b.h));y++)for(let x=Math.floor(b.x+b.w);x<Math.min(f.width,Math.ceil(b.x+b.w*3.2));x++)f.data.fill(0,(y*f.width+x)*4,(y*f.width+x)*4+4);
- assert.equal(R.anchors(f).length,0,'Cash Shop color alone is insufficient');
-}
-const fs=require('node:fs'),vm=require('node:vm'),html=fs.readFileSync('index.html','utf8'),calibration={auto:false,level:{x:.1,y:.2,w:.1,h:.1},exp:{x:.4,y:.5,w:.2,h:.1}},context={state:{calibration}};
-vm.createContext(context);vm.runInContext(html.slice(html.indexOf('function currentRegions('),html.indexOf('\nfunction cropForOcr')),context);
-assert.equal(context.currentRegions({}),calibration,'Custom regions must bypass automatic detection');
-assert.ok(html.includes(fs.readFileSync('hud-regions.js','utf8')),'The deployed detector must match its tested source');
-console.log(`HUD detection: ${count} real-crop layouts at multiple scales/positions, tracking, reacquisition and blank rejection passed.`);
+for (const c of require("./hud-anchor-fixtures.json"))
+  for (const scale of [0.75, 1, 1.5]) {
+    const rgba = require("node:zlib").inflateSync(
+      Buffer.from(c.rgba, "base64"),
+    );
+    const f = frame(
+      {
+        width: c.width,
+        height: c.height,
+        patches: [{ x: c.x, y: c.y, width: c.w, height: c.h, data: rgba }],
+      },
+      scale,
+      35,
+      -15,
+    );
+    const anchor = R.anchors(f);
+    assert.equal(
+      anchor.length,
+      1,
+      `Cash Shop alignment: ${c.name} at ${scale}`,
+    );
+    const regions = R.detect(f, L, MapleHudOcr);
+    assert.ok(
+      regions.level && regions.exp,
+      "Registered HUD must locate both fields",
+    );
+    assert.ok(
+      regions.level.x < regions.exp.x && regions.exp.x * f.width < anchor[0].x,
+    );
+    // Remove the neighboring controls: a lone red panel must not register a HUD.
+    const b = anchor[0];
+    for (
+      let y = Math.floor(b.y);
+      y < Math.min(f.height, Math.ceil(b.y + b.h));
+      y++
+    )
+      for (
+        let x = Math.floor(b.x + b.w);
+        x < Math.min(f.width, Math.ceil(b.x + b.w * 3.2));
+        x++
+      )
+        f.data.fill(0, (y * f.width + x) * 4, (y * f.width + x) * 4 + 4);
+    assert.equal(
+      R.anchors(f).length,
+      0,
+      "Cash Shop color alone is insufficient",
+    );
+  }
+const calibration = {
+    auto: false,
+    level: { x: 0.1, y: 0.2, w: 0.1, h: 0.1 },
+    exp: { x: 0.4, y: 0.5, w: 0.2, h: 0.1 },
+  },
+  rec = require("../recognition").create({
+    state: { calibration },
+    getImage: () => ({}),
+  });
+assert.equal(
+  rec.currentRegions({}),
+  calibration,
+  "Custom regions bypass automatic detection",
+);
+console.log(
+  `HUD detection: ${count} real-crop layouts at multiple scales/positions, tracking, reacquisition and blank rejection passed.`,
+);
 
 // Real windowed capture: the geometric fallback used to include the P stem as a dot.
-for(const fixture of require('./windowed-hud-fixtures.json')){
- const f=frame({...fixture,patches:fixture.patches.map(p=>({...p,data:require('node:zlib').inflateSync(Buffer.from(p.rgba,'base64'))}))}),regions=R.detect(f,L,MapleHudOcr);
- assert.equal(L.recognize(R.crop(f,pixels(regions.level,f))).data.text,fixture.level);
- assert.equal(MapleHudOcr.recognize(R.crop(f,pixels(regions.exp,f))).text,fixture.exp,'Label fallback must exclude EXP ink without dropping amount digits');
+for (const fixture of require("./windowed-hud-fixtures.json")) {
+  const f = frame({
+      ...fixture,
+      patches: fixture.patches.map((p) => ({
+        ...p,
+        data: require("node:zlib").inflateSync(Buffer.from(p.rgba, "base64")),
+      })),
+    }),
+    regions = R.detect(f, L, MapleHudOcr);
+  assert.equal(
+    L.recognize(R.crop(f, pixels(regions.level, f))).data.text,
+    fixture.level,
+  );
+  assert.equal(
+    MapleHudOcr.recognize(R.crop(f, pixels(regions.exp, f))).text,
+    fixture.exp,
+    "Label fallback must exclude EXP ink without dropping amount digits",
+  );
 }
 
 // Stable covered HUDs should not rerun full recognition. Layout changes must reacquire.
-for(const fixture of require('./covered-exp-fixtures.json')){
- const unpacked={...fixture,patches:fixture.patches.map(p=>({...p,data:require('node:zlib').inflateSync(Buffer.from(p.rgba,'base64'))}))},f=frame(unpacked),r=R.detect(f,L,MapleHudOcr),previous={...r,width:f.width,height:f.height};
- const cached=R.detect(f,noOcr,noOcr,previous);assert.deepEqual(cached.exp,r.exp,'Covered HUD fast path retains exact percentage pixels');
- const moved=frame(unpacked,1,45),reacquired=R.detect(moved,L,MapleHudOcr,previous);assert.ok(reacquired.exp);assert.notEqual(reacquired.level.x,r.level.x,'Moved layouts must reacquire');
- const broken={...f,data:f.data.slice()},a=pixels(r.anchor,f);for(let y=a.y;y<a.y+a.h;y++)for(let x=a.x;x<a.x+a.w;x++)broken.data.fill(0,(y*f.width+x)*4,(y*f.width+x+1)*4);
- assert.ok(!R.detect(broken,L,MapleHudOcr,previous).percentageOnly,'Covered control row invalidates anchored percentage cache');
+for (const fixture of require("./covered-exp-fixtures.json")) {
+  const unpacked = {
+      ...fixture,
+      patches: fixture.patches.map((p) => ({
+        ...p,
+        data: require("node:zlib").inflateSync(Buffer.from(p.rgba, "base64")),
+      })),
+    },
+    f = frame(unpacked),
+    r = R.detect(f, L, MapleHudOcr),
+    previous = { ...r, width: f.width, height: f.height };
+  const cached = R.detect(f, noOcr, noOcr, previous);
+  assert.deepEqual(
+    cached.exp,
+    r.exp,
+    "Covered HUD fast path retains exact percentage pixels",
+  );
+  const moved = frame(unpacked, 1, 45),
+    reacquired = R.detect(moved, L, MapleHudOcr, previous);
+  assert.ok(reacquired.exp);
+  assert.notEqual(
+    reacquired.level.x,
+    r.level.x,
+    "Moved layouts must reacquire",
+  );
+  const broken = { ...f, data: f.data.slice() },
+    a = pixels(r.anchor, f);
+  for (let y = a.y; y < a.y + a.h; y++)
+    for (let x = a.x; x < a.x + a.w; x++)
+      broken.data.fill(0, (y * f.width + x) * 4, (y * f.width + x + 1) * 4);
+  assert.ok(
+    !R.detect(broken, L, MapleHudOcr, previous).percentageOnly,
+    "Covered control row invalidates anchored percentage cache",
+  );
 }
-const fullFixture=require('./monitor-oct23-hud-fixtures.json')[0],full=frame({...fullFixture,patches:fullFixture.patches.map(p=>({...p,data:require('node:zlib').inflateSync(Buffer.from(p.rgba,'base64'))}))}),fullRegions=R.detect(full,L,MapleHudOcr),button=R.anchors(full)[0];
-const restored=R.detect(full,L,MapleHudOcr,{...fullRegions,percentageOnly:true,field:fullRegions.exp,anchor:{x:button.x/full.width,y:button.y/full.height,w:button.w/full.width,h:button.h/full.height},width:full.width,height:full.height});
-assert.ok(!restored.percentageOnly,'Visible EXP label restores exact amount detection');assert.equal(MapleHudOcr.recognize(R.crop(full,pixels(restored.exp,full))).text,fullFixture.exp);
+const fullFixture = require("./monitor-oct23-hud-fixtures.json")[0],
+  full = frame({
+    ...fullFixture,
+    patches: fullFixture.patches.map((p) => ({
+      ...p,
+      data: require("node:zlib").inflateSync(Buffer.from(p.rgba, "base64")),
+    })),
+  }),
+  fullRegions = R.detect(full, L, MapleHudOcr),
+  button = R.anchors(full)[0];
+const restored = R.detect(full, L, MapleHudOcr, {
+  ...fullRegions,
+  percentageOnly: true,
+  field: fullRegions.exp,
+  anchor: {
+    x: button.x / full.width,
+    y: button.y / full.height,
+    w: button.w / full.width,
+    h: button.h / full.height,
+  },
+  width: full.width,
+  height: full.height,
+});
+assert.ok(
+  !restored.percentageOnly,
+  "Visible EXP label restores exact amount detection",
+);
+assert.equal(
+  MapleHudOcr.recognize(R.crop(full, pixels(restored.exp, full))).text,
+  fullFixture.exp,
+);

@@ -552,6 +552,1536 @@ return {detect,crop,anchors,percentageRegion};
 });
 </script>
 <!-- HUD REGIONS END -->
+<!-- SESSION START -->
+<script>(function (root, factory) {
+  if (typeof module === "object" && module.exports) module.exports = factory();
+  else root.MapleSession = factory();
+})(typeof window === "undefined" ? globalThis : window, function () {
+  "use strict";
+  const required = (l) => {
+    if (!Number.isInteger(l) || l < 1 || l > 99) return 0;
+    if (l <= 5) return (Math.floor((l * l) / 2) + 15) * l;
+    if (l <= 50) {
+      const q = Math.floor((l * l) / 3);
+      return (q + 19) * q;
+    }
+    if (l <= 89) return Math.floor((required(l - 1) * 10548) / 10000);
+    return Math.floor((required(l - 1) * 21) / 10);
+  };
+  const levelStartExp = (l) => {
+    let total = 0;
+    for (let n = 1; n < l; n++) total += required(n);
+    return total;
+  };
+  const totalExp = (s) => levelStartExp(s.level) + (s.exp || 0);
+  function parseHudReading(levelText, expText) {
+    const levelMatch =
+      levelText.match(/\bLV\s*\.?\s*(\d{1,3})\b/i) ||
+      levelText.trim().match(/^(\d{1,3})$/);
+    const pctMatch = expText.match(/(\d+(?:\.\d+)?)\s*%/);
+    const normalized = expText.replace(/\bEXP\s*[.:]?/gi, " ").trim();
+    // Read the amount before the percentage; OCR often drops a closing bracket.
+    const amountText = normalized
+      .split(/[\[(]/, 1)[0]
+      .replace(/\d+(?:\.\d+)?\s*%\s*[\])]?\s*$/, " ")
+      .trim();
+    const amountMatch = amountText.match(
+      /^(\d{1,3}(?:\s*[,.]\s*\d{3})+|\d+)\s*[\])]?\s*$/,
+    );
+    return {
+      levelMatch: levelMatch ? [levelMatch[1]] : null,
+      expToken: amountMatch?.[1]?.replace(/\s/g, "").replace(/\./g, ","),
+      pctToken: pctMatch?.[1],
+    };
+  }
+
+  function create({
+    storage,
+    key = "maple-track-v1",
+    levelOcr,
+    now = Date.now,
+    onChange = () => {},
+  } = {}) {
+    const defaults = {
+      samples: [],
+      level: null,
+      source: null,
+      running: false,
+      startAt: null,
+      calibration: { level: null, exp: null, auto: true },
+    };
+    let saved = {};
+    try {
+      saved = JSON.parse(storage?.getItem(key) || "{}") || {};
+    } catch {}
+    const state = {
+      ...defaults,
+      ...saved,
+      running: false,
+      source: null,
+      paused: false,
+    };
+    state.calibration ||= { level: null, exp: null };
+    if (
+      state.calibration.auto === undefined &&
+      (!state.calibration.level || !state.calibration.exp)
+    )
+      state.calibration = { level: null, exp: null, auto: true };
+    for (const sample of state.samples || []) {
+      const start = levelStartExp(sample.level);
+      if (sample.exp > required(sample.level) && sample.exp >= start)
+        sample.exp -= start;
+    }
+    let inferredLevelPending = null,
+      pendingLevel = null,
+      pendingLevelFrame = null;
+    const samples = () => state.samples.slice().sort((a, b) => a.t - b.t);
+    const save = () =>
+      storage?.setItem(
+        key,
+        JSON.stringify({
+          ...state,
+          screen: null,
+          interval: null,
+          updatedAt: now(),
+        }),
+      );
+    function clearPending() {
+      inferredLevelPending = null;
+      pendingLevel = pendingLevelFrame = null;
+    }
+    function addSample(level, exp, t = now(), reading = {}) {
+      if (
+        !Number.isFinite(level) ||
+        !Number.isFinite(exp) ||
+        level < 1 ||
+        level > 100 ||
+        exp < 0 ||
+        (level < 100 && exp > required(level))
+      )
+        return false;
+      state.level = level;
+      state.samples.push({
+        t,
+        level,
+        exp,
+        ...(reading.estimated ? { estimated: true, pct: reading.pct } : {}),
+      });
+      if (state.samples.length > 240) state.samples = state.samples.slice(-240);
+      onChange();
+      return true;
+    }
+    function reset() {
+      state.samples = [];
+      state.level = null;
+      state.startAt = now();
+      clearPending();
+      onChange();
+    }
+    function validate(levelResult, expResult, expectedDigits, readAt) {
+      const independent = parseHudReading("", expResult.rawText),
+        independentClean =
+          expResult.rawConfidence >= 35 &&
+          /^\d[\d.]*\[\d+\.\d{2}%\]$/.test(expResult.rawText),
+        levelResolution = levelOcr.resolveLevel(
+          levelResult,
+          independentClean
+            ? Number(independent.expToken?.replace(/,/g, ""))
+            : NaN,
+          independentClean ? Number(independent.pctToken) : NaN,
+          required,
+          inferredLevelPending,
+          readAt,
+        );
+      inferredLevelPending = levelResolution.pending;
+      const resolvedLevelResult = {
+        data: {
+          text:
+            levelResolution.level === null
+              ? "?"
+              : String(levelResolution.level),
+          confidence:
+            levelResolution.source === "exp"
+              ? expResult.data.confidence
+              : levelResult.data.confidence,
+        },
+      };
+      const { levelMatch, expToken, pctToken } = parseHudReading(
+          resolvedLevelResult.data.text,
+          expResult.data.text,
+        ),
+        level = levelMatch ? Number(levelMatch[0]) : NaN,
+        exp = expToken
+          ? Number(expToken.replace(/,/g, ""))
+          : (expResult.percentageOnly?.exp ?? NaN),
+        pct = pctToken ? Number(pctToken) : null,
+        confidence = Math.round(
+          (resolvedLevelResult.data.confidence + expResult.data.confidence) / 2,
+        ),
+        requiredExp = required(level),
+        computedPct = requiredExp ? (exp / requiredExp) * 100 : 0,
+        pctOkay =
+          pct === null || !requiredExp || Math.abs(computedPct - pct) <= 0.03,
+        continuity = levelOcr.checkContinuity(
+          resolvedLevelResult,
+          state.level,
+          pendingLevelFrame !== readAt ? pendingLevel : null,
+        ),
+        valid =
+          continuity.accepted &&
+          Number.isInteger(level) &&
+          level >= 1 &&
+          level <= 100 &&
+          Number.isFinite(exp) &&
+          exp >= 0 &&
+          (level === 100 || exp <= requiredExp) &&
+          confidence >= 35 &&
+          pctOkay &&
+          !expResult.uncertain &&
+          (levelResolution.source === "exp" ||
+            !expectedDigits ||
+            String(level).length === expectedDigits);
+      const rejectionReason =
+        levelResolution.reason ||
+        (!continuity.accepted ? continuity.reason : null) ||
+        (expResult.uncertain
+          ? "EXP characters are unclear. Keep the HUD visible or reset custom regions."
+          : !Number.isFinite(exp)
+            ? "No readable EXP amount or percentage"
+            : !pctOkay
+              ? "EXP amount and percentage disagree for level " + level
+              : confidence < 35
+                ? "Reading confidence is too low"
+                : "Reading skipped. Check that the complete level and EXP text are visible.");
+      pendingLevel = continuity.pending;
+      pendingLevelFrame = readAt;
+      return {
+        levelMatch,
+        expToken,
+        pctToken,
+        level,
+        exp,
+        pct,
+        confidence,
+        requiredExp,
+        computedPct,
+        continuity,
+        levelResolution,
+        valid,
+        rejectionReason,
+        retry:
+          !valid &&
+          !(continuity.reason || "").includes("differs from saved level"),
+      };
+    }
+    return {
+      state,
+      key,
+      samples,
+      save,
+      addSample,
+      reset,
+      clearPending,
+      validate,
+      math: { required, totalExp, levelStartExp },
+    };
+  }
+  return { required, levelStartExp, totalExp, parseHudReading, create };
+});
+</script>
+<!-- SESSION END -->
+<!-- RECOGNITION START -->
+<script>(function (root, factory) {
+  if (typeof module === "object" && module.exports) module.exports = factory();
+  else root.MapleRecognition = factory();
+})(typeof window === "undefined" ? globalThis : window, function () {
+  "use strict";
+  function create({
+    document,
+    state,
+    levelOcr,
+    hudOcr,
+    hudRegions,
+    localOcr,
+    required,
+    getImage,
+    debug = false,
+    onExpPreview = () => {},
+  }) {
+    function readExpGlyphs(region, frame, level) {
+      const pixels = cropLevelDigits(region, frame),
+        raw = hudOcr.recognize(pixels),
+        result = hudOcr.resolveReading(raw, required(level));
+      if (debug) onExpPreview(pixels);
+      const prior = state.samples.at(-1),
+        percentageOnly = hudOcr.percentageReading(
+          result.text,
+          required(level),
+          prior?.level === level ? prior.exp : null,
+        );
+      return {
+        rawText: raw.text,
+        rawConfidence: raw.confidence,
+        data: { text: result.text, confidence: result.confidence },
+        percentageOnly,
+        uncertain:
+          result.text.includes("?") ||
+          (!percentageOnly && !/^\d[\d.]*\[\d+\.\d{2}%\]$/.test(result.text)),
+      };
+    }
+    function cropLevelDigits(region, frame) {
+      if (frame._pixels)
+        return hudRegions.crop(frame._pixels, {
+          x: Math.round(region.x * frame.width),
+          y: Math.round(region.y * frame.height),
+          w: Math.max(1, Math.round(region.w * frame.width)),
+          h: Math.max(1, Math.round(region.h * frame.height)),
+        });
+      const c = document.createElement("canvas");
+      c.width = Math.max(1, Math.round(region.w * frame.width));
+      c.height = Math.max(1, Math.round(region.h * frame.height));
+      const ctx = c.getContext("2d");
+      ctx.drawImage(
+        frame,
+        Math.round(region.x * frame.width),
+        Math.round(region.y * frame.height),
+        c.width,
+        c.height,
+        0,
+        0,
+        c.width,
+        c.height,
+      );
+      return ctx.getImageData(0, 0, c.width, c.height);
+    }
+    function currentRegions(image = getImage()) {
+      if (state.calibration?.auto === false) return state.calibration;
+      if (!image?.naturalWidth) return { level: null, exp: null };
+      if (image._autoRegionSource === image.src) return image._autoRegions;
+      const c = document.createElement("canvas");
+      c.width = image.naturalWidth;
+      c.height = image.naturalHeight;
+      const ctx = c.getContext("2d");
+      ctx.drawImage(image, 0, 0);
+      const regions = hudRegions.detect(
+        ctx.getImageData(0, 0, c.width, c.height),
+        levelOcr,
+        hudOcr,
+        image._trackedHud,
+      );
+      image._trackedHud = { ...regions, width: c.width, height: c.height };
+      image._autoRegionSource = image.src;
+      image._autoRegions = regions;
+      return regions;
+    }
+
+    async function refineReadings(frame, regions, levelResult, expResult) {
+      if (
+        !localOcr ||
+        (!levelResult.data.text.includes("?") && !expResult.uncertain)
+      )
+        return { levelResult, expResult };
+      const r = regions.level,
+        pixels = r ? (r.h * frame.height) / frame.width : 0,
+        panel = r
+          ? {
+              x: Math.max(0, r.x - pixels * 3),
+              y: Math.max(0, r.y - r.h * 0.6),
+              w: r.w + pixels * 3.4,
+              h: r.h * 2,
+            }
+          : null;
+      const result = await localOcr.read({
+        levelImage: panel ? cropLevelDigits(panel, frame) : null,
+        expImage: cropLevelDigits(regions.exp, frame),
+        nativeLevel: levelResult,
+        nativeExp: {
+          text: expResult.rawText,
+          confidence: expResult.rawConfidence,
+        },
+      });
+      if (result.level)
+        levelResult = {
+          ...levelResult,
+          data: {
+            text: result.level.text,
+            confidence: result.level.confidence,
+          },
+          engine: "tesseract",
+        };
+      const raw = result.exp || {
+          text: expResult.rawText,
+          confidence: expResult.rawConfidence,
+        },
+        level = Number(levelResult.data.text),
+        resolved = hudOcr.resolveReading(raw, required(level)),
+        prior = state.samples.at(-1),
+        percentageOnly = hudOcr.percentageReading(
+          resolved.text,
+          required(level),
+          prior?.level === level ? prior.exp : null,
+        );
+      expResult = {
+        rawText: raw.text,
+        rawConfidence: raw.confidence,
+        data: { text: resolved.text, confidence: resolved.confidence },
+        percentageOnly,
+        uncertain:
+          resolved.text.includes("?") ||
+          (!percentageOnly && !/^\d[\d.]*\[\d+\.\d{2}%\]$/.test(resolved.text)),
+        engine: result.exp ? "tesseract" : expResult.engine,
+      };
+      return { levelResult, expResult };
+    }
+    async function decodeFrame(frame) {
+      const pixels = frame
+          .getContext("2d")
+          .getImageData(0, 0, frame.width, frame.height),
+        regions = {
+          ...(state.calibration.auto === false
+            ? state.calibration
+            : hudRegions.detect(
+                pixels,
+                levelOcr,
+                hudOcr,
+                getImage()._trackedHud,
+              )),
+        };
+      frame._pixels = pixels;
+      frame._hudRegions = regions;
+      getImage()._trackedHud = {
+        ...regions,
+        width: frame.width,
+        height: frame.height,
+      };
+      if (!regions?.exp) return;
+      const crop = regions.level
+        ? cropLevelDigits(regions.level, frame)
+        : { width: 1, height: 1, data: new Uint8ClampedArray(4) };
+      const levelResult = levelOcr.recognize(crop),
+        expResult = readExpGlyphs(
+          regions.exp,
+          frame,
+          Number(levelResult.data.text),
+        );
+      frame._reading = await refineReadings(
+        frame,
+        regions,
+        levelResult,
+        expResult,
+      );
+    }
+
+    function reset() {
+      const image = getImage();
+      if (image) {
+        image._trackedHud = null;
+        image._autoRegionSource = null;
+      }
+    }
+    return {
+      readExpGlyphs,
+      cropLevelDigits,
+      currentRegions,
+      refineReadings,
+      decodeFrame,
+      reset,
+    };
+  }
+  return { create };
+});
+</script>
+<!-- RECOGNITION END -->
+<!-- DEBUG TOOLS START -->
+<script>(function (root, factory) {
+  if (typeof module === "object" && module.exports) module.exports = factory();
+  else root.MapleDebugTools = factory();
+})(typeof window === "undefined" ? globalThis : window, function () {
+  "use strict";
+  function create({
+    document,
+    URL,
+    setTimeout,
+    enabled = false,
+    isDownloadEnabled = () => true,
+    onDownload = () => {},
+  }) {
+    function downloadDebugFrame(blob, timestamp, accepted) {
+      if (
+        accepted !== false ||
+        !enabled ||
+        !isDownloadEnabled() ||
+        downloadDebugFrame.lastFrame === timestamp
+      )
+        return;
+      downloadDebugFrame.lastFrame = timestamp;
+      const url = URL.createObjectURL(blob),
+        a = document.createElement("a");
+      a.href = url;
+      a.download =
+        "maple-track-" +
+        new Date(timestamp).toISOString().replace(/[:.]/g, "-") +
+        ".png";
+      document.body.appendChild(a);
+      try {
+        a.click();
+        onDownload(
+          "Download requested · " +
+            new Date(timestamp).toLocaleTimeString() +
+            " · allow multiple downloads if prompted",
+        );
+      } finally {
+        a.remove();
+        setTimeout(() => URL.revokeObjectURL(url), 30000);
+      }
+    }
+
+    async function rejectFrame(frame, timestamp) {
+      if (!enabled || !frame) return;
+      const blob =
+        frame._pngBlob ||
+        (await new Promise((resolve) => frame.toBlob(resolve, "image/png")));
+      if (blob) downloadDebugFrame(blob, timestamp, false);
+    }
+    return { downloadFrame: downloadDebugFrame, rejectFrame };
+  }
+  return { create };
+});
+</script>
+<!-- DEBUG TOOLS END -->
+<!-- DASHBOARD START -->
+<script>(function (root, factory) {
+  if (typeof module === "object" && module.exports) module.exports = factory();
+  else root.MapleDashboard = factory();
+})(typeof window === "undefined" ? globalThis : window, function () {
+  "use strict";
+  function create({
+    document,
+    window,
+    session,
+    recognition,
+    getCapture,
+    debug = false,
+    now: clock = Date.now,
+  }) {
+    const q = (s) => document.querySelector(s),
+      { state, samples, save } = session,
+      { required, totalExp } = session.math;
+    const fmt = (n) => Math.round(n || 0).toLocaleString("en-US"),
+      setTimeout = window.setTimeout.bind(window);
+    const currentRegions = (image) => recognition.currentRegions(image);
+    let selecting = null,
+      dragStart = null,
+      dragCurrent = null;
+    function update() {
+      const captureStream = getCapture()?.stream;
+      const ss = samples(),
+        now = clock(),
+        old = ss[0],
+        latest = ss[ss.length - 1];
+      let base = ss.filter((s) => s.t >= now - 300000)[0];
+      if (!base && latest && latest.t >= now - 300000) base = old;
+      let rate = 0;
+      if (
+        base &&
+        latest &&
+        latest.t > base.t &&
+        totalExp(latest) >= totalExp(base)
+      )
+        rate =
+          (totalExp(latest) - totalExp(base)) / ((latest.t - base.t) / 3600000);
+      if (state.level !== null) {
+        q("#level").textContent = state.level;
+        q("#classLabel").textContent = "CHARACTER TRACKING";
+      } else q("#level").textContent = "—";
+      const gained =
+        old && latest ? Math.max(0, totalExp(latest) - totalExp(old)) : 0;
+      q("#gained").textContent = fmt(gained);
+      q("#rate").textContent = rate ? fmt(rate) : "—";
+      q("#pace").textContent = rate ? fmt(rate / 12) + " / 5m" : "—";
+      q("#rateHint").textContent =
+        ss.length < 2
+          ? "Waiting for more samples"
+          : "Based on trailing 5 minutes";
+      if (ss.some((s) => s.estimated)) {
+        if (rate) {
+          q("#rate").textContent = "~" + fmt(rate);
+          q("#pace").textContent = "~" + fmt(rate / 12) + " / 5m";
+        }
+        if (gained) q("#gained").textContent = "~" + fmt(gained);
+        q("#rateHint").textContent = "Estimated from rounded HUD percentages";
+      }
+      const lvl = state.level,
+        req = lvl ? required(lvl) : 0,
+        expIn = latest ? latest.exp || 0 : 0,
+        pct = req ? Math.max(0, Math.min(100, (expIn / req) * 100)) : 0;
+      q("#progressFill").style.width = pct + "%";
+      q("#percent").textContent = pct.toFixed(2) + "% to next level";
+      q("#remaining").textContent = req
+        ? fmt(Math.max(0, req - expIn)) + " EXP TO GO"
+        : "— EXP TO GO";
+      if (lvl >= 100) {
+        q("#eta").textContent = "MAX LEVEL";
+        q("#etaNote").textContent = "Level cap";
+      } else if (req && rate > 0) {
+        const ms = Math.max(0, ((req - expIn) / rate) * 3600000);
+        q("#eta").textContent =
+          ms < 60000
+            ? "under 1 min"
+            : ms < 3600000
+              ? Math.round(ms / 60000) + " min"
+              : Math.floor(ms / 3600000) +
+                "h " +
+                Math.round((ms % 3600000) / 60000) +
+                "m";
+        q("#etaNote").textContent = ss.some((s) => s.estimated)
+          ? "at estimated pace"
+          : "at current pace";
+      } else {
+        q("#eta").textContent = "—";
+        q("#etaNote").textContent =
+          ss.length < 2 ? "Need more data" : "No recent EXP gain";
+      }
+      if (q("#nextLevelEta")) {
+        q("#nextLevelEta").textContent = q("#eta").textContent;
+        q("#nextLevelEtaHint").textContent = q("#etaNote").textContent;
+      }
+      q("#shareGameBtn").disabled = !!getCapture()?.connecting;
+      q("#shareGameBtn").classList.toggle("hidden", !!captureStream);
+      q("#stopSharingBtn").classList.toggle("hidden", !captureStream);
+      q("#sharePreview").classList.toggle("hidden", !captureStream);
+      const pauseButton = q("#pauseSessionBtn");
+      if (pauseButton) {
+        pauseButton.classList.toggle("hidden", !captureStream);
+        pauseButton.textContent = state.paused
+          ? "Resume session"
+          : "Pause session";
+        pauseButton.setAttribute?.(
+          "aria-pressed",
+          String(Boolean(state.paused)),
+        );
+      }
+      q("#sampleCount").textContent =
+        ss.length + " sample" + (ss.length === 1 ? "" : "s");
+      q("#liveState").textContent = state.paused
+        ? "PAUSED"
+        : state.running
+          ? "TRACKING"
+          : "READY";
+      q("#sourceState").textContent = state.source || "NOT CONNECTED";
+      q("#sourceState").style.color = state.source ? "var(--lime)" : "";
+      if (state.startAt) {
+        let sec = Math.floor((now - state.startAt) / 1000);
+        q("#sessionTime").textContent = [
+          Math.floor(sec / 3600),
+          Math.floor((sec % 3600) / 60),
+          sec % 60,
+        ]
+          .map((n) => String(n).padStart(2, "0"))
+          .join(":");
+      }
+      q("#lastSample").textContent = latest
+        ? "LAST CAPTURE · " +
+          new Date(latest.t).toLocaleTimeString([], {
+            hour: "2-digit",
+            minute: "2-digit",
+            second: "2-digit",
+          })
+        : "NO CAPTURE YET";
+      draw(ss);
+      drawLog(ss);
+      updateRateHint(ss);
+      save();
+    }
+    function updateRateHint(ss = samples()) {
+      const captureStream = getCapture()?.stream;
+      const status = q("#trackingStatus"),
+        kind = status?.dataset?.state;
+      let text;
+      if (kind === "error" || kind === "waiting") text = status.textContent;
+      else if (!ss.length)
+        text = captureStream
+          ? "Waiting for the first accepted reading"
+          : "Share your game window to start";
+      else if (ss.length === 1)
+        text = captureStream
+          ? "1 reading saved · waiting for the next capture"
+          : "Resume sharing to collect another reading";
+      else
+        text = ss.some((s) => s.estimated)
+          ? "Estimated from rounded HUD percentages"
+          : "Based on trailing 5 minutes";
+      q("#rateHint").textContent = text;
+    }
+    function draw(ss) {
+      const key =
+        ss.length +
+        ":" +
+        ss[0]?.t +
+        ":" +
+        ss.at(-1)?.t +
+        ":" +
+        ss.at(-1)?.exp +
+        ":" +
+        ss.at(-1)?.level;
+      if (draw.lastKey === key) return;
+      draw.lastKey = key;
+      const g = q("#chartContent");
+      g.innerHTML = "";
+      if (ss.length < 2) {
+        g.innerHTML =
+          '<text class="empty" x="350" y="88" text-anchor="middle">Your EXP curve will appear after a couple of captures</text>';
+        return;
+      }
+      let vals = ss.map(totalExp),
+        min = Math.min(...vals),
+        max = Math.max(...vals);
+      if (max === min) max = min + 1;
+      const x = (i) => 30 + (i / (ss.length - 1)) * 650,
+        y = (v) => 142 - ((v - min) / (max - min)) * 112;
+      for (let k = 0; k < 4; k++) {
+        let yy = 30 + k * 37;
+        g.insertAdjacentHTML(
+          "beforeend",
+          `<line class="gridline" x1="30" y1="${yy}" x2="690" y2="${yy}"/>`,
+        );
+      }
+      let path = ss
+          .map((s, i) => (i ? "L" : "M") + x(i) + " " + y(totalExp(s)))
+          .join(" "),
+        area = path + ` L 680 148 L 30 148 Z`;
+      g.insertAdjacentHTML(
+        "beforeend",
+        `<path class="area" d="${area}"/><path class="line" d="${path}"/><circle class="dot" cx="${x(ss.length - 1)}" cy="${y(vals.at(-1))}" r="4"/><text x="30" y="164">${new Date(ss[0].t).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}</text><text x="690" y="164" text-anchor="end">${new Date(ss.at(-1).t).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}</text>`,
+      );
+    }
+    function drawLog(ss) {
+      const key = ss
+        .slice(-4)
+        .map(
+          (s) => s.t + ":" + s.level + ":" + s.exp + ":" + Boolean(s.estimated),
+        )
+        .join("|");
+      if (drawLog.lastKey === key) return;
+      drawLog.lastKey = key;
+      q("#logList").innerHTML =
+        ss
+          .slice(-4)
+          .reverse()
+          .map(
+            (s) =>
+              `<div class="log-item"><span>${new Date(s.t).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit", second: "2-digit" })}</span><b>Lv. ${s.level} · ${s.estimated ? "≈ " : ""}${fmt(s.exp)} EXP</b><span>capture</span></div>`,
+          )
+          .join("") ||
+        '<div class="log-item"><span>—</span><b>No captures yet</b><span>—</span></div>';
+    }
+    function notice(s) {
+      q("#notice").textContent = s;
+      q("#notice").classList.add("show");
+      setTimeout(() => q("#notice").classList.remove("show"), 4500);
+    }
+
+    function beginRegionSelection(name) {
+      if (state.calibration.auto !== false)
+        state.calibration = { ...currentRegions(), auto: false };
+      selecting = selecting === name ? null : name;
+      dragStart = dragCurrent = null;
+      updateRegionStatus();
+      drawRegions();
+    }
+
+    function updateRegionStatus() {
+      const automatic = state.calibration?.auto !== false;
+      const regions = currentRegions(),
+        l = regions?.level,
+        e = regions?.exp;
+      q("#regionStatus").textContent =
+        `${automatic ? "Auto regions" : "Custom regions"} · Level ${l ? "ready" : "unset"} · EXP ${e ? "ready" : "unset"}${selecting ? ` · Drag to select ${selecting}` : ""}`;
+      q("#pickLevel")?.classList.toggle("active", selecting === "level");
+      q("#pickExp")?.classList.toggle("active", selecting === "exp");
+    }
+    function drawRegions() {
+      if (!debug) return;
+      const canvas = q("#frameCanvas"),
+        img = q("#latestFrame");
+      if (!canvas || !img || !img.naturalWidth) return;
+      const ctx = canvas.getContext("2d");
+      canvas.width = img.naturalWidth;
+      canvas.height = img.naturalHeight;
+      ctx.clearRect(0, 0, canvas.width, canvas.height);
+      const colors = { level: "#c7f36b", exp: "#a995ff" };
+      const regions = currentRegions(img);
+      for (const name of ["level", "exp"]) {
+        const r = regions[name];
+        if (!r) continue;
+        const x = r.x * canvas.width,
+          y = r.y * canvas.height,
+          w = r.w * canvas.width,
+          h = r.h * canvas.height;
+        ctx.fillStyle = colors[name] + "22";
+        ctx.strokeStyle = colors[name];
+        ctx.lineWidth = Math.max(3, canvas.width / 600);
+        ctx.fillRect(x, y, w, h);
+        ctx.strokeRect(x, y, w, h);
+        ctx.font = `bold ${Math.max(18, canvas.width / 55)}px sans-serif`;
+        ctx.fillStyle = colors[name];
+        ctx.fillText(
+          name === "level" ? "LEVEL" : "EXP",
+          x + 4,
+          Math.max(18, y - 5),
+        );
+      }
+      if (dragStart && dragCurrent && selecting) {
+        const x = Math.min(dragStart.x, dragCurrent.x) * canvas.width,
+          y = Math.min(dragStart.y, dragCurrent.y) * canvas.height,
+          w = Math.abs(dragStart.x - dragCurrent.x) * canvas.width,
+          h = Math.abs(dragStart.y - dragCurrent.y) * canvas.height;
+        ctx.strokeStyle = colors[selecting];
+        ctx.lineWidth = Math.max(3, canvas.width / 600);
+        ctx.setLineDash([10, 6]);
+        ctx.strokeRect(x, y, w, h);
+        ctx.setLineDash([]);
+      }
+    }
+
+    function output(text) {
+      q("#ocrOutput").textContent = text;
+    }
+    function appendOutput(text) {
+      q("#ocrOutput").textContent += "\n" + text;
+    }
+    function status(kind, text) {
+      const el = q("#trackingStatus");
+      if (el) {
+        el.dataset.state = kind;
+        el.textContent = text;
+      }
+      updateRateHint();
+    }
+    function renderReading(result, levelResult, expResult, readAt) {
+      const {
+        levelMatch,
+        expToken,
+        pctToken,
+        exp,
+        pct,
+        confidence,
+        requiredExp,
+        computedPct,
+        levelResolution,
+        valid,
+        rejectionReason,
+      } = result;
+      output(
+        `Level OCR: ${levelMatch?.[0] || "not found"} · EXP OCR: ${expToken || (expResult.percentageOnly ? "~" + fmt(exp) : "not found")}${pctToken ? ` (${pctToken}%)` : ""} · confidence ${confidence}%` +
+          (pct !== null && requiredExp
+            ? ` · calculated ${computedPct.toFixed(2)}%`
+            : "") +
+          (levelResolution.source === "exp" ? " · level from EXP" : "") +
+          (expResult.percentageOnly ? " · EXP estimated from percentage" : "") +
+          (valid ? " · accepted" : " · needs review") +
+          "\nRaw level: " +
+          levelResult.data.text.trim() +
+          " | EXP glyphs: " +
+          expResult.data.text.trim(),
+      );
+      status(
+        valid ? "ok" : "waiting",
+        valid
+          ? "Tracking · Last read " + new Date(readAt).toLocaleTimeString()
+          : rejectionReason,
+      );
+    }
+    function saved(t) {
+      appendOutput("Saved " + new Date(t).toLocaleTimeString() + " sample.");
+    }
+    function reading(active) {
+      q("#readFrame").disabled = active;
+      if (active)
+        output("Reading locally (first fallback may download OCR files)…");
+    }
+    function captureError(stage, error) {
+      const detail = error?.message || String(error);
+      status(
+        "error",
+        "Could not read the shared window · " + stage + ": " + detail,
+      );
+      output("Capture failed during " + stage + ": " + detail);
+    }
+    function timing(ms, count) {
+      appendOutput(
+        "Capture + OCR: " +
+          (ms / 1000).toFixed(2) +
+          " s (" +
+          count +
+          " frame" +
+          (count === 1 ? "" : "s") +
+          ")",
+      );
+    }
+    function showExpPreview(pixels) {
+      const canvas = document.createElement("canvas");
+      canvas.width = pixels.width;
+      canvas.height = pixels.height;
+      canvas
+        .getContext("2d")
+        .putImageData(
+          new window.ImageData(pixels.data, pixels.width, pixels.height),
+          0,
+          0,
+        );
+      let preview = q("#expGlyphPreview");
+      if (!preview) {
+        preview = document.createElement("img");
+        preview.id = "expGlyphPreview";
+        preview.alt = "Exact EXP crop used by the digit matcher";
+        preview.style.cssText =
+          "display:block;max-width:100%;height:56px;object-fit:contain;object-position:left;image-rendering:pixelated;margin:10px 4px";
+        q("#ocrOutput").after(preview);
+      }
+      preview.src = canvas.toDataURL();
+      canvas.width = 0;
+      canvas.height = 0;
+    }
+    async function previewFrame(frame, cancelled = () => false) {
+      const image = q("#latestFrame"),
+        blob = await new Promise((resolve) =>
+          frame.toBlob(resolve, "image/png"),
+        );
+      if (!blob || cancelled()) return;
+      frame._pngBlob = blob;
+      const url = window.URL.createObjectURL(blob),
+        prior = image.dataset.url;
+      try {
+        await new Promise((resolve, reject) => {
+          image.onload = resolve;
+          image.onerror = reject;
+          image.src = url;
+        });
+      } catch (error) {
+        window.URL.revokeObjectURL(url);
+        throw error;
+      }
+      if (prior) window.URL.revokeObjectURL(prior);
+      image.dataset.url = url;
+      if (cancelled()) return;
+      if (frame._hudRegions) {
+        image._autoRegions = frame._hudRegions;
+        image._autoRegionSource = image.src;
+        image._trackedHud = {
+          ...frame._hudRegions,
+          width: frame.width,
+          height: frame.height,
+        };
+      }
+      image.classList.remove("hidden");
+      q("#frameStage").style.display = "inline-block";
+      q("#frameEmpty").classList.add("hidden");
+      q("#frameStatus").textContent =
+        "CAPTURE · " + new Date(frame._capturedAt).toLocaleTimeString();
+      drawRegions();
+      updateRegionStatus();
+    }
+    function bindCalibration() {
+      q("#pickLevel")?.addEventListener("click", () =>
+        beginRegionSelection("level"),
+      );
+      q("#pickExp")?.addEventListener("click", () =>
+        beginRegionSelection("exp"),
+      );
+      q("#clearRegions")?.addEventListener("click", () => {
+        state.calibration = { level: null, exp: null, auto: true };
+        selecting = dragStart = dragCurrent = null;
+        recognition.reset();
+        save();
+        updateRegionStatus();
+        drawRegions();
+      });
+      const canvas = q("#frameCanvas");
+      if (!canvas) return;
+      const position = (e) => {
+        const r = canvas.getBoundingClientRect();
+        return {
+          x: Math.max(0, Math.min(1, (e.clientX - r.left) / r.width)),
+          y: Math.max(0, Math.min(1, (e.clientY - r.top) / r.height)),
+        };
+      };
+      canvas.addEventListener("pointerdown", (e) => {
+        if (!selecting) return;
+        dragStart = position(e);
+        dragCurrent = dragStart;
+        canvas.setPointerCapture(e.pointerId);
+        drawRegions();
+      });
+      canvas.addEventListener("pointermove", (e) => {
+        if (!dragStart) return;
+        dragCurrent = position(e);
+        drawRegions();
+      });
+      canvas.addEventListener("pointerup", (e) => {
+        if (!dragStart || !selecting) return;
+        dragCurrent = position(e);
+        const x = Math.min(dragStart.x, dragCurrent.x),
+          y = Math.min(dragStart.y, dragCurrent.y),
+          w = Math.abs(dragStart.x - dragCurrent.x),
+          h = Math.abs(dragStart.y - dragCurrent.y);
+        if (w > 0.005 && h > 0.005)
+          state.calibration[selecting] = { x, y, w, h };
+        selecting = dragStart = dragCurrent = null;
+        save();
+        updateRegionStatus();
+        drawRegions();
+      });
+    }
+    function dispose() {
+      const image = q("#latestFrame");
+      if (image?.dataset?.url) {
+        window.URL.revokeObjectURL(image.dataset.url);
+        delete image.dataset.url;
+      }
+    }
+    return {
+      update,
+      updateRateHint,
+      status,
+      output,
+      appendOutput,
+      renderReading,
+      saved,
+      reading,
+      captureError,
+      timing,
+      showExpPreview,
+      previewFrame,
+      notice,
+      bindCalibration,
+      updateRegionStatus,
+      drawRegions,
+      dispose,
+      isAutomatic: () => q("#autoOcr").checked,
+    };
+  }
+  return { create };
+});
+</script>
+<!-- DASHBOARD END -->
+<!-- READER START -->
+<script>(function (root, factory) {
+  if (typeof module === "object" && module.exports) module.exports = factory();
+  else root.MapleReader = factory();
+})(typeof window === "undefined" ? globalThis : window, function () {
+  "use strict";
+  function create({
+    session,
+    recognition,
+    view,
+    debugTools,
+    getCapture,
+    debug = false,
+  }) {
+    let busy = false;
+    async function read(frame, timestamp, { report = true } = {}) {
+      if (session.state.paused || busy) return;
+      const generation = getCapture().generation;
+      busy = true;
+      view.reading(true);
+      try {
+        if (!frame._hudRegions || (frame._hudRegions.exp && !frame._reading))
+          await recognition.decodeFrame(frame);
+        if (
+          session.state.paused ||
+          generation !== getCapture().generation ||
+          !getCapture().stream
+        )
+          return;
+        const rawTime = Number(timestamp) || Date.now(),
+          readAt = rawTime < 1e12 ? rawTime * 1000 : rawTime;
+        if (!frame._hudRegions?.exp) {
+          session.clearPending();
+          view.status("waiting", "Looking for the EXP readout");
+          view.output(
+            "Looking for the EXP readout. Keep the bottom HUD visible and unobstructed, or select a custom region in debug mode.",
+          );
+          if (debug && report) await debugTools.rejectFrame(frame, readAt);
+          return { accepted: false, retry: true };
+        }
+        const { levelResult, expResult } = frame._reading,
+          result = session.validate(
+            levelResult,
+            expResult,
+            levelResult.expectedDigits,
+            readAt,
+          );
+        view.renderReading(result, levelResult, expResult, readAt);
+        const confirmation =
+          result.continuity.reason ===
+            "Confirming level up on the next frame" ||
+          result.levelResolution.reason ===
+            "Confirming level from EXP on the next frame";
+        if (debug && report && !result.valid && !confirmation)
+          await debugTools.rejectFrame(frame, readAt);
+        if (result.valid) {
+          const prior = session.state.samples.at(-1);
+          if (!prior || prior.t !== readAt)
+            session.addSample(
+              result.level,
+              result.exp,
+              readAt,
+              expResult.percentageOnly || {},
+            );
+          view.saved(readAt);
+        }
+        return { accepted: result.valid, retry: result.retry };
+      } catch (error) {
+        view.status("error", "Recognition unavailable · " + error.message);
+        view.output("OCR failed: " + error.message);
+        return { accepted: false, retry: false };
+      } finally {
+        busy = false;
+        view.reading(false);
+      }
+    }
+    return {
+      read,
+      get busy() {
+        return busy;
+      },
+    };
+  }
+  return { create };
+});
+</script>
+<!-- READER END -->
+<!-- CAPTURE START -->
+<script>(function (root, factory) {
+  if (typeof module === "object" && module.exports) module.exports = factory();
+  else root.MapleCapture = factory();
+})(typeof window === "undefined" ? globalThis : window, function () {
+  "use strict";
+  function create({
+    navigator,
+    video,
+    document,
+    session,
+    recognition,
+    reader,
+    view,
+    debugTools,
+    debug = false,
+    now = Date.now,
+    timers = { setTimeout, setInterval, clearInterval },
+  }) {
+    let stream = null,
+      timer = null,
+      generation = 0,
+      busy = false,
+      connecting = false;
+    const delay = (ms) =>
+      new Promise((resolve) => timers.setTimeout(resolve, ms));
+    function invalidate() {
+      generation++;
+      session.clearPending();
+    }
+    function stop() {
+      invalidate();
+      timers.clearInterval(timer);
+      timer = null;
+      const prior = stream;
+      stream = null;
+      if (prior) prior.getTracks().forEach((track) => track.stop());
+      video.pause();
+      video.srcObject = null;
+      recognition.reset();
+      session.state.running = false;
+      session.state.paused = false;
+      session.state.source = null;
+      view.status(
+        "waiting",
+        "Sharing stopped. Your session readings are saved.",
+      );
+      view.update();
+    }
+    async function captureFrame(force = false) {
+      if (
+        session.state.paused ||
+        busy ||
+        reader.busy ||
+        !stream ||
+        video.readyState < 2 ||
+        !video.videoWidth
+      )
+        return;
+      const run = generation,
+        canvases = [],
+        started = now();
+      let stage = "capture";
+      busy = true;
+      const cancelled = () =>
+        run !== generation || session.state.paused || !stream;
+      const capture = () => {
+        const frame = document.createElement("canvas");
+        canvases.push(frame);
+        frame.width = video.videoWidth;
+        frame.height = video.videoHeight;
+        frame.getContext("2d").drawImage(video, 0, 0);
+        frame._capturedAt = now();
+        return frame;
+      };
+      try {
+        const automatic = force || view.isAutomatic(),
+          firstTime = video.currentTime,
+          firstFrame = video.getVideoPlaybackQuality?.().totalVideoFrames;
+        let frame = capture(),
+          result;
+        if (automatic) {
+          await delay(0);
+          if (cancelled()) return;
+          stage = "recognition";
+          await recognition.decodeFrame(frame);
+          if (cancelled()) return;
+          result = await reader.read(frame, frame._capturedAt, {
+            report: false,
+          });
+          if (cancelled()) return;
+          if (result?.retry) {
+            await delay(250);
+            if (cancelled()) return;
+            const fresh =
+              Number.isFinite(firstFrame) && firstFrame > 0
+                ? video.getVideoPlaybackQuality?.().totalVideoFrames >
+                  firstFrame
+                : video.currentTime !== firstTime;
+            if (fresh) {
+              const prior = frame;
+              frame = capture();
+              prior.width = 0;
+              prior.height = 0;
+              delete prior._pixels;
+              stage = "retry recognition";
+              await recognition.decodeFrame(frame);
+              if (cancelled()) return;
+            }
+          }
+        }
+        if (debug || !automatic) {
+          stage = "preview";
+          await view.previewFrame(frame, cancelled);
+          if (cancelled()) return;
+        }
+        if (automatic && !result?.accepted)
+          await reader.read(frame, frame._capturedAt);
+      } catch (error) {
+        if (run === generation) {
+          view.captureError(stage, error);
+          if (debug) {
+            const failed = canvases.findLast(
+              (frame) => frame.width > 0 && frame.height > 0,
+            );
+            if (failed)
+              try {
+                await debugTools.rejectFrame(failed, failed._capturedAt);
+              } catch (downloadError) {
+                view.appendOutput(
+                  "Could not save diagnostic frame: " +
+                    (downloadError?.message || String(downloadError)),
+                );
+              }
+          }
+        }
+      } finally {
+        for (const frame of canvases) {
+          frame.width = 0;
+          frame.height = 0;
+          delete frame._pixels;
+        }
+        busy = false;
+        if (debug && run === generation)
+          view.timing(now() - started, canvases.length);
+      }
+    }
+    async function connect() {
+      if (!navigator.mediaDevices?.getDisplayMedia) {
+        view.status(
+          "error",
+          "Screen sharing is unavailable here. Open this page in Chrome or Edge using HTTPS or localhost.",
+        );
+        return;
+      }
+      connecting = true;
+      view.update();
+      let pending = null;
+      try {
+        pending = await navigator.mediaDevices.getDisplayMedia({
+          video: {
+            displaySurface: "window",
+            width: { ideal: 3840 },
+            height: { ideal: 2160 },
+            frameRate: { ideal: 5, max: 10 },
+          },
+          audio: false,
+        });
+        stop();
+        stream = pending;
+        const run = generation;
+        video.srcObject = pending;
+        await video.play();
+        if (run !== generation) return;
+        pending.getVideoTracks()[0].addEventListener(
+          "ended",
+          () => {
+            if (stream === pending) stop();
+          },
+          { once: true },
+        );
+        session.state.running = true;
+        session.state.source = "GAME WINDOW SHARED";
+        session.state.startAt ||= now();
+        view.status("waiting", "Reading your game window…");
+        view.update();
+        timer = timers.setInterval(captureFrame, 10000);
+        await captureFrame();
+      } catch (error) {
+        if (pending) stop();
+        view.status(
+          "waiting",
+          error.name === "NotAllowedError"
+            ? "Screen sharing was cancelled or blocked. Click Share game window to try again."
+            : "Could not start screen sharing: " + error.message,
+        );
+      } finally {
+        connecting = false;
+        view.update();
+      }
+    }
+    function togglePause() {
+      if (!stream) return;
+      session.state.paused = !session.state.paused;
+      session.state.running = !session.state.paused;
+      invalidate();
+      view.status(
+        "waiting",
+        session.state.paused
+          ? "Session paused · readings are saved. Resume when ready."
+          : "Resuming session · waiting for fresh readings",
+      );
+      view.update();
+      if (!session.state.paused) captureFrame();
+    }
+    return {
+      connect,
+      stop,
+      captureFrame,
+      togglePause,
+      invalidate,
+      get stream() {
+        return stream;
+      },
+      get generation() {
+        return generation;
+      },
+      get busy() {
+        return busy;
+      },
+      get connecting() {
+        return connecting;
+      },
+    };
+  }
+  return { create };
+});
+</script>
+<!-- CAPTURE END -->
+<!-- APP START -->
+<script>(function (root, factory) {
+  if (typeof module === "object" && module.exports)
+    module.exports = factory(
+      require("./session"),
+      require("./recognition"),
+      require("./reader"),
+      require("./capture"),
+      require("./dashboard"),
+      require("./debug-tools"),
+      require("./stream-card"),
+    );
+  else
+    root.MapleApp = factory(
+      root.MapleSession,
+      root.MapleRecognition,
+      root.MapleReader,
+      root.MapleCapture,
+      root.MapleDashboard,
+      root.MapleDebugTools,
+      root.MapleStreamCard,
+    );
+})(
+  typeof window === "undefined" ? globalThis : window,
+  function (
+    Session,
+    Recognition,
+    Reader,
+    Capture,
+    Dashboard,
+    DebugTools,
+    StreamCard,
+  ) {
+    "use strict";
+    function mount({
+      document,
+      window,
+      navigator,
+      storage,
+      location,
+      levelOcr,
+      hudOcr,
+      hudRegions,
+      localOcr,
+    }) {
+      const params = new URLSearchParams(location.search),
+        debug = params.get("debug") === "1",
+        q = (s) => document.querySelector(s),
+        key = "maple-track-v1";
+      document.body.classList.toggle("debug", debug);
+      if (params.get("stream") === "1") {
+        StreamCard.mount({
+          document,
+          window,
+          storage,
+          key,
+          required: Session.required,
+          totalExp: Session.totalExp,
+        });
+        return { dispose() {} };
+      }
+      let view, capture;
+      const session = Session.create({
+        storage,
+        key,
+        levelOcr,
+        onChange: () => view?.update(),
+      });
+      const recognition = Recognition.create({
+        document,
+        state: session.state,
+        levelOcr,
+        hudOcr,
+        hudRegions,
+        localOcr,
+        required: Session.required,
+        getImage: () => q("#latestFrame"),
+        debug,
+        onExpPreview: (pixels) => view.showExpPreview(pixels),
+      });
+      view = Dashboard.create({
+        document,
+        window,
+        session,
+        recognition,
+        getCapture: () => capture,
+        debug,
+      });
+      const debugTools = DebugTools.create({
+        document,
+        URL: window.URL,
+        setTimeout: window.setTimeout.bind(window),
+        enabled: debug,
+        isDownloadEnabled: () => q("#debugDownloads")?.checked !== false,
+        onDownload: (text) => {
+          const el = q("#debugDownloadStatus");
+          if (el) el.textContent = text;
+        },
+      });
+      const reader = Reader.create({
+        session,
+        recognition,
+        view,
+        debugTools,
+        getCapture: () => capture,
+        debug,
+      });
+      capture = Capture.create({
+        navigator,
+        video: q("#sharePreview"),
+        document,
+        session,
+        recognition,
+        reader,
+        view,
+        debugTools,
+        debug,
+        timers: {
+          setTimeout: window.setTimeout.bind(window),
+          setInterval: window.setInterval.bind(window),
+          clearInterval: window.clearInterval.bind(window),
+        },
+      });
+      const on = (id, fn) => q(id)?.addEventListener("click", fn);
+      on("#shareGameBtn", capture.connect);
+      on("#stopSharingBtn", capture.stop);
+      on("#readFrame", () => capture.captureFrame(true));
+      on("#pauseSessionBtn", capture.togglePause);
+      const manual = () => {
+        const level = window.prompt("Character level (for example, 52):");
+        if (level === null) return;
+        const exp = window.prompt(
+          "EXP gained within this level (for example, 542829):",
+        );
+        if (exp === null) return;
+        if (!session.addSample(Number(level), Number(exp)))
+          view.notice(
+            "Enter a level from 1 to 100 and current-level EXP within that level’s requirement.",
+          );
+      };
+      on("#manualBtn", manual);
+      on("#sampleBtn", () => {
+        if (!session.state.samples.length) manual();
+        else view.notice("Use Manual entry to add a sample.");
+      });
+      on("#newSessionBtn", () => {
+        if (
+          !window.confirm(
+            "Start a new session and clear the current session readings?",
+          )
+        )
+          return;
+        capture.invalidate();
+        session.reset();
+        view.status("waiting", "New session · Waiting for the next reading");
+      });
+      on("#streamCardBtn", () => {
+        const url = new URL(location.href);
+        url.search = "?stream=1";
+        const card = window.open(
+          url.href,
+          "maple-track-stream-card",
+          "popup=yes,width=420,height=410",
+        );
+        if (card) card.focus();
+        else
+          view.notice(
+            "Allow popups for Maple Track, then click Open stream card again.",
+          );
+      });
+      view.bindCalibration();
+      view.updateRegionStatus();
+      view.update();
+      const timer = window.setInterval(view.update, 5000);
+      let disposed = false;
+      function dispose() {
+        if (disposed) return;
+        disposed = true;
+        window.clearInterval(timer);
+        if (capture.stream) capture.stop();
+        view.dispose();
+        window.removeEventListener("pagehide", dispose);
+      }
+      window.addEventListener("pagehide", dispose, { once: true });
+      return { session, recognition, reader, capture, view, dispose };
+    }
+    return { mount };
+  },
+);
+</script>
+<!-- APP END -->
 </head>
 <body><main class="app">
 <header class="top"><div class="brand"><div class="mark">✦</div><div><strong>maple track</strong><span>classic exp companion</span></div></div><div class="topright"><span class="subtle">SESSION 01 · <span id="sessionTime">00:00:00</span></span><span class="live-pill"><i></i><span id="liveState">READY</span></span></div></header>
@@ -577,156 +2107,6 @@ return {detect,crop,anchors,percentageRegion};
 </section>
 </main>
 <script>
-(()=>{
-const q=s=>document.querySelector(s), params=new URLSearchParams(location.search), debug=params.get('debug')==='1';document.body.classList.toggle('debug',debug);let selecting=null,dragStart=null,dragCurrent=null;
-const KEY='maple-track-v1';let state={samples:[],level:null,source:null,running:false,startAt:null,screen:null,interval:null,calibration:{level:null,exp:null}};
-try{state={...state,...JSON.parse(localStorage.getItem(KEY)||'{}')}}catch{}
-let captureStream=null,captureTimer=null,captureGeneration=0,captureBusy=false;state.running=false;state.source=null;state.paused=false;
-let inferredLevelPending=null;
-let lastFrameTimestamp=null,pendingLevel=null,pendingLevelFrame=null,ocrRunning=false,queuedOcrTimestamp=null;
-const fmt=n=>Math.round(n||0).toLocaleString('en-US');const save=()=>localStorage.setItem(KEY,JSON.stringify({...state,screen:null,interval:null,updatedAt:Date.now()}));
-const required=l=>{if(!Number.isInteger(l)||l<1||l>99)return 0;if(l<=5)return (Math.floor(l*l/2)+15)*l;if(l<=50){const q=Math.floor(l*l/3);return(q+19)*q}if(l<=89)return Math.floor(required(l-1)*10548/10000);return Math.floor(required(l-1)*21/10)};
-const levelStartExp=l=>{let total=0;for(let n=1;n<l;n++)total+=required(n);return total};
-const totalExp=s=>levelStartExp(s.level)+(s.exp||0);
-if(params.get('stream')==='1'){MapleStreamCard.mount({document,window,storage:localStorage,key:KEY,required,totalExp});return;}
-state.calibration||={level:null,exp:null};if(state.calibration.auto===undefined&&(!state.calibration.level||!state.calibration.exp)){state.calibration={level:null,exp:null,auto:true}}for(const sample of state.samples||[]){const start=levelStartExp(sample.level);if(sample.exp>required(sample.level)&&sample.exp>=start)sample.exp-=start}
-const samples=()=>state.samples.slice().sort((a,b)=>a.t-b.t);
-function update(){
- const ss=samples(),now=Date.now(),old=ss[0],latest=ss[ss.length-1];let base=ss.filter(s=>s.t>=now-300000)[0];if(!base&&latest&&latest.t>=now-300000)base=old;let rate=0;if(base&&latest&&latest.t>base.t&&totalExp(latest)>=totalExp(base))rate=(totalExp(latest)-totalExp(base))/((latest.t-base.t)/3600000);
- if(state.level!==null){q('#level').textContent=state.level;q('#classLabel').textContent='CHARACTER TRACKING'}else q('#level').textContent='—';
- const gained=old&&latest?Math.max(0,totalExp(latest)-totalExp(old)):0; q('#gained').textContent=fmt(gained);q('#rate').textContent=rate?fmt(rate):'—';q('#pace').textContent=rate?fmt(rate/12)+' / 5m':'—';q('#rateHint').textContent=ss.length<2?'Waiting for more samples':'Based on trailing 5 minutes';
- if(ss.some(s=>s.estimated)){if(rate){q('#rate').textContent='~'+fmt(rate);q('#pace').textContent='~'+fmt(rate/12)+' / 5m';}if(gained)q('#gained').textContent='~'+fmt(gained);q('#rateHint').textContent='Estimated from rounded HUD percentages';}
- const lvl=state.level, req=lvl?required(lvl):0, expIn=latest?(latest.exp||0):0, pct=req?Math.max(0,Math.min(100,expIn/req*100)):0;
- q('#progressFill').style.width=pct+'%';q('#percent').textContent=pct.toFixed(2)+'% to next level';q('#remaining').textContent=req?fmt(Math.max(0,req-expIn))+' EXP TO GO':'— EXP TO GO';
- if(lvl>=100){q('#eta').textContent='MAX LEVEL';q('#etaNote').textContent='Level cap'}else if(req&&rate>0){const ms=Math.max(0,(req-expIn)/rate*3600000);q('#eta').textContent=ms<60000?'under 1 min':ms<3600000?Math.round(ms/60000)+' min':Math.floor(ms/3600000)+'h '+Math.round(ms%3600000/60000)+'m';q('#etaNote').textContent=ss.some(s=>s.estimated)?'at estimated pace':'at current pace'}else{q('#eta').textContent='—';q('#etaNote').textContent=ss.length<2?'Need more data':'No recent EXP gain'}
- if(q('#nextLevelEta')){q('#nextLevelEta').textContent=q('#eta').textContent;q('#nextLevelEtaHint').textContent=q('#etaNote').textContent}
- const pauseButton=q('#pauseSessionBtn');if(pauseButton){pauseButton.classList.toggle('hidden',!captureStream);pauseButton.textContent=state.paused?'Resume session':'Pause session';pauseButton.setAttribute?.('aria-pressed',String(Boolean(state.paused)));}
- q('#sampleCount').textContent=ss.length+' sample'+(ss.length===1?'':'s');q('#liveState').textContent=state.paused?'PAUSED':state.running?'TRACKING':'READY';q('#sourceState').textContent=state.source||'NOT CONNECTED';q('#sourceState').style.color=state.source?'var(--lime)':'';
- if(state.startAt){let sec=Math.floor((now-state.startAt)/1000);q('#sessionTime').textContent=[Math.floor(sec/3600),Math.floor(sec%3600/60),sec%60].map(n=>String(n).padStart(2,'0')).join(':')}
- q('#lastSample').textContent=latest?'LAST CAPTURE · '+new Date(latest.t).toLocaleTimeString([],{hour:'2-digit',minute:'2-digit',second:'2-digit'}):'NO CAPTURE YET';draw(ss);drawLog(ss);updateRateHint(ss);save();
-}
-function updateRateHint(ss=samples()){
- const status=q('#trackingStatus'),kind=status?.dataset?.state;let text;
- if(kind==='error'||kind==='waiting')text=status.textContent;
- else if(!ss.length)text=captureStream?'Waiting for the first accepted reading':'Share your game window to start';
- else if(ss.length===1)text=captureStream?'1 reading saved · waiting for the next capture':'Resume sharing to collect another reading';
- else text=ss.some(s=>s.estimated)?'Estimated from rounded HUD percentages':'Based on trailing 5 minutes';
- q('#rateHint').textContent=text;
-}
-function draw(ss){const key=ss.length+':'+ss[0]?.t+':'+ss.at(-1)?.t+':'+ss.at(-1)?.exp+':'+ss.at(-1)?.level;if(draw.lastKey===key)return;draw.lastKey=key;const g=q('#chartContent');g.innerHTML='';if(ss.length<2){g.innerHTML='<text class="empty" x="350" y="88" text-anchor="middle">Your EXP curve will appear after a couple of captures</text>';return}let vals=ss.map(totalExp),min=Math.min(...vals),max=Math.max(...vals);if(max===min)max=min+1;const x=i=>30+i/(ss.length-1)*650,y=v=>142-(v-min)/(max-min)*112;for(let k=0;k<4;k++){let yy=30+k*37;g.insertAdjacentHTML('beforeend',`<line class="gridline" x1="30" y1="${yy}" x2="690" y2="${yy}"/>`)}let path=ss.map((s,i)=>(i?'L':'M')+x(i)+' '+y(totalExp(s))).join(' '),area=path+` L 680 148 L 30 148 Z`;g.insertAdjacentHTML('beforeend',`<path class="area" d="${area}"/><path class="line" d="${path}"/><circle class="dot" cx="${x(ss.length-1)}" cy="${y(vals.at(-1))}" r="4"/><text x="30" y="164">${new Date(ss[0].t).toLocaleTimeString([],{hour:'2-digit',minute:'2-digit'})}</text><text x="690" y="164" text-anchor="end">${new Date(ss.at(-1).t).toLocaleTimeString([],{hour:'2-digit',minute:'2-digit'})}</text>`)}
-function drawLog(ss){const key=ss.slice(-4).map(s=>s.t+':'+s.level+':'+s.exp+':'+Boolean(s.estimated)).join('|');if(drawLog.lastKey===key)return;drawLog.lastKey=key;q('#logList').innerHTML=ss.slice(-4).reverse().map(s=>`<div class="log-item"><span>${new Date(s.t).toLocaleTimeString([],{hour:'2-digit',minute:'2-digit',second:'2-digit'})}</span><b>Lv. ${s.level} · ${s.estimated?'≈ ':''}${fmt(s.exp)} EXP</b><span>capture</span></div>`).join('')||'<div class="log-item"><span>—</span><b>No captures yet</b><span>—</span></div>'}
-function notice(s){q('#notice').textContent=s;q('#notice').classList.add('show');setTimeout(()=>q('#notice').classList.remove('show'),4500)}
-
-function readExpGlyphs(region,frame,level){
- const pixels=cropLevelDigits(region,frame),raw=MapleHudOcr.recognize(pixels),result=MapleHudOcr.resolveReading(raw,required(level));
- if(debug){const c=document.createElement('canvas');c.width=pixels.width;c.height=pixels.height;c.getContext('2d').putImageData(new ImageData(pixels.data,pixels.width,pixels.height),0,0);let preview=q('#expGlyphPreview');if(!preview){preview=document.createElement('img');preview.id='expGlyphPreview';preview.alt='Exact EXP crop used by the digit matcher';preview.style.cssText='display:block;max-width:100%;height:56px;object-fit:contain;object-position:left;image-rendering:pixelated;margin:10px 4px';q('#ocrOutput').after(preview)}preview.src=c.toDataURL();c.width=0;c.height=0;}
- const prior=state.samples.at(-1),percentageOnly=MapleHudOcr.percentageReading(result.text,required(level),prior?.level===level?prior.exp:null);
- return {rawText:raw.text,rawConfidence:raw.confidence,data:{text:result.text,confidence:result.confidence},percentageOnly,uncertain:result.text.includes('?')||(!percentageOnly&&!/^\d[\d.]*\[\d+\.\d{2}%\]$/.test(result.text))};
-}
-function beginRegionSelection(name){if(state.calibration.auto!==false)state.calibration={...currentRegions(),auto:false};selecting=selecting===name?null:name;dragStart=dragCurrent=null;updateRegionStatus();drawRegions()}
-
-function cropLevelDigits(region,frame){if(frame._pixels)return MapleHudRegions.crop(frame._pixels,{x:Math.round(region.x*frame.width),y:Math.round(region.y*frame.height),w:Math.max(1,Math.round(region.w*frame.width)),h:Math.max(1,Math.round(region.h*frame.height))});const c=document.createElement('canvas');c.width=Math.max(1,Math.round(region.w*frame.width));c.height=Math.max(1,Math.round(region.h*frame.height));const ctx=c.getContext('2d');ctx.drawImage(frame,Math.round(region.x*frame.width),Math.round(region.y*frame.height),c.width,c.height,0,0,c.width,c.height);return ctx.getImageData(0,0,c.width,c.height);}
-function currentRegions(image=q('#latestFrame')){
- if(state.calibration?.auto===false)return state.calibration;
- if(!image?.naturalWidth)return {level:null,exp:null};
- if(image._autoRegionSource===image.src)return image._autoRegions;
- const c=document.createElement('canvas');c.width=image.naturalWidth;c.height=image.naturalHeight;const ctx=c.getContext('2d');ctx.drawImage(image,0,0);
- const regions=MapleHudRegions.detect(ctx.getImageData(0,0,c.width,c.height),MapleLevelOcr,MapleHudOcr,image._trackedHud);
- image._trackedHud={...regions,width:c.width,height:c.height};image._autoRegionSource=image.src;image._autoRegions=regions;return regions;
-}
-
-function cropForOcr(region,image){const sx=Math.max(0,Math.floor(region.x*image.width)),sy=Math.max(0,Math.floor(region.y*image.height)),sw=Math.max(1,Math.ceil(region.w*image.width)),sh=Math.max(1,Math.ceil(region.h*image.height)),scale=Math.max(3,Math.min(6,Math.ceil(120/sh))),canvas=document.createElement('canvas');canvas.width=sw*scale;canvas.height=sh*scale;const ctx=canvas.getContext('2d');ctx.imageSmoothingEnabled=false;ctx.filter='grayscale(1) contrast(1.7)';ctx.drawImage(image,sx,sy,sw,sh,0,0,canvas.width,canvas.height);return canvas}
-function parseHudReading(levelText,expText){
- const levelMatch=levelText.match(/\bLV\s*\.?\s*(\d{1,3})\b/i)||levelText.trim().match(/^(\d{1,3})$/);
- const pctMatch=expText.match(/(\d+(?:\.\d+)?)\s*%/);
- const normalized=expText.replace(/\bEXP\s*[.:]?/ig,' ').trim();
- // Read the amount before the percentage; OCR often drops a closing bracket.
- const amountText=normalized.split(/[\[(]/,1)[0].replace(/\d+(?:\.\d+)?\s*%\s*[\])]?\s*$/,' ').trim();
- const amountMatch=amountText.match(/^(\d{1,3}(?:\s*[,.]\s*\d{3})+|\d+)\s*[\])]?\s*$/);
- return {levelMatch:levelMatch?[levelMatch[1]]:null,expToken:amountMatch?.[1]?.replace(/\s/g,'').replace(/\./g,','),pctToken:pctMatch?.[1]};
-}
-async function refineReadings(frame,regions,levelResult,expResult){
- if(typeof MapleLocalOcr==='undefined'||(!levelResult.data.text.includes('?')&&!expResult.uncertain))return {levelResult,expResult};
- const r=regions.level,pixels=r?r.h*frame.height/frame.width:0,panel=r?{x:Math.max(0,r.x-pixels*3),y:Math.max(0,r.y-r.h*.6),w:r.w+pixels*3.4,h:r.h*2}:null;
- const result=await MapleLocalOcr.read({levelImage:panel?cropLevelDigits(panel,frame):null,expImage:cropLevelDigits(regions.exp,frame),nativeLevel:levelResult,nativeExp:{text:expResult.rawText,confidence:expResult.rawConfidence}});
- if(result.level)levelResult={...levelResult,data:{text:result.level.text,confidence:result.level.confidence},engine:'tesseract'};
- const raw=result.exp||{text:expResult.rawText,confidence:expResult.rawConfidence},level=Number(levelResult.data.text),resolved=MapleHudOcr.resolveReading(raw,required(level)),prior=state.samples.at(-1),percentageOnly=MapleHudOcr.percentageReading(resolved.text,required(level),prior?.level===level?prior.exp:null);
- expResult={rawText:raw.text,rawConfidence:raw.confidence,data:{text:resolved.text,confidence:resolved.confidence},percentageOnly,uncertain:resolved.text.includes('?')||(!percentageOnly&&!/^\d[\d.]*\[\d+\.\d{2}%\]$/.test(resolved.text)),engine:result.exp?'tesseract':expResult.engine};
- return {levelResult,expResult};
-}
-async function runOcr(timestamp=lastFrameTimestamp,sourceFrame=null,{report=true}={}){if(state.paused)return;if(ocrRunning){queuedOcrTimestamp=timestamp;return}const image=q('#latestFrame');if(!sourceFrame&&!image?.naturalWidth){q('#ocrOutput').textContent='Waiting for a game screenshot.';return}const regions=sourceFrame?._hudRegions||currentRegions(image);if(!regions?.exp){q('#ocrOutput').textContent='Looking for the EXP readout. Keep the bottom HUD visible and unobstructed, or select a custom region in debug mode.';setTrackingStatus('waiting','Looking for the EXP readout');inferredLevelPending=null;if(debug&&report){const snapshot=sourceFrame||document.createElement('canvas');if(!sourceFrame){snapshot.width=image.naturalWidth;snapshot.height=image.naturalHeight;snapshot.getContext('2d').drawImage(image,0,0);}const blob=snapshot._pngBlob||await new Promise(resolve=>snapshot.toBlob(resolve,'image/png')),stamp=Number(timestamp)||Date.now();if(blob)downloadDebugFrame(blob,stamp<1e12?stamp*1000:stamp,false);}return {accepted:false,retry:true};}const generation=captureGeneration;const rawTime=Number(timestamp)||Date.now(),readAt=rawTime<1e12?rawTime*1000:rawTime;const frame=sourceFrame||document.createElement('canvas');if(!sourceFrame){frame.width=image.naturalWidth;frame.height=image.naturalHeight;frame.getContext('2d').drawImage(image,0,0);}ocrRunning=true;q('#readFrame').disabled=true;q('#ocrOutput').textContent='Reading locally (first fallback may download OCR files)…';try{const levelCrop=frame._reading?{expectedDigits:frame._reading.levelResult.expectedDigits}:(regions.level?cropLevelDigits(regions.level,frame):{width:1,height:1,data:new Uint8ClampedArray(4)});let levelResult=frame._reading?.levelResult||MapleLevelOcr.recognize(levelCrop);levelCrop.expectedDigits=levelResult.expectedDigits;const levelDigits=parseHudReading(levelResult.data.text,'').levelMatch;let expResult=frame._reading?.expResult||readExpGlyphs(regions.exp,frame,levelDigits?Number(levelDigits[0]):NaN);if(!frame._reading)({levelResult,expResult}=await refineReadings(frame,regions,levelResult,expResult));if(state.paused||generation!==captureGeneration||!captureStream)return;const independent=parseHudReading('',expResult.rawText),independentClean=expResult.rawConfidence>=35&&/^\d[\d.]*\[\d+\.\d{2}%\]$/.test(expResult.rawText),levelResolution=MapleLevelOcr.resolveLevel(levelResult,independentClean?Number(independent.expToken?.replace(/,/g,'')):NaN,independentClean?Number(independent.pctToken):NaN,required,inferredLevelPending,readAt);inferredLevelPending=levelResolution.pending;const resolvedLevelResult={data:{text:levelResolution.level===null?'?':String(levelResolution.level),confidence:levelResolution.source==='exp'?expResult.data.confidence:levelResult.data.confidence}};const {levelMatch,expToken,pctToken}=parseHudReading(resolvedLevelResult.data.text,expResult.data.text),level=levelMatch?Number(levelMatch[0]):NaN,exp=expToken?Number(expToken.replace(/,/g,'')):(expResult.percentageOnly?.exp??NaN),pct=pctToken?Number(pctToken):null,confidence=Math.round((resolvedLevelResult.data.confidence+expResult.data.confidence)/2),requiredExp=required(level),computedPct=requiredExp?exp/requiredExp*100:0,pctOkay=pct===null||!requiredExp||Math.abs(computedPct-pct)<=0.03,continuity=MapleLevelOcr.checkContinuity(resolvedLevelResult,state.level,pendingLevelFrame!==readAt?pendingLevel:null),valid=continuity.accepted&&Number.isInteger(level)&&level>=1&&level<=100&&Number.isFinite(exp)&&exp>=0&&(level===100||exp<=requiredExp)&&confidence>=35&&pctOkay&&!expResult.uncertain&&(levelResolution.source==='exp'||!levelCrop.expectedDigits||String(level).length===levelCrop.expectedDigits);const rejectionReason=levelResolution.reason||(!continuity.accepted?continuity.reason:null)||(expResult.uncertain?'EXP characters are unclear. Keep the HUD visible or reset custom regions.':!Number.isFinite(exp)?'No readable EXP amount or percentage':!pctOkay?'EXP amount and percentage disagree for level '+level:confidence<35?'Reading confidence is too low':'Reading skipped. Check that the complete level and EXP text are visible.');pendingLevel=continuity.pending;pendingLevelFrame=readAt;q('#ocrOutput').textContent=`Level OCR: ${levelMatch?.[0]||'not found'} · EXP OCR: ${expToken||(expResult.percentageOnly?'~'+fmt(exp):'not found')}${pctToken?` (${pctToken}%)`:''} · confidence ${confidence}%`+(pct!==null&&requiredExp?` · calculated ${computedPct.toFixed(2)}%`:'' )+(levelResolution.source==='exp'?' · level from EXP':'')+(expResult.percentageOnly?' · EXP estimated from percentage':'')+(valid?' · accepted':' · needs review')+'\nRaw level: '+levelResult.data.text.trim()+' | EXP glyphs: '+expResult.data.text.trim();setTrackingStatus(valid?'ok':'waiting',valid?'Tracking · Last read '+new Date(readAt).toLocaleTimeString():rejectionReason);if(debug&&report&&!valid&&continuity.reason!=='Confirming level up on the next frame'&&levelResolution.reason!=='Confirming level from EXP on the next frame'){const rejectedBlob=frame._pngBlob||await new Promise(resolve=>frame.toBlob(resolve,"image/png"));if(rejectedBlob)downloadDebugFrame(rejectedBlob,readAt,false);}if(valid){const prior=state.samples.at(-1);if(!prior||prior.t!==readAt)addSample(level,exp,readAt,expResult.percentageOnly||{});q('#ocrOutput').textContent+=`\nSaved ${new Date(readAt).toLocaleTimeString()} sample.`}return {accepted:valid,retry:!valid&&!(continuity.reason||'').includes('differs from saved level')};}catch(error){setTrackingStatus('error','Recognition unavailable · '+error.message);q('#ocrOutput').textContent='OCR failed: '+error.message;return {accepted:false,retry:false};}finally{ocrRunning=false;q('#readFrame').disabled=false;if(queuedOcrTimestamp!==null){const queued=queuedOcrTimestamp;queuedOcrTimestamp=null;setTimeout(()=>runOcr(queued),0)}}}
-function updateRegionStatus(){const automatic=state.calibration?.auto!==false;const regions=currentRegions(),l=regions?.level,e=regions?.exp;q('#regionStatus').textContent=`${automatic?'Auto regions':'Custom regions'} · Level ${l?'ready':'unset'} · EXP ${e?'ready':'unset'}${selecting?` · Drag to select ${selecting}`:''}`;q('#pickLevel')?.classList.toggle('active',selecting==='level');q('#pickExp')?.classList.toggle('active',selecting==='exp')}
-function drawRegions(){if(!debug)return;const canvas=q('#frameCanvas'),img=q('#latestFrame');if(!canvas||!img||!img.naturalWidth)return;const ctx=canvas.getContext('2d');canvas.width=img.naturalWidth;canvas.height=img.naturalHeight;ctx.clearRect(0,0,canvas.width,canvas.height);const colors={level:'#c7f36b',exp:'#a995ff'};const regions=currentRegions(img);for(const name of ['level','exp']){const r=regions[name];if(!r)continue;const x=r.x*canvas.width,y=r.y*canvas.height,w=r.w*canvas.width,h=r.h*canvas.height;ctx.fillStyle=colors[name]+'22';ctx.strokeStyle=colors[name];ctx.lineWidth=Math.max(3,canvas.width/600);ctx.fillRect(x,y,w,h);ctx.strokeRect(x,y,w,h);ctx.font=`bold ${Math.max(18,canvas.width/55)}px sans-serif`;ctx.fillStyle=colors[name];ctx.fillText(name==='level'?'LEVEL':'EXP',x+4,Math.max(18,y-5))}if(dragStart&&dragCurrent&&selecting){const x=Math.min(dragStart.x,dragCurrent.x)*canvas.width,y=Math.min(dragStart.y,dragCurrent.y)*canvas.height,w=Math.abs(dragStart.x-dragCurrent.x)*canvas.width,h=Math.abs(dragStart.y-dragCurrent.y)*canvas.height;ctx.strokeStyle=colors[selecting];ctx.lineWidth=Math.max(3,canvas.width/600);ctx.setLineDash([10,6]);ctx.strokeRect(x,y,w,h);ctx.setLineDash([])}}
-function downloadDebugFrame(blob,timestamp,accepted){
- if(accepted!==false||!debug||q('#debugDownloads')?.checked===false||downloadDebugFrame.lastFrame===timestamp)return;
- downloadDebugFrame.lastFrame=timestamp;
- const url=URL.createObjectURL(blob),a=document.createElement('a');a.href=url;a.download='maple-track-'+new Date(timestamp).toISOString().replace(/[:.]/g,'-')+'.png';
- document.body.appendChild(a);try{a.click();const status=q('#debugDownloadStatus');if(status)status.textContent='Download requested · '+new Date(timestamp).toLocaleTimeString()+' · allow multiple downloads if prompted';}finally{a.remove();setTimeout(()=>URL.revokeObjectURL(url),30000);}
-}
-function toggleSessionPause(){
- if(!captureStream)return;
- state.paused=!state.paused;state.running=!state.paused;captureGeneration++;queuedOcrTimestamp=null;
- pendingLevel=pendingLevelFrame=null;inferredLevelPending=null;
- setTrackingStatus('waiting',state.paused?'Session paused · readings are saved. Resume when ready.':'Resuming session · waiting for fresh readings');update();
- if(!state.paused)captureBrowserFrame();
-}
-function stopSharing(){
- const hudImage=q('#latestFrame');if(hudImage){hudImage._trackedHud=null;hudImage._autoRegionSource=null;}
- inferredLevelPending=null;
- captureGeneration++;clearInterval(captureTimer);captureTimer=null;const stream=captureStream;captureStream=null;
- if(stream)stream.getTracks().forEach(track=>track.stop());const video=q('#sharePreview');if(video){video.pause();video.srcObject=null;video.classList.add('hidden');}
- state.running=false;state.paused=false;state.source=null;queuedOcrTimestamp=null;q('#shareGameBtn')?.classList.remove('hidden');q('#stopSharingBtn')?.classList.add('hidden');setTrackingStatus('waiting','Sharing stopped. Your session readings are saved.');update();
-}
-async function decodeFrame(frame){
- const pixels=frame.getContext('2d').getImageData(0,0,frame.width,frame.height),regions={...(state.calibration.auto===false?state.calibration:MapleHudRegions.detect(pixels,MapleLevelOcr,MapleHudOcr,q('#latestFrame')._trackedHud))};
- frame._pixels=pixels;frame._hudRegions=regions;q('#latestFrame')._trackedHud={...regions,width:frame.width,height:frame.height};
- if(!regions?.exp)return;
- const crop=regions.level?cropLevelDigits(regions.level,frame):{width:1,height:1,data:new Uint8ClampedArray(4)};
- const levelResult=MapleLevelOcr.recognize(crop),expResult=readExpGlyphs(regions.exp,frame,Number(levelResult.data.text));
- frame._reading=await refineReadings(frame,regions,levelResult,expResult);
-}
-async function captureBrowserFrame(force=false){
- const video=q('#sharePreview'),generation=captureGeneration;if(state.paused||captureBusy||ocrRunning||!captureStream||video.readyState<2||!video.videoWidth)return;
- const captureCanvases=[],ocrStartedAt=Date.now();let captureStage='capture';captureBusy=true;
- const cancelled=()=>generation!==captureGeneration||state.paused||!captureStream;
- const capture=()=>{const c=document.createElement('canvas');captureCanvases.push(c);c.width=video.videoWidth;c.height=video.videoHeight;c.getContext('2d').drawImage(video,0,0);c._capturedAt=Date.now();return c;};
- try{
-  const automatic=force||q('#autoOcr').checked,firstTime=video.currentTime,firstFrame=video.getVideoPlaybackQuality?.().totalVideoFrames;let c=capture(),result;
-  if(automatic){
-   await new Promise(resolve=>setTimeout(resolve,0));if(cancelled())return;
-   captureStage='recognition';await decodeFrame(c);if(cancelled())return;
-   result=await runOcr(c._capturedAt/1000,c,{report:false});if(cancelled())return;
-   if(result?.retry){
-    await new Promise(resolve=>setTimeout(resolve,250));if(cancelled())return;
-    // Only an ambiguous reading needs a second, distinct video frame.
-    const fresh=Number.isFinite(firstFrame)&&firstFrame>0?video.getVideoPlaybackQuality?.().totalVideoFrames>firstFrame:video.currentTime!==firstTime;
-    if(fresh){const prior=c;c=capture();prior.width=0;prior.height=0;captureStage='retry recognition';await decodeFrame(c);if(cancelled())return;}
-   }
-  }
-  lastFrameTimestamp=c._capturedAt/1000;
-  if(debug||!automatic){
-   captureStage='preview';const image=q('#latestFrame'),blob=await new Promise(resolve=>c.toBlob(resolve,'image/png'));if(!blob||cancelled())return;
-   c._pngBlob=blob;const url=URL.createObjectURL(blob),prior=image.dataset.url;await new Promise((resolve,reject)=>{image.onload=resolve;image.onerror=reject;image.src=url;});if(prior)URL.revokeObjectURL(prior);image.dataset.url=url;if(cancelled())return;
-   if(c._hudRegions){image._autoRegions=c._hudRegions;image._autoRegionSource=image.src;image._trackedHud={...c._hudRegions,width:c.width,height:c.height};}
-   image.classList.remove('hidden');q('#frameStage').style.display='inline-block';q('#frameEmpty').classList.add('hidden');q('#frameStatus').textContent='CAPTURE · '+new Date(c._capturedAt).toLocaleTimeString();drawRegions();updateRegionStatus();
-  }
-  // Cached recognition is reused; a same-frame retry cannot confirm a level-up.
-  if(automatic&&!result?.accepted)await runOcr(lastFrameTimestamp,c);
- }catch(error){if(generation===captureGeneration){const detail=error?.message||String(error);setTrackingStatus('error','Could not read the shared window · '+captureStage+': '+detail);q('#ocrOutput').textContent='Capture failed during '+captureStage+': '+detail;if(debug){const failed=captureCanvases.findLast(canvas=>canvas.width>0&&canvas.height>0);if(failed)try{const blob=failed._pngBlob||await new Promise(resolve=>failed.toBlob(resolve,'image/png'));if(blob)downloadDebugFrame(blob,failed._capturedAt,false);}catch(downloadError){q('#ocrOutput').textContent+='\nCould not save diagnostic frame: '+(downloadError?.message||String(downloadError));}}}}finally{for(const canvas of captureCanvases){canvas.width=0;canvas.height=0;delete canvas._pixels;}captureBusy=false;if(debug&&generation===captureGeneration)q('#ocrOutput').textContent+='\nCapture + OCR: '+((Date.now()-ocrStartedAt)/1000).toFixed(2)+' s ('+captureCanvases.length+' frame'+(captureCanvases.length===1?'':'s')+')';}
-}
-async function connect(){
- if(!navigator.mediaDevices?.getDisplayMedia){setTrackingStatus('error','Screen sharing is unavailable here. Open this page in Chrome or Edge using HTTPS or localhost.');return;}
- const button=q('#shareGameBtn');button.disabled=true;let pending=null;
- try{pending=await navigator.mediaDevices.getDisplayMedia({video:{displaySurface:'window',width:{ideal:3840},height:{ideal:2160},frameRate:{ideal:5,max:10}},audio:false});
- stopSharing();captureStream=pending;const generation=captureGeneration,video=q('#sharePreview');video.srcObject=pending;await video.play();if(generation!==captureGeneration)return;
- pending.getVideoTracks()[0].addEventListener('ended',()=>{if(captureStream===pending)stopSharing();},{once:true});video.classList.remove('hidden');state.running=true;state.source='GAME WINDOW SHARED';state.startAt ||= Date.now();button.classList.add('hidden');q('#stopSharingBtn').classList.remove('hidden');setTrackingStatus('waiting','Reading your game window…');update();captureTimer=setInterval(captureBrowserFrame,10000);await captureBrowserFrame();
- }catch(error){if(pending)stopSharing();setTrackingStatus('waiting',error.name==='NotAllowedError'?'Screen sharing was cancelled or blocked. Click Share game window to try again.':'Could not start screen sharing: '+error.message);}finally{button.disabled=false;}
-}
-function addSample(level,exp,t=Date.now(),reading={}){if(!Number.isFinite(level)||!Number.isFinite(exp)||level<1||level>100||exp<0||(level<100&&exp>required(level))){notice('Enter a level from 1 to 100 and current-level EXP within that level’s requirement.');return}state.level=level;state.samples.push({t,level,exp,...(reading.estimated?{estimated:true,pct:reading.pct}: {})});if(state.samples.length>240)state.samples=state.samples.slice(-240);update()}
-function setTrackingStatus(kind,text){const el=q('#trackingStatus');if(el){el.dataset.state=kind;el.textContent=text}updateRateHint();}
-q('#screenBtn')?.addEventListener('click',()=>connect('screen'));q('#windowBtn')?.addEventListener('click',()=>connect('window'));q('#readFrame')?.addEventListener('click',()=>captureBrowserFrame(true));q('#pickLevel')?.addEventListener('click',()=>{beginRegionSelection('level')});q('#pickExp')?.addEventListener('click',()=>{beginRegionSelection('exp')});q('#clearRegions')?.addEventListener('click',()=>{state.calibration={level:null,exp:null,auto:true};selecting=dragStart=dragCurrent=null;save();updateRegionStatus();drawRegions()});const frameCanvas=q('#frameCanvas');if(frameCanvas){frameCanvas.addEventListener('pointerdown',event=>{if(!selecting)return;const r=frameCanvas.getBoundingClientRect();dragStart={x:Math.max(0,Math.min(1,(event.clientX-r.left)/r.width)),y:Math.max(0,Math.min(1,(event.clientY-r.top)/r.height))};dragCurrent=dragStart;frameCanvas.setPointerCapture(event.pointerId);drawRegions()});frameCanvas.addEventListener('pointermove',event=>{if(!dragStart)return;const r=frameCanvas.getBoundingClientRect();dragCurrent={x:Math.max(0,Math.min(1,(event.clientX-r.left)/r.width)),y:Math.max(0,Math.min(1,(event.clientY-r.top)/r.height))};drawRegions()});frameCanvas.addEventListener('pointerup',event=>{if(!dragStart||!selecting)return;const r=frameCanvas.getBoundingClientRect();dragCurrent={x:Math.max(0,Math.min(1,(event.clientX-r.left)/r.width)),y:Math.max(0,Math.min(1,(event.clientY-r.top)/r.height))};const left=Math.min(dragStart.x,dragCurrent.x),top=Math.min(dragStart.y,dragCurrent.y),width=Math.abs(dragStart.x-dragCurrent.x),height=Math.abs(dragStart.y-dragCurrent.y);if(width>.005&&height>.005)state.calibration[selecting]={x:left,y:top,w:width,h:height};selecting=dragStart=dragCurrent=null;save();updateRegionStatus();drawRegions()})}if(q('#sampleBtn'))q('#sampleBtn').onclick=()=>{if(!state.samples.length){q('#manualBtn')?.click();return}notice('OCR calibration is needed before automatic readings. Use Manual entry to add a sample.')};if(q('#manualBtn'))q('#manualBtn').onclick=()=>{let lev=prompt('Character level (for example, 52):');if(lev===null)return;let ex=prompt('EXP gained within this level (for example, 542829):');if(ex===null)return;addSample(Number(lev),Number(ex))};updateRegionStatus();
-q('#streamCardBtn')?.addEventListener('click',()=>{const url=new URL(location.href);url.search='?stream=1';const card=window.open(url.href,'maple-track-stream-card','popup=yes,width=420,height=410');if(card)card.focus();else notice('Allow popups for Maple Track, then click Open stream card again.');});
-q('#newSessionBtn')?.addEventListener('click',()=>{if(!window.confirm('Start a new session and clear the current session readings?'))return;captureGeneration++;queuedOcrTimestamp=null;state.samples=[];state.level=null;state.startAt=Date.now();pendingLevel=pendingLevelFrame=null;inferredLevelPending=null;update();setTrackingStatus('waiting','New session · Waiting for the next reading');});q('#pauseSessionBtn')?.addEventListener('click',toggleSessionPause);q('#shareGameBtn')?.addEventListener('click',connect);q('#stopSharingBtn')?.addEventListener('click',stopSharing);window.addEventListener('pagehide',()=>{if(captureStream)stopSharing()});
-update();setInterval(update,5000);
-})();
+MapleApp.mount({document,window,navigator,storage:localStorage,location,
+ levelOcr:MapleLevelOcr,hudOcr:MapleHudOcr,hudRegions:MapleHudRegions,localOcr:MapleLocalOcr});
 </script></body></html>
