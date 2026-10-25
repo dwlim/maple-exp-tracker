@@ -13,6 +13,8 @@
     view,
     debugTools,
     debug = false,
+    onFrame = async () => {},
+    onInvalidate = () => {},
     now = Date.now,
     timers = { setTimeout, setInterval, clearInterval },
   }) {
@@ -26,6 +28,7 @@
     function invalidate() {
       generation++;
       session.clearPending();
+      onInvalidate();
     }
     function stop() {
       invalidate();
@@ -107,6 +110,10 @@
               if (cancelled()) return;
             }
           }
+        }
+        if (automatic) {
+          await onFrame(frame, frame._capturedAt, cancelled);
+          if (cancelled()) return;
         }
         if (debug || !automatic) {
           stage = "preview";

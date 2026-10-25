@@ -12,6 +12,7 @@ async function run({
   automatic = true,
   frameCounts = null,
   decodeError = null,
+  onFrame = async () => {},
 } = {}) {
   let clock = 0,
     decodes = 0,
@@ -74,6 +75,7 @@ async function run({
     debug,
     view,
     debugTools,
+    onFrame,
     now: () => 1700000000000 + clock * 250,
     recognition: {
       reset() {},
@@ -122,6 +124,21 @@ async function run({
   };
 }
 (async () => {
+  let itemFrames = 0;
+  const withItems = await run({
+    outcomes: [{ accepted: false, retry: false }],
+    onFrame: async (frame, t, cancelled) => {
+      assert.ok(frame.width && frame.height);
+      assert.equal(cancelled(), false);
+      itemFrames++;
+    },
+  });
+  assert.equal(itemFrames, 1, "Item tracking runs even when EXP is rejected");
+  assert.equal(
+    withItems.canvases.length,
+    1,
+    "Items reuse the existing capture",
+  );
   const clear = await run();
   assert.equal(clear.decodes, 1);
   assert.equal(clear.canvases.length, 1);

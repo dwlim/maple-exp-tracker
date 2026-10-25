@@ -20,6 +20,7 @@ body.debug .setup .panel-head:after{content:'DEBUG';color:var(--purple);font:10p
 
 body.stream-card{background:#111216;min-width:280px}body.stream-card .app{max-width:440px;margin:0 auto;padding:12px}.stream-panel{background:#191a20;border:1px solid #303139;border-radius:16px;padding:18px 20px;box-shadow:0 8px 30px #0004}.stream-panel header,.stream-panel footer{display:flex;justify-content:space-between;gap:12px;font:10px 'DM Mono',monospace;color:#93949f}.stream-panel header{letter-spacing:1px;font-size:9px}.stream-panel header>span:first-child{color:#c7f36b}.stream-values{display:flex;justify-content:space-between;align-items:end;margin-top:18px}.stream-values>div:last-child{text-align:right}.stream-values span{display:block;color:#93949f;font:9px 'DM Mono',monospace;letter-spacing:1px}.stream-values strong{display:block;font-size:34px;line-height:1.2;letter-spacing:-1px;margin-top:5px}.stream-values>div:last-child strong{font-size:27px;color:#c7f36b}.stream-progress{height:7px;background:#34353e;border-radius:8px;overflow:hidden;margin:16px 0 9px}.stream-progress i{display:block;height:100%;background:#c7f36b;width:0;transition:width .3s}.stream-panel footer{font-size:10px;flex-wrap:wrap}
 .stream-chart{margin-top:16px;border-top:1px solid #303139;padding-top:12px}.stream-chart-label{display:flex;justify-content:space-between;gap:8px;font:8px 'DM Mono',monospace;color:#93949f}.stream-chart svg{display:block;width:100%;height:90px;margin-top:8px}.stream-chart>span{font:8px 'DM Mono',monospace;color:#93949f}
+.items-panel{margin-top:24px}.items-panel .panel-head{flex-wrap:wrap;gap:10px}.items-panel h2{margin:0;font-size:21px}.items-panel p{font-size:11px;color:var(--muted);line-height:1.7}.items-controls{display:flex;gap:12px;align-items:center;flex-wrap:wrap}.items-controls label{font-size:12px}.items-table-wrap{overflow-x:auto}.items-table{width:100%;border-collapse:collapse;margin-top:16px;font-size:12px;white-space:nowrap}.items-table th,.items-table td{text-align:left;padding:12px 10px;border-bottom:1px solid var(--line)}.items-table th{font-size:10px;color:var(--muted)}.items-table td:nth-child(5){font-size:10px;color:var(--muted)}.items-table .btn{margin-right:6px}.item-setup{margin-top:18px;padding:16px;background:var(--panel2);border:1px solid var(--line);border-radius:12px}.item-setup input{background:var(--panel);color:var(--text);border:1px solid var(--line);padding:10px;border-radius:8px;margin:0 10px 12px 0;max-width:100%}#itemRegionCanvas{display:block;max-width:100%;height:auto;touch-action:none;cursor:crosshair;outline:1px solid var(--line);margin:12px 0}.items-panel button:disabled{opacity:.5}
 </style>
 <!-- LEVEL FONT START -->
 <script>(function(root,factory){const api=factory();if(typeof module==='object'&&module.exports)module.exports=api;else root.MapleLevelOcr=api;})(typeof window==='undefined'?globalThis:window,function(){
@@ -2044,6 +2045,8 @@ return {detect,crop,anchors,percentageRegion};
     view,
     debugTools,
     debug = false,
+    onFrame = async () => {},
+    onInvalidate = () => {},
     now = Date.now,
     timers = { setTimeout, setInterval, clearInterval },
   }) {
@@ -2057,6 +2060,7 @@ return {detect,crop,anchors,percentageRegion};
     function invalidate() {
       generation++;
       session.clearPending();
+      onInvalidate();
     }
     function stop() {
       invalidate();
@@ -2138,6 +2142,10 @@ return {detect,crop,anchors,percentageRegion};
               if (cancelled()) return;
             }
           }
+        }
+        if (automatic) {
+          await onFrame(frame, frame._capturedAt, cancelled);
+          if (cancelled()) return;
         }
         if (debug || !automatic) {
           stage = "preview";
@@ -2267,6 +2275,731 @@ return {detect,crop,anchors,percentageRegion};
 });
 </script>
 <!-- CAPTURE END -->
+<!-- QUICKSLOT FONT START -->
+<script>// Generated from manually transcribed quantity-only crops. Rebuild with node tools/build-quickslot-font.cjs.
+(function(root){const font=[{"digit":"4","mask":"899ffffff5008fd899fffffb7205fb899ffff53fd05fb899fffa8bff05fb899ff60ffff05fb89999999dff05ff89810df32ff05ff8517b9602ff05ff720af5001ff04ff06c840001ff004d08f900004ff300708ffddddfffe60705fffffeffff805000000004ed3002000000000ca0002357777500ba0035358999700a90045047899700a90034024578700330033001357700000034"},{"digit":"7","mask":"00000000000000600666666666620408ffffffffffc0403bbbbbbbbffd0400000000004fd04a9999970069987bfffffff32ff03fffffffff32ff03fffffffff43fd03fffffffc6ab7201bffffff50ef10026bfffff50df10a804fffff62ab13ea01bbb628a41358730776008d10254441554008c101332214201256000221113005b2000000000300150001111111300000002222222"},{"digit":"5","mask":"00000000000000000266666666650000effffffffff6000ffebbbbbbbb2000ff2000000000000ff1000000299700ff20000009fff00ffebbbbbb98ff00effffffff90bf145566666669c87570000000009f6058655679a308f6036668abdf607f50000069aab406f50000235555005f40007900000005f3000562100111472000009cccccd4003000046666662024000000000000544"},{"digit":"3","mask":"000000000000000130035555550000bf21fffffff70005a88abbbbbb961001ff2000000af6000560000000af6050000000000af70fbb70000000af60ffff1000000af50ffff10acccd9520dfff12fffff8011dfff10233338d409ffc20000008f60011234444007f40000133333006f30007800000005f3000562111111471020009cccccd4000320046666661001433100000000222"},{"digit":"2","mask":"940000004fffd00446666667bfff5208fffffff44fff979bbbbbbb98abb9fa0000001ff1006898999701ff100707fffff41ff10073afffff40ff10079dfffff52ff20069be9556ab77b7069994001be46fe069507ddc65bffe056307ffc32effb0504c600147bcc60415b200015554103b50000000000003d80011111100002ddcccccccc80000566666666630021000000000000023"},{"digit":"0","mask":"00000000000000000245542000000005ffffffe00000079bbbbbba620000fa0000000fd0004fb0000100ff0007fb0004800ff1007fa0273000ff0006fa0af6000ff0004fa0affb10ff0024f90afff40ff0064f90afff40ee0003f808fff20dd0005f703bb800cc0004f60033200bb0003f50000000ab000375111111265000104dccccc9000000026666664000110300000000022222"},{"digit":"8","mask":"00000000000000500134443100002c04ffffffe0002ff38bbaaaba8304fffa0000001ff04fffa0000000ff15fffa0000000ff05fffa0000000ff05fffa0000002ff26ff48ccccccb78bfff08ffffffe44ffffb83333335aa5afff80000000dd03fff70033200cc0079f60022100bb0035f60000000aa002374111111265001204dccccc9000112016666664002223200000000144445"},{"digit":"1","mask":"00999efeecfffff00998cf1102fffc0099102ff62f8870099102ff62f88700228acff808aaa0000affff800ffd0000000ff800ffd0044400ff800ffd0044400ff800ffd0099930ff805bba0099930ff81f5560099930ff700bb90099930ff600cca0099930ff600cca0088930ee500aa90055830dd4009980022620cc402224000030066006111000030066006111000000000005551"},{"digit":"8","mask":"cc3305effffffff000000affffffffffffff666ffffffffffff666ffffff9999999887fffff001100edd0cffff0ffff0edd0affff024420edd008fff024420edd008fff555555aaa55688effffff566ffa008000000aaa2ffbb0001100baa0aeaa0001100baa0aeaa0035520999035554000000888013222777777300001111877778000111111877778000111111000000022222222"},{"digit":"6","mask":"04999ffccccccc804999fa0000000e0499937ffffd00e0499937ffffd00e047727a9999500e02552c80000011f0022f5000001fff0022ffeeeeec55f0022ffeeeeec55f0022ffdddddb55a0022f3000001ff40022f2099c31ff30011f21bbd30ff30011f21bbd30ff30000f1066600ff20000f0000000ff2000025777776221000004877785002000004877785002000000000000444"},{"digit":"6","mask":"100000000000000d00000000000000ff0000fffff0000ff0000fffff0000ff002a999970000ff55ac000000000d0ff90000003000c0fffeeeeec1220c0fffeeeeec122060fffdddddd644400ff8000000f99000ff80f2200f99000ff70e6600e77000ff70e6600e77000dd6044400c66000cc5000000b550002257777763000420028777770001420028777770001433300000000222"},{"digit":"3","mask":"002299abbcccddf00229820000000f0022809fffffff30022809fffffff300003999999999a00000d50012000f000000022ffb00f00004400044000f00004400044000f00229910055566c002299111fffff100229910000022c00002222222000f00002222222000f00000036666200d00000c40000000c000002577777663000000288777660000000288777660000000000000003"},{"digit":"0","mask":"ff0000000000000ff0000000000000dfff12ffffff000dfff12ffffff0009888888998786629000ed000000ddb9000ed000170ddd9000ed088300dde9000ed088300dde9300ed0ffc10ddd9f00dc0ffff0ddd7000cb0ffff0ccc6000ba0bbfa0bbb6000ba0bbfa0bbb5000a9033420999400098000000889100014777777441143301877778000143301877778000443330000000002"},{"digit":"5","mask":"0000000000000000000000000000000055ffffffffee00055ffffffffee00088fa9999996600099f00000001110099f0000007fff0077ffeeeee988f0077ffeeeee988f0033bdddddd966c060000000008ff000000effff07ff000000cdddc06ff000000cdddc06ff0000003333305dd00044b0000004cc0000037777775110110007777783002110007777783002222200000000444"},{"digit":"4","mask":"04999fffff80fff04999fffff8044d04999fffff9000704999fffff9000704999ffff1af00d04999ff66cff00704999ba77cff0050499807ff0bf0040499807ff0bf00404660bb000af0000044893000af0000022f70000cf1100022ffffffffff20022ffffffffff20000444443cf44000000000006c00001669997706b00200337897706b00100337897706b001000036877003001"},{"digit":"5","mask":"ffffff000e8fff0d99996033305220600022111111000600022111111000b0ffffffffff88060ffe555555500040ff9000000022530ffa0000006fff30ffa0000006fff00fffffffff155d00779999999966501110000000f9905fff7005540f8805fff7005540f88005554321100e77000002330000c77020bb5000000a66030005aaaaa9100030005aaaaa91000430015444440001"},{"digit":"4","mask":"04999fffff80fff04999fffff8044c04999fffff9000704999fffff9000704999ffff1af00c04999ff66cff00704999ba77cff0050499807ff0bf0040499807ff0bf00404660bb000af0000044893000af0000022f70000cf1100022ffffffffff20022ffffffffff20000444443cf44000000000006c00001669997706b00200337897706b00100337897706b001000036877003001"},{"digit":"9","mask":"ffffff000e8fff0fffff603330fff0eeff9211112dfffeeff9211112dfffff11affffff299fa5cc9555556c99340ff9055520f99030ff91fffc0f99030ff91fffc0f99000ff90cdd70f99000ff9022200f99002ee8000002f9905f118fffffff8805f118fffffff8802d553444445f77027440000000c77064000000000a66042002aaaaa9100042002aaaaa91000420005444440001"},{"digit":"2","mask":"04999abccccfffb049981000003fff04660cfffffe11f04660cfffffe11f0044a9999999aa90011f6111102ff500000dffff72ff501444effff82ff501444effff82ff504999efddd97dd804999a50009f00f0499915fff75fff047715777845fff047715777845fff0244086000166660000e10000000000000f9677777770000077777777880000077777777880000000000000000"},{"digit":"1","mask":"100000000000003d00000000000113ff0000f33001000ff0000f3300100088aaadf5500033900ddfff5500099c000003f5500f9902eee41f5500fffe2eee41f5500fffecfff91f5500fffdffff91f4400f990ffff81f3300f880ffff40f3300e770ffff40f3300e770677700f2200c660055500f1100b550033300e11001447023300700010228023300700010228033300000022000"},{"digit":"6","mask":"333330000000000000000055cda000fffff02ccefebb1fffff02ccefebb19999802ddeffff9000000299ceffff000002211acefffeeeed100018ceefeeeed100018ceefddddd710005cddf00000fa0005bddf00000f900e52ccd00000e800c20bbc00000e800c20bbc00000c700400bbc00000b60020088a777773000100888777770022200333777770022200333000001333341000"},{"digit":"2","mask":"04999abccccfffb049981000003fff04660cfffffe11f04660cfffffe11f0044a9999999aa90011f6111102ff500000dffff72ff501444effff82ff501444effff82ff504999efddd97dd804999a50009f00f0499915fff75fff047715777845fff047715777845fff0244086000166660000e10000000000000f9677777770000077777777880000077777777880000000000000000"},{"digit":"2","mask":"100000000000000d00000000000110ff007ffffff0000ff007ffffff000088aa9999998933000dd6000000f99000000000000f9902eeee900000f9902eeee900000f990cfffff00005b550ffffff0006f0002ffffb4fffa00000ffaa77788510000ffaa7778851000054006900003000000bb4000000000000bbb6777777000005577777778110005577777778110000000000000000"},{"digit":"6","mask":"00000000000000000005000000066000000dffff30cc100000dffff30cc1000099999901ffa0066f0000006fff0cdd0000006efff0dffeeeeee65fff0dffeeeeee65fff0dffdddddd8577f0ddd000000ce00a0ccc005cc0bd0090abb006aa0ac0090abb006aa0ac00909990131109a008088800000089007003377777743448000087777810443000087777810443220000000001000"},{"digit":"3","mask":"002299abbcccddf00229820000000f0022809fffffff30022809fffffff300003999999999a00000d50012000f000000022ffb00f00004400044000f00004400044000f00229910055566c002299111fffff100229910000022c00002222222000f00002222222000f00000036666200d00000c40000000c000002577777663000000288777660000000288777660000000000000003"},{"digit":"0","mask":"ff0000000000000ff0000000000000dfff12ffffff000dfff12ffffff0009888888998786629000ed000000ddb9000ed000170ddd9000ed088300dde9000ed088300dde9300ed0ffc10ddd9f00dc0ffff0ddd7000cb0ffff0ccc6000ba0bbfa0bbb6000ba0bbfa0bbb5000a9033420999400098000000889100014777777441143301877778000143301877778000443330000000002"},{"digit":"0","mask":"00000000000000000000000000000000000dfffff400000000dfffff40000011787777775500077f0000008ff00088f0100007ff00099f0000007ff00099f0000007ff00099f0022208ff00088f0cfff18ff00088f0bfff17ff00077f06eed06ff00077f06eed06ff00066d0033305dd00055c0000004cc0000036777775110110007777783002110007777783002222200000000444"},{"digit":"2","mask":"59961000000cfff585456666669dff5702fffffff90df1468bbbbbbb989900ff2000000af7000599899930af700002fffffb0af701337fffffb0af70599bfffffa0af70599adb6558c96ad5999960007f90df599724bdd839fff586414cff709fff571199200369ccb242386000055543007800000000000009b30011111100009eccccccccc20002656666666500000000000000000"},{"digit":"5","mask":"30000000000000050255555555550050effffffffff5010ffebbbbbbba1000ff2000000000000ff1000000000000ff2000000160000ffebbbbbb500002effffffff8048dc8666666669c60ff6000000009f70fffffff70008f50fffffffb0008f5051139bb84007f40000133333006f30007800000005f3000562111111471000009cccccd4000020046666661001033100000000222"},{"digit":"4","mask":"0000000000000100000000002500200000000106f705b000000036ff907f00000005fff90af000000799ff909f000304fc08f907f00028a8308f906f6303fd0008f905d019b720007f800300ff400009fa00000effddddfffc20009fffffefffe300000000008f90000000000004f50000000000003f50160111111003f40280000000003f4028111111200060002222223300000000"}];if(typeof module==='object'&&module.exports)module.exports=font;else root.MapleQuickslotFont=font;})(typeof window==='undefined'?globalThis:window);
+</script>
+<!-- QUICKSLOT FONT END -->
+<!-- QUICKSLOT OCR START -->
+<script>(function (root, factory) {
+  if (typeof module === "object" && module.exports)
+    module.exports = factory(require("./quickslot-font"));
+  else root.MapleQuickslotOcr = factory(root.MapleQuickslotFont);
+})(typeof window === "undefined" ? globalThis : window, function (font) {
+  "use strict";
+  const templates = font.map((t) => ({
+    digit: t.digit,
+    data: Float32Array.from(t.mask, (c) => parseInt(c, 16) / 15),
+  }));
+  function recognize(image) {
+    const { width, height, data } = image;
+    if (
+      width < 5 ||
+      height < 8 ||
+      width > 240 ||
+      height > 80 ||
+      data.length !== width * height * 4
+    )
+      return null;
+    const gray = new Float32Array(width * height);
+    let ink = 0;
+    for (let p = 0; p < gray.length; p++) {
+      const i = p * 4,
+        r = data[i],
+        g = data[i + 1],
+        b = data[i + 2],
+        mn = Math.min(r, g, b);
+      gray[p] =
+        Math.max(r, g, b) - mn > 80
+          ? 0
+          : Math.max(0, Math.min(1, (mn - 45) / 130));
+      if (gray[p] > 0.4) ink++;
+    }
+    if (ink < 8 || ink > gray.length * 0.9) return null;
+    const choices = new Map(),
+      vector = new Float32Array(234);
+    for (let n = 1; n <= 5; n++)
+      for (let l = -1; l <= 2; l++)
+        for (let r = -1; r <= 2; r++)
+          for (let t = -1; t <= 2; t++)
+            for (let b = -1; b <= 2; b++) {
+              const w = width - l - r,
+                h = height - t - b;
+              if (w / n / h < 0.65 || w / n / h > 0.85 || h < 8) continue;
+              let error = 0,
+                margin = 1,
+                text = "",
+                valid = true;
+              for (let k = 0; k < n; k++) {
+                let p = 0;
+                for (let y = 1; y < 19; y++)
+                  for (let x = 1; x < 14; x++) {
+                    const xx = Math.floor(l + ((k + (x + 0.5) / 15) * w) / n),
+                      yy = Math.floor(t + ((y + 0.5) / 20) * h);
+                    if (xx < 0 || xx >= width || yy < 0 || yy >= height) {
+                      valid = false;
+                      break;
+                    }
+                    vector[p++] = gray[yy * width + xx];
+                  }
+                if (!valid) break;
+                const scores = new Map();
+                for (const tp of templates) {
+                  let e = 0,
+                    p = 0;
+                  for (let y = 1; y < 19; y++)
+                    for (let x = 1; x < 14; x++)
+                      e += Math.abs(vector[p++] - tp.data[y * 15 + x]);
+                  e /= 234;
+                  if (!scores.has(tp.digit) || e < scores.get(tp.digit))
+                    scores.set(tp.digit, e);
+                }
+                const sorted = [...scores].sort((a, b) => a[1] - b[1]);
+                text += sorted[0][0];
+                error += sorted[0][1];
+                margin = Math.min(margin, sorted[1][1] - sorted[0][1]);
+              }
+              if (!valid || /^0\d/.test(text)) continue;
+              const score = { text, error: error / n, margin };
+              if (!choices.has(text) || choices.get(text).error > score.error)
+                choices.set(text, score);
+            }
+    const sorted = [...choices.values()].sort((a, b) => a.error - b.error),
+      best = sorted[0];
+    if (
+      !best ||
+      best.error > 0.08 ||
+      best.margin < 0.045 ||
+      (sorted[1] && sorted[1].error - best.error < 0.025)
+    )
+      return null;
+    return {
+      count: Number(best.text),
+      confidence: Math.round((1 - best.error) * 100),
+      error: best.error,
+      margin: best.margin,
+    };
+  }
+  return { recognize };
+});
+</script>
+<!-- QUICKSLOT OCR END -->
+<!-- QUICKSLOT SESSION START -->
+<script>(function (root, factory) {
+  if (typeof module === "object" && module.exports) module.exports = factory();
+  else root.MapleQuickslotSession = factory();
+})(typeof window === "undefined" ? globalThis : window, function () {
+  "use strict";
+  const KEY = "maple-track-items-v1";
+  function validRegion(r) {
+    return (
+      r &&
+      ["x", "y", "w", "h"].every((k) => Number.isFinite(r[k])) &&
+      r.x >= 0 &&
+      r.y >= 0 &&
+      r.w > 0 &&
+      r.h > 0 &&
+      r.x + r.w <= 1.00001 &&
+      r.y + r.h <= 1.00001
+    );
+  }
+  function createStore({ storage, onChange = () => {} } = {}) {
+    let saved;
+    try {
+      saved = JSON.parse(storage?.getItem(KEY) || "null");
+    } catch {}
+    const state = { enabled: saved?.enabled === true, items: [] },
+      seen = new Map();
+    let serial = 0;
+    for (const v of Array.isArray(saved?.items)
+      ? saved.items.slice(0, 8)
+      : []) {
+      if (
+        !validRegion(v.region) ||
+        typeof v.label !== "string" ||
+        !Number.isInteger(v.width) ||
+        !Number.isInteger(v.height) ||
+        v.width < 1 ||
+        v.height < 1
+      )
+        continue;
+      state.items.push({
+        id: ++serial,
+        label: v.label.slice(0, 40),
+        region: { ...v.region },
+        width: v.width,
+        height: v.height,
+        count:
+          Number.isInteger(v.count) && v.count >= 0 && v.count <= 99999
+            ? v.count
+            : null,
+        used: Number.isFinite(v.used) && v.used >= 0 ? v.used : 0,
+        seconds: Number.isFinite(v.seconds) && v.seconds >= 0 ? v.seconds : 0,
+        at: null,
+        pending: null,
+        status: "Waiting for capture",
+      });
+    }
+    function changed() {
+      try {
+        storage?.setItem(
+          KEY,
+          JSON.stringify({
+            enabled: state.enabled,
+            items: state.items.map(({ at, pending, status, ...v }) => v),
+          }),
+        );
+      } catch {}
+      onChange();
+    }
+    function invalidate() {
+      seen.clear();
+      for (const item of state.items) {
+        item.at = null;
+        item.pending = null;
+        item.status = "Waiting for capture";
+      }
+      onChange();
+    }
+    function add(label, region, width, height, id) {
+      if (
+        typeof label !== "string" ||
+        !label.trim() ||
+        !validRegion(region) ||
+        !Number.isInteger(width) ||
+        !Number.isInteger(height) ||
+        width < 1 ||
+        height < 1
+      )
+        return null;
+      let item = state.items.find((v) => v.id === id);
+      if (!item) {
+        if (state.items.length >= 8) return null;
+        item = { id: ++serial, used: 0, seconds: 0 };
+        state.items.push(item);
+      }
+      Object.assign(item, {
+        label: label.trim().slice(0, 40),
+        region: { ...region },
+        width,
+        height,
+        count: null,
+        at: null,
+        pending: null,
+        status: "Waiting for capture",
+      });
+      changed();
+      return item;
+    }
+    function observe(id, result, t) {
+      const item = state.items.find((v) => v.id === id);
+      if (!item || !Number.isFinite(t) || (seen.has(id) && t <= seen.get(id)))
+        return false;
+      seen.set(id, t);
+      if (
+        !result ||
+        !Number.isInteger(result.count) ||
+        result.count < 0 ||
+        result.count > 99999 ||
+        !Number.isFinite(result.confidence) ||
+        result.confidence < 90
+      ) {
+        item.pending = null;
+        item.status = "Unreadable · keeping last count";
+        onChange();
+        return false;
+      }
+      const count = result.count,
+        dt = item.at === null ? null : (t - item.at) / 1000;
+      if (
+        dt !== null &&
+        dt <= 25 &&
+        count !== item.count &&
+        Math.abs(count - item.count) > Math.max(5, item.count * 0.05)
+      ) {
+        const p = item.pending,
+          confirmed =
+            p &&
+            t > p.t &&
+            t - p.t <= 25000 &&
+            Math.sign(count - item.count) === Math.sign(p.count - item.count) &&
+            Math.abs(count - p.count) <= Math.max(2, (t - p.t) / 1000);
+        if (!confirmed) {
+          item.pending = { count, t };
+          item.status = "Confirming count change";
+          onChange();
+          return false;
+        }
+      }
+      if (dt !== null && dt <= 25) {
+        item.seconds += dt;
+        item.used += Math.max(0, item.count - count);
+      }
+      Object.assign(item, { count, at: t, pending: null, status: "Reading" });
+      changed();
+      return true;
+    }
+    return {
+      state,
+      add,
+      observe,
+      invalidate,
+      enable(v) {
+        state.enabled = !!v;
+        invalidate();
+        changed();
+      },
+      remove(id) {
+        state.items = state.items.filter((v) => v.id !== id);
+        seen.delete(id);
+        changed();
+      },
+      reset() {
+        for (const i of state.items) {
+          i.used = 0;
+          i.seconds = 0;
+        }
+        invalidate();
+        changed();
+      },
+      rate(item) {
+        return item.seconds >= 30 ? (item.used / item.seconds) * 3600 : null;
+      },
+    };
+  }
+
+  return { create: createStore, validRegion };
+});
+</script>
+<!-- QUICKSLOT SESSION END -->
+<!-- QUICKSLOTS START -->
+<script>(function (root, factory) {
+  if (typeof module === "object" && module.exports)
+    module.exports = factory(
+      require("./quickslot-ocr"),
+      require("./hud-regions"),
+      require("./quickslot-session"),
+    );
+  else
+    root.MapleQuickslots = factory(
+      root.MapleQuickslotOcr,
+      root.MapleHudRegions,
+      root.MapleQuickslotSession,
+    );
+})(
+  typeof window === "undefined" ? globalThis : window,
+  function (Ocr, Regions, Session) {
+    "use strict";
+    function mount({
+      document,
+      window,
+      video,
+      storage,
+      getCapture,
+      now = Date.now,
+    }) {
+      const q = (id) => document.querySelector(id);
+      if (!q("#quickslotItems"))
+        return {
+          process: async () => {},
+          invalidate() {},
+          resetSession() {},
+          render() {},
+          dispose() {},
+        };
+      let renderedRows = "",
+        revision = 0;
+      let draft = null,
+        editing = null,
+        origin = null,
+        selection = null,
+        disposed = false,
+        busy = false,
+        previewBase = null;
+      let worker = null,
+        waiter = null,
+        workId = 0,
+        workerFailed = false,
+        fault = "";
+      function stopWorker() {
+        if (waiter) {
+          window.clearTimeout(waiter.timer);
+          waiter.resolve(null);
+          waiter = null;
+        }
+        worker?.terminate();
+        worker = null;
+      }
+      async function match(image) {
+        if (!window?.Worker) return Ocr.recognize(image);
+        if (workerFailed) return null;
+        if (!worker) {
+          try {
+            worker = new window.Worker(
+              new URL("quickslot-worker.js", window.location.href),
+            );
+          } catch (error) {
+            workerFailed = true;
+            fault = "Item worker could not start. Reload the page to retry.";
+            return null;
+          }
+          worker.onmessage = (e) => {
+            if (!waiter || e.data.id !== waiter.id) return;
+            const done = waiter;
+            waiter = null;
+            window.clearTimeout(done.timer);
+            done.resolve(e.data.result);
+          };
+          worker.onerror = () => {
+            workerFailed = true;
+            fault = "Item reader could not load. Reload the page to retry.";
+            stopWorker();
+          };
+        }
+        return new Promise((resolve) => {
+          const id = ++workId,
+            timer = window.setTimeout(() => {
+              workerFailed = true;
+              fault = "Item reading timed out. Reload the page to retry.";
+              stopWorker();
+            }, 3000);
+          waiter = { id, resolve, timer };
+          try {
+            worker.postMessage({ id, image }, [image.data.buffer]);
+          } catch {
+            workerFailed = true;
+            fault =
+              "Item reader could not process the selected region. Reload to retry.";
+            stopWorker();
+          }
+        });
+      }
+      const cache = new Map(),
+        store = Session.create({ storage, onChange: () => render() }),
+        canvas = q("#itemRegionCanvas"),
+        context = () => canvas.getContext("2d");
+      function restart() {
+        revision++;
+        stopWorker();
+        cache.clear();
+      }
+      const number = (n) => (n === null ? "—" : Math.round(n).toLocaleString());
+      function render() {
+        q("#trackItems").checked = store.state.enabled;
+        q("#itemTrackingState").textContent =
+          fault ||
+          (!store.state.enabled
+            ? "Off"
+            : store.state.items.length
+              ? getCapture()?.stream
+                ? "Every 10 seconds with your game capture"
+                : "Waiting for screen sharing"
+              : "Add an item to begin");
+        const rowKey = JSON.stringify(
+          store.state.items.map((i) => [
+            i.id,
+            i.label,
+            i.count,
+            i.used,
+            number(store.rate(i)),
+            i.status,
+            i.at === null || now() - i.at > 25000,
+          ]),
+        );
+        if (rowKey === renderedRows) return;
+        renderedRows = rowKey;
+        const body = q("#itemRows");
+        body.innerHTML = "";
+        for (const item of store.state.items) {
+          const tr = document.createElement("tr"),
+            stale = item.at === null || now() - item.at > 25000;
+          for (const text of [
+            item.label,
+            number(item.count),
+            number(item.used),
+            number(store.rate(item)),
+            stale && item.status === "Reading"
+              ? "Waiting for a fresh count"
+              : item.status,
+          ]) {
+            const td = document.createElement("td");
+            td.textContent = text;
+            tr.appendChild(td);
+          }
+          const td = document.createElement("td");
+          for (const [label, action] of [
+            ["Select count", () => setup(item)],
+            [
+              "Remove",
+              () => {
+                restart();
+                store.remove(item.id);
+                cache.delete(item.id);
+              },
+            ],
+          ]) {
+            const button = document.createElement("button");
+            button.className = "btn";
+            button.textContent = label;
+            button.setAttribute("aria-label", label + " for " + item.label);
+            button.addEventListener("click", action);
+            td.appendChild(button);
+          }
+          tr.appendChild(td);
+          body.appendChild(tr);
+        }
+        q("#itemsEmpty").hidden = store.state.items.length > 0;
+      }
+      function close() {
+        q("#itemSetup").hidden = true;
+        canvas.width = canvas.height = 0;
+        if (previewBase) {
+          previewBase.width = previewBase.height = 0;
+        }
+        previewBase = null;
+        draft = selection = origin = null;
+      }
+      function setup(item) {
+        if (
+          !getCapture()?.stream ||
+          video.readyState < 2 ||
+          !video.videoWidth
+        ) {
+          q("#itemTrackingState").textContent =
+            "Share your game window first, then add an item.";
+          return;
+        }
+        if (!item && store.state.items.length >= 8) {
+          q("#itemTrackingState").textContent =
+            "You can track up to eight items.";
+          return;
+        }
+        close();
+        editing = item?.id || null;
+        const y = Math.floor(video.videoHeight * 0.65),
+          width = Math.min(1600, video.videoWidth),
+          height = Math.round(
+            ((video.videoHeight - y) * width) / video.videoWidth,
+          );
+        previewBase = document.createElement("canvas");
+        previewBase.width = canvas.width = width;
+        previewBase.height = canvas.height = height;
+        previewBase
+          .getContext("2d")
+          .drawImage(
+            video,
+            0,
+            y,
+            video.videoWidth,
+            video.videoHeight - y,
+            0,
+            0,
+            width,
+            height,
+          );
+        selection = {
+          width: video.videoWidth,
+          height: video.videoHeight,
+          y: y / video.videoHeight,
+        };
+        q("#itemLabel").value = item?.label || "";
+        q("#itemSetup").hidden = false;
+        q("#saveItem").disabled = true;
+        q("#itemSelectionHint").textContent =
+          "Drag a tight box around the complete quantity digits, including their outline. Leave out the icon and key label.";
+        context().drawImage(previewBase, 0, 0);
+        canvas.scrollIntoView?.({ block: "nearest" });
+      }
+      function point(e) {
+        const r = canvas.getBoundingClientRect();
+        return {
+          x: Math.max(0, Math.min(1, (e.clientX - r.left) / r.width)),
+          y: Math.max(0, Math.min(1, (e.clientY - r.top) / r.height)),
+        };
+      }
+      function draw(end) {
+        if (!origin || !previewBase) return;
+        const box = {
+          x: Math.min(origin.x, end.x),
+          y: Math.min(origin.y, end.y),
+          w: Math.abs(end.x - origin.x),
+          h: Math.abs(end.y - origin.y),
+        };
+        const c = context();
+        c.drawImage(previewBase, 0, 0);
+        c.strokeStyle = "#d4fc79";
+        c.lineWidth = 2;
+        c.strokeRect(
+          box.x * canvas.width,
+          box.y * canvas.height,
+          box.w * canvas.width,
+          box.h * canvas.height,
+        );
+        draft = {
+          x: box.x,
+          y: selection.y + box.y * (1 - selection.y),
+          w: box.w,
+          h: box.h * (1 - selection.y),
+        };
+        return draft;
+      }
+      canvas.addEventListener("pointerdown", (e) => {
+        if (!selection) return;
+        origin = point(e);
+        canvas.setPointerCapture(e.pointerId);
+      });
+      canvas.addEventListener("pointermove", (e) => {
+        if (origin) draw(point(e));
+      });
+      canvas.addEventListener("pointerup", (e) => {
+        if (!origin) return;
+        draw(point(e));
+        origin = null;
+        const w = draft.w * selection.width,
+          h = draft.h * selection.height,
+          valid = w >= 5 && h >= 8 && w <= 240 && h <= 80;
+        q("#saveItem").disabled = !valid;
+        q("#itemSelectionHint").textContent = valid
+          ? "Count selected. Name the item and save."
+          : "Select only the quantity digits: 5–240 pixels wide and 8–80 pixels tall.";
+        if (!valid) draft = null;
+      });
+      canvas.addEventListener("pointercancel", () => {
+        origin = null;
+        draft = null;
+        q("#saveItem").disabled = true;
+      });
+      q("#addItem").addEventListener("click", () => setup());
+      q("#cancelItem").addEventListener("click", close);
+      q("#saveItem").addEventListener("click", () => {
+        if (!draft || !selection) return;
+        restart();
+        const item = store.add(
+          q("#itemLabel").value,
+          draft,
+          selection.width,
+          selection.height,
+          editing,
+        );
+        if (item) {
+          cache.delete(item.id);
+          store.enable(true);
+          close();
+        } else
+          q("#itemSelectionHint").textContent =
+            "Enter an item name and select its quantity.";
+      });
+      q("#trackItems").addEventListener("change", () => {
+        restart();
+        workerFailed = false;
+        fault = "";
+        store.enable(q("#trackItems").checked);
+        cache.clear();
+      });
+      q("#resetItems").addEventListener("click", () => {
+        restart();
+        store.reset();
+      });
+      async function process(frame, t, cancelled = () => false) {
+        if (
+          disposed ||
+          busy ||
+          !store.state.enabled ||
+          !store.state.items.length ||
+          cancelled()
+        )
+          return;
+        const run = revision;
+        busy = true;
+        try {
+          const image =
+            frame._pixels ||
+            frame
+              .getContext("2d")
+              .getImageData(0, 0, frame.width, frame.height);
+          for (const item of [...store.state.items]) {
+            if (
+              disposed ||
+              cancelled() ||
+              run !== revision ||
+              !store.state.enabled
+            )
+              return;
+            if (item.width !== image.width || item.height !== image.height) {
+              item.status = "Capture size changed · select count again";
+              item.at = null;
+              item.pending = null;
+              continue;
+            }
+            const r = item.region,
+              crop = Regions.crop(image, {
+                x: r.x * image.width,
+                y: r.y * image.height,
+                w: r.w * image.width,
+                h: r.h * image.height,
+              });
+            let hash = 2166136261;
+            for (const v of crop.data) hash = Math.imul(hash ^ v, 16777619);
+            const key = crop.width + ":" + crop.height + ":" + hash,
+              prior = cache.get(item.id),
+              result = prior?.key === key ? prior.result : await match(crop);
+            if (
+              cancelled() ||
+              disposed ||
+              run !== revision ||
+              !store.state.enabled
+            )
+              return;
+            cache.set(item.id, { key, result });
+            if (
+              cancelled() ||
+              disposed ||
+              run !== revision ||
+              !store.state.enabled
+            )
+              return;
+            store.observe(item.id, result, t);
+          }
+        } catch (error) {
+          fault =
+            "Item reading unavailable: " + (error.message || String(error));
+        } finally {
+          busy = false;
+          render();
+        }
+      }
+      render();
+      return {
+        store,
+        process,
+        render,
+        invalidate() {
+          restart();
+          store.invalidate();
+          cache.clear();
+          close();
+        },
+        resetSession() {
+          restart();
+          store.reset();
+        },
+        dispose() {
+          disposed = true;
+          stopWorker();
+          close();
+          cache.clear();
+        },
+      };
+    }
+    return {
+      createStore: Session.create,
+      mount,
+      validRegion: Session.validRegion,
+    };
+  },
+);
+</script>
+<!-- QUICKSLOTS END -->
 <!-- APP START -->
 <script>(function (root, factory) {
   if (typeof module === "object" && module.exports)
@@ -2278,6 +3011,7 @@ return {detect,crop,anchors,percentageRegion};
       require("./dashboard"),
       require("./debug-tools"),
       require("./stream-card"),
+      require("./quickslots"),
     );
   else
     root.MapleApp = factory(
@@ -2288,6 +3022,7 @@ return {detect,crop,anchors,percentageRegion};
       root.MapleDashboard,
       root.MapleDebugTools,
       root.MapleStreamCard,
+      root.MapleQuickslots,
     );
 })(
   typeof window === "undefined" ? globalThis : window,
@@ -2299,6 +3034,7 @@ return {detect,crop,anchors,percentageRegion};
     Dashboard,
     DebugTools,
     StreamCard,
+    Quickslots,
   ) {
     "use strict";
     function mount({
@@ -2374,6 +3110,13 @@ return {detect,crop,anchors,percentageRegion};
         getCapture: () => capture,
         debug,
       });
+      const items = Quickslots.mount({
+        document,
+        window,
+        video: q("#sharePreview"),
+        storage,
+        getCapture: () => capture,
+      });
       capture = Capture.create({
         navigator,
         video: q("#sharePreview"),
@@ -2384,6 +3127,8 @@ return {detect,crop,anchors,percentageRegion};
         view,
         debugTools,
         debug,
+        onFrame: items.process,
+        onInvalidate: items.invalidate,
         timers: {
           setTimeout: window.setTimeout.bind(window),
           setInterval: window.setInterval.bind(window),
@@ -2421,6 +3166,7 @@ return {detect,crop,anchors,percentageRegion};
           return;
         capture.invalidate();
         session.reset();
+        items.resetSession();
         view.status("waiting", "New session · Waiting for the next reading");
       });
       on("#streamCardBtn", () => {
@@ -2440,7 +3186,10 @@ return {detect,crop,anchors,percentageRegion};
       view.bindCalibration();
       view.updateRegionStatus();
       view.update();
-      const timer = window.setInterval(view.update, 5000);
+      const timer = window.setInterval(() => {
+        view.update();
+        items.render();
+      }, 5000);
       let disposed = false;
       function dispose() {
         if (disposed) return;
@@ -2448,10 +3197,11 @@ return {detect,crop,anchors,percentageRegion};
         window.clearInterval(timer);
         if (capture.stream) capture.stop();
         view.dispose();
+        items.dispose();
         window.removeEventListener("pagehide", dispose);
       }
       window.addEventListener("pagehide", dispose, { once: true });
-      return { session, recognition, reader, capture, view, dispose };
+      return { session, recognition, reader, capture, view, items, dispose };
     }
     return { mount };
   },
@@ -2469,6 +3219,15 @@ return {detect,crop,anchors,percentageRegion};
 <div class="foot"><span id="lastSample">NO CAPTURE YET</span></div></section>
 <div class="right-col"><section class="panel level-card"><div class="panel-head"><span class="label">Current character</span><span class="tag">MAPLE CLASSIC</span></div><div class="level-row"><div><div class="level-name">LEVEL</div><div class="level-num" id="level">—</div></div><div class="level-name" id="classLabel">AWAITING CAPTURE</div></div><div class="progress"><span id="progressFill" style="width:0%"></span></div><div class="progress-meta"><span id="percent">0.00% to next level</span><span id="remaining">— EXP TO GO</span></div><div class="eta"><div><span>Estimated level up</span><br><b id="eta">—</b></div><span id="etaNote">Need more data</span></div></section>
 <section class="panel setup"><div class="panel-head"><span class="label">Tracking</span><span class="tag">10 SEC INTERVAL</span></div><div class="setup-step"><div class="num">01</div><div class="step-body"><b>Share MapleStory</b><p>Click Share game window and choose MapleStory in the browser picker. Keep this dashboard open while playing. Use Stop sharing to disconnect.</p></div></div><div class="setup-step"><div class="num">02</div><div class="step-body"><b>Calibrate the readout</b><p>On a captured frame, select the Level number and the EXP value with its percentage. The selection is saved relative to the frame size.</p></div></div><div class="capture-actions" style="display:flex;gap:10px;flex-wrap:wrap;margin-bottom:14px"><button class="btn" id="shareGameBtn" style="background:var(--lime);color:#171a11;font-weight:800">Share game window</button><button class="btn hidden" id="stopSharingBtn">Stop sharing</button><button class="btn hidden" id="pauseSessionBtn" aria-pressed="false">Pause session</button><button class="btn" id="newSessionBtn">New session</button><button class="btn" id="streamCardBtn">Open stream card</button></div><p class="subtle" style="font-size:11px">For a live overlay, open the stream card and add its browser window as a Window Capture source in your streaming software. Keep the main tracker and card open in the same browser profile.</p><p class="subtle" style="font-size:11px">Choose the MapleStory window. Screenshots are processed locally; no audio is captured.</p><video id="sharePreview" muted playsinline class="hidden" style="width:100%;max-height:160px;object-fit:contain;border-radius:8px;margin-bottom:12px"></video><p id="trackingStatus" class="tracking-summary" role="status" aria-live="polite">Share your game window to start tracking.</p><div class="source"><span>Capture connection</span><b id="sourceState">CHECKING…</b></div><div class="btn-row"><button class="btn" id="sampleBtn">Add sample</button></div><div class="notice" id="notice"></div><div class="log"><div class="log-head"><span class="label">Recent captures</span><button class="btn" id="manualBtn" style="padding:5px 8px">Manual entry</button></div><div class="log-list" id="logList"><div class="log-item"><span>—</span><b>No captures yet</b><span>—</span></div></div></div></section></div></div>
+<section class="panel items-panel" id="quickslotItems" aria-labelledby="itemsTitle">
+<div class="panel-head"><h2 id="itemsTitle">Quickslot items</h2><span class="tag">BETA · LOCAL TRACKING</span></div>
+<p>Track consumables by selecting their quantity digits. Counts are read from the same game capture; no extra sharing permission is needed.</p>
+<div class="items-controls"><label><input type="checkbox" id="trackItems"> Track items</label><button class="btn" id="addItem">Add item</button><button class="btn" id="resetItems">Reset item usage</button><span class="subtle" id="itemTrackingState" role="status" aria-live="polite">Off</span></div>
+<div class="item-setup" id="itemSetup" hidden><label for="itemLabel">Item name</label> <input id="itemLabel" maxlength="40" placeholder="HP potion" autocomplete="off"><p id="itemSelectionHint"></p><canvas id="itemRegionCanvas" aria-label="Select the item quantity in this captured HUD"></canvas><div class="items-controls"><button class="btn" id="saveItem" disabled>Save item</button><button class="btn" id="cancelItem">Cancel</button></div></div>
+<div class="items-table-wrap"><table class="items-table"><thead><tr><th scope="col">Item</th><th scope="col">Remaining</th><th scope="col">Used this session</th><th scope="col">Used / hour</th><th scope="col">Status</th><th scope="col">Actions</th></tr></thead><tbody id="itemRows"></tbody></table></div>
+<p id="itemsEmpty">Share your game window, then add the items you want to track.</p>
+<p>Usage measures observed count decreases. Refills keep your usage total; inventory moves and replacing a stack can look like use. Reset item usage after moving items or switching characters. Rates need 30 seconds of readings and exclude pauses and long capture gaps. Unreadable or missing digits keep the last count; an empty slot is never assumed to be zero. Re-select counts if the capture size or quickslot layout changes.</p>
+</section>
 <section class="panel safety" aria-labelledby="safetyTitle">
 <h2 id="safetyTitle">Is this safe?</h2>
 <p class="safety-intro">The tracker runs locally in your browser, with no application backend. Your shared frames and EXP readings are processed on your device and are not uploaded. The OCR fallback may download model files from this site; recognition stays on your device.</p>

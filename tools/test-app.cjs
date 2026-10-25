@@ -6,6 +6,7 @@ const checks = [
   ["tools/test-browser-capture.cjs"],
   ["tools/test-burst-capture.cjs"],
   ["tools/test-stream-card.cjs"],
+  ["tools/test-quickslots.cjs"],
   ["tools/test-debug-downloads.cjs"],
   ["tools/test-level-ocr.cjs"],
   ["tools/test-level-inference.cjs"],

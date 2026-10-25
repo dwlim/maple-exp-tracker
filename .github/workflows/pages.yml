@@ -35,10 +35,11 @@ jobs:
           mkdir -p _site
           cp index.html _site/index.html
           cp -R assets _site/assets
-          cp level-ocr.js hud-ocr.js hud-regions.js local-ocr.js session.js _site/
+          cp level-ocr.js hud-ocr.js hud-regions.js local-ocr.js session.js quickslot-worker.js quickslot-font.js quickslot-ocr.js _site/
           cp tools/browser-ocr-check.html _site/ocr-check.html
+          cp tools/browser-quickslot-check.html _site/quickslot-check.html
           mkdir -p _site/assets/validation
-          cp tools/stream-holdout-fixtures.json _site/assets/validation/
+          cp tools/stream-holdout-fixtures.json tools/quickslot-font-fixtures.json _site/assets/validation/
           touch _site/.nojekyll
       - uses: actions/upload-pages-artifact@v4
         with:

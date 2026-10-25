@@ -8,6 +8,7 @@
       require("./dashboard"),
       require("./debug-tools"),
       require("./stream-card"),
+      require("./quickslots"),
     );
   else
     root.MapleApp = factory(
@@ -18,6 +19,7 @@
       root.MapleDashboard,
       root.MapleDebugTools,
       root.MapleStreamCard,
+      root.MapleQuickslots,
     );
 })(
   typeof window === "undefined" ? globalThis : window,
@@ -29,6 +31,7 @@
     Dashboard,
     DebugTools,
     StreamCard,
+    Quickslots,
   ) {
     "use strict";
     function mount({
@@ -104,6 +107,13 @@
         getCapture: () => capture,
         debug,
       });
+      const items = Quickslots.mount({
+        document,
+        window,
+        video: q("#sharePreview"),
+        storage,
+        getCapture: () => capture,
+      });
       capture = Capture.create({
         navigator,
         video: q("#sharePreview"),
@@ -114,6 +124,8 @@
         view,
         debugTools,
         debug,
+        onFrame: items.process,
+        onInvalidate: items.invalidate,
         timers: {
           setTimeout: window.setTimeout.bind(window),
           setInterval: window.setInterval.bind(window),
@@ -151,6 +163,7 @@
           return;
         capture.invalidate();
         session.reset();
+        items.resetSession();
         view.status("waiting", "New session · Waiting for the next reading");
       });
       on("#streamCardBtn", () => {
@@ -170,7 +183,10 @@
       view.bindCalibration();
       view.updateRegionStatus();
       view.update();
-      const timer = window.setInterval(view.update, 5000);
+      const timer = window.setInterval(() => {
+        view.update();
+        items.render();
+      }, 5000);
       let disposed = false;
       function dispose() {
         if (disposed) return;
@@ -178,10 +194,11 @@
         window.clearInterval(timer);
         if (capture.stream) capture.stop();
         view.dispose();
+        items.dispose();
         window.removeEventListener("pagehide", dispose);
       }
       window.addEventListener("pagehide", dispose, { once: true });
-      return { session, recognition, reader, capture, view, dispose };
+      return { session, recognition, reader, capture, view, items, dispose };
     }
     return { mount };
   },
