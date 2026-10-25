@@ -1,0 +1,20 @@
+[
+  {
+    "name": "synthetic-contrast-tail-330",
+    "synthetic": true,
+    "description": "Composed from native 3 and 0 glyph crops; trailing glyphs have a controlled contrast change. This is not a live capture.",
+    "width": 35,
+    "height": 14,
+    "rgba": "eJzNlU1IFGEYx9/ZVTKMvtDdpeCdGXXLdWe3g0GQgRG1GKhpEiYt9IGHItJCD+Vql/UUqSAeLELJTmle/KpNx90dxw7VubKz1275tbj9Y56ZHYUuuxDRwI/5z/sc3t8878NMKBRC6D+j2HMU3dF+grE8MMZsUlubSG+uob2ji+BcBufcJpmIQ4urkGSOubdRlHk5SkpNvF6O+YUwtOTJrF1cniN4HH0CJhQgjZ3rF2D73O94CC6WQtN16BZLum77JJIx8tH1Sej6nMUkvGUc6nxL1i5utweMOcmDMQFMYCaM2T6cS+TBuQguchPObR/jWddViBKHLJsYWddnUCLznF0IQcBGagsbqRT57HYhRBHxZALxZJL2t10yXiKn/kzPvLD8NIhi9i7GvPRE+9Ad7QMTnGAOBuYQiIyLPS+iZPVFJHb3RbNcElrM7t2SrkKWcnMx5jbSOwAm5GN9extr22nCcFtPpcmjrTMCLspY1DSoFobbYlIjr93P5pqEuLaQk0tmdnuiT8GEPeTDhDwwRz5Wf/wEcxTS7LZ3PKL5NXwyTL1TwUWvmWNGLoOa1AkjT8feU39ycTEdCtHVO0BEevvBHPvweWUVzHnAcvDiXmeEaOs0zusYXk1MgUvlVDezDzfvPEC49S5lWhPlHM7IcNmL+MdvYE4XWJ7HxOmC+uk7mOMgvePzl+PgkgIuB00kBc/G3oCLpsuwkTM1i+GxSarl0pdA5Wkwx37MLn/B9IcVYnb5K3nUX21FVfV5cPE4hkZeY3B0ghgaGSePxubrqKlroD4Mjo7bdSMba1VnL2Tv4vZQb4KVp6yzKrC5duM27aUET+BM9TnrrHZoCd9CU3MY9Y1NqLt85Y96TW0DLtZeyuH74obLY2LkDEXFLhwucuNQkQdKMEAEAjv4FQUV/gB8/iB8ioLyigrCZ+Az7+aa/6/9r/4FvwGBWKq6",
+    "expectedCount": 330
+  },
+  {
+    "name": "synthetic-ambiguous-tail-330",
+    "synthetic": true,
+    "description": "The same synthetic count with deterministic noise on its last glyph; reject the whole reading.",
+    "width": 35,
+    "height": 14,
+    "rgba": "eJzNlUtoE1EUhu9kEq0ovmiToHAn0UZt83ChYNIKhSKhgrbVaKtYUdSFG5NoImhrRUlBEDul0oVxUV+r+NgovtCYJqYutAtBsK1KF+LCjRXENm1o/GXOpNOCmw6IeOFj7twzw/0492fG7/fD/59RZl2JMzGZYMwIxphGfnIChYkxhCKtBOd2cM410n0pZFJJ2Owcjx7HUO7gWLVaxeHgePa8BZn0xjm7mK0rcDZ2EUwoQQEz4xeg+YQjp8Cl1chks8gWeZnNaj596acwzRMxOfkZsnwOIyNvEY3uh6OcA0jM2cVisYIxkTwYE8AEpsKY5sO5jTw4l8AlrsK55qPcy/IF+Kq89LzdzhEKB5FIxNHcFNDtQggCcvlJ5PJ58pntQkgSUuk+pNJp2l9z4RyRaJTWwseDuBI/j8CuAGT5Enw+r668tMc6cSbWCSaIYAYGZhCIaRctL5Kt2BeJmN0XZYhGEWO5UXrH6/MiEj0Gu43rzm5bRxeYYML41BTGpgqE4jaeL5BHMNoGLtnxIpNBsoji9iKdIa8fuRw5DH38hODxE1RTxjyTqDu77bFLYMJ88mGCEcxgwpdvP8EMCym7ochpyq/iM839J0lwyUHzgXeD5JJMZ4s9WoCvo99pTY+L6rAQrR1dRFuHDGZYhIHhL2DikqKDA8eibUQwqpzXGty6cx/cto7qyjwYPg1/fRO649dVr/4BXS5l5LIAqddDYKIZzGhVEc1IvvkAZlgKLpXj6o3b4DYXuN2jYnMhfvMuuKS6tF/oRqDpsJqV6jq6Xrl5D8FQRFdf3BuqwAyL8bD/PR68GiYe9g+SR/2eI6iu2QIurUVPbwKXr90henpvk8eO5gOo295Ie999mkVtwz6qf/6eh2hajPDJ1rm7WKzUG8+GTcWzKtHYd/Ao7eXyrMfmmtriWc2wt+UQAs0tqN8RwPadu/+o121rxNZtDTq+LxaYrSrKfJrSMjOWl1qwrNQKl8dNuN0zOF0uVDrdqHB6UOFyYV1lJVGhUKFe1TXnX/tf/Qt+A0C5rXo=",
+    "expectedCount": null
+  }
+]

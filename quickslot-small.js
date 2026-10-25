@@ -99,11 +99,6 @@
           confidence = 100,
           valid = true;
         for (let n = 0; n < 6; n++) {
-          if (!hasText(image, palette, cursor, top)) break;
-          if (n === 5) {
-            valid = false;
-            break;
-          }
           const strength = new Map(),
             scores = new Map(),
             wide = cell(image, cursor, top, "0"),
@@ -159,6 +154,16 @@
             strength.get(sorted[0][0]) - strength.get(sorted[1][0]) <
               Math.log(100)
           ) {
+            // Color alone is not proof of an empty tail. A weak masked match
+            // still means a possible continuation, so reject the whole count.
+            if (
+              hasText(image, palette, cursor, top) ||
+              [...scores.values()].some((e) => e <= 0.25)
+            )
+              valid = false;
+            break;
+          }
+          if (n === 5) {
             valid = false;
             break;
           }
@@ -181,7 +186,16 @@
             readings.set(text, r);
         }
       }
-    const sorted = [...readings.values()].sort((a, b) => a.error - b.error);
+    // A complete strong reading contains more evidence than its own prefix.
+    const full = [...readings.entries()]
+      .filter(
+        ([text]) =>
+          ![...readings.keys()].some(
+            (other) => other.length > text.length && other.startsWith(text),
+          ),
+      )
+      .map(([, reading]) => reading);
+    const sorted = full.sort((a, b) => a.error - b.error);
     if (
       !sorted.length ||
       (sorted[1] && sorted[1].error - sorted[0].error < 0.025)

@@ -11,6 +11,14 @@ for (const f of fixtures) {
   });
   assert.equal(result?.count, Number(f.text), f.name);
 }
+for (const f of require("./quickslot-tail-fixtures.json")) {
+  const image = { ...f, data: z.inflateSync(Buffer.from(f.rgba, "base64")) };
+  assert.equal(
+    Q.recognizeSlot(image)?.count ?? null,
+    f.expectedCount,
+    f.name + " must not accept a prefix",
+  );
+}
 assert.deepEqual(
   new Set(require("../quickslot-font").map((v) => v.digit)),
   new Set("0123456789"),
@@ -319,7 +327,7 @@ const eight = packedFrame(cases.find((f) => f.name === "native-8-10")),
     getCapture: () => capture,
   });
   const pending = ui2.process(frame(eight), 1000);
-  assert.match(active.url.href, /tracker\/quickslot-worker.js\?v=4$/);
+  assert.match(active.url.href, /tracker\/quickslot-worker.js\?v=5$/);
   ui2.invalidate();
   await pending;
   assert.equal(active.stopped, true);

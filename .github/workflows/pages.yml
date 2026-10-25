@@ -40,7 +40,7 @@ jobs:
           cp tools/browser-ocr-check.html _site/ocr-check.html
           cp tools/browser-quickslot-check.html _site/quickslot-check.html
           mkdir -p _site/assets/validation
-          cp tools/stream-holdout-fixtures.json tools/quickslot-font-fixtures.json tools/quickslot-layout-fixtures.json tools/quickslot-sequence-fixtures.json _site/assets/validation/
+          cp tools/stream-holdout-fixtures.json tools/quickslot-font-fixtures.json tools/quickslot-layout-fixtures.json tools/quickslot-sequence-fixtures.json tools/quickslot-tail-fixtures.json _site/assets/validation/
           touch _site/.nojekyll
       - uses: actions/upload-pages-artifact@v4
         with:
