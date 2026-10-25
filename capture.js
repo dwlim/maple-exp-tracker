@@ -13,7 +13,7 @@
     view,
     debugTools,
     debug = false,
-    onFrame = async () => {},
+    onFrame = null,
     onInvalidate = () => {},
     now = Date.now,
     timers = { setTimeout, setInterval, clearInterval },
@@ -22,7 +22,8 @@
       timer = null,
       generation = 0,
       busy = false,
-      connecting = false;
+      connecting = false,
+      itemTask = null;
     const delay = (ms) =>
       new Promise((resolve) => timers.setTimeout(resolve, ms));
     function invalidate() {
@@ -62,13 +63,15 @@
       const run = generation,
         canvases = [],
         started = now();
-      let stage = "capture";
+      let stage = "capture",
+        capturedCount = 0;
       busy = true;
       const cancelled = () =>
         run !== generation || session.state.paused || !stream;
       const capture = () => {
         const frame = document.createElement("canvas");
         canvases.push(frame);
+        capturedCount++;
         frame.width = video.videoWidth;
         frame.height = video.videoHeight;
         frame.getContext("2d").drawImage(video, 0, 0);
@@ -111,10 +114,6 @@
             }
           }
         }
-        if (automatic) {
-          await onFrame(frame, frame._capturedAt, cancelled);
-          if (cancelled()) return;
-        }
         if (debug || !automatic) {
           stage = "preview";
           await view.previewFrame(frame, cancelled);
@@ -122,6 +121,24 @@
         }
         if (automatic && !result?.accepted)
           await reader.read(frame, frame._capturedAt);
+        if (automatic && onFrame && !itemTask && !cancelled()) {
+          // Item OCR owns this frame until it finishes. It never holds the EXP
+          // scheduler or changes an EXP result, even if its worker fails/stalls.
+          canvases.splice(canvases.indexOf(frame), 1);
+          itemTask = Promise.resolve()
+            .then(() => {
+              if (!cancelled()) return onFrame(frame, frame._capturedAt, cancelled);
+            })
+            .catch(() => {
+              /* Item failures belong to the item panel, not EXP capture status. */
+            })
+            .finally(() => {
+              frame.width = 0;
+              frame.height = 0;
+              delete frame._pixels;
+              itemTask = null;
+            });
+        }
       } catch (error) {
         if (run === generation) {
           view.captureError(stage, error);
@@ -148,7 +165,7 @@
         }
         busy = false;
         if (debug && run === generation)
-          view.timing(now() - started, canvases.length);
+          view.timing(now() - started, capturedCount);
       }
     }
     async function connect() {

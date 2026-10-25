@@ -139,6 +139,35 @@ async function run({
     1,
     "Items reuse the existing capture",
   );
+  let finishItems, pendingFrame, itemRuns = 0;
+  const slowItems = await run({
+    outcomes: [{ accepted: false, retry: false }, { accepted: true }],
+    onFrame: (frame) => {
+      itemRuns++;
+      pendingFrame = frame;
+      return new Promise((resolve) => { finishItems = resolve; });
+    },
+  });
+  assert.equal(slowItems.calls.length, 2, "Final EXP reading completes before item OCR");
+  assert.equal(slowItems.controller.busy, false, "Slow items cannot lock EXP capture");
+  assert.ok(pendingFrame.width > 0, "Item frame stays alive independently");
+  await slowItems.controller.captureFrame();
+  assert.equal(slowItems.calls.length, 3, "EXP keeps sampling while item OCR is pending");
+  assert.equal(itemRuns, 1, "Slow item jobs do not queue more full frames");
+  slowItems.controller.stop();
+  finishItems();
+  await new Promise((resolve) => setImmediate(resolve));
+  assert.equal(pendingFrame.width, 0, "Item-owned frame is released on completion");
+  const failedItems = await run({
+    debug: true,
+    onFrame: async () => { throw Error("Item worker failed"); },
+  });
+  await new Promise((resolve) => setImmediate(resolve));
+  assert.equal(failedItems.calls.length, 1);
+  assert.deepEqual(failedItems.statuses, [], "Item errors never become EXP capture errors");
+  assert.equal(failedItems.downloads.length, 0, "Item exception cannot mark valid EXP rejected");
+  assert.equal(failedItems.controller.busy, false);
+  assert.ok(failedItems.canvases.every((f) => f.width === 0));
   const clear = await run();
   assert.equal(clear.decodes, 1);
   assert.equal(clear.canvases.length, 1);
