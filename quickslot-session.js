@@ -45,6 +45,10 @@
             : null,
         potionType:
           typeof v.potionType === "string" ? v.potionType.slice(0, 40) : null,
+        unitCost:
+          Number.isFinite(v.unitCost) && v.unitCost >= 0 && v.unitCost <= 1e9
+            ? v.unitCost
+            : null,
         region: { ...v.region },
         width: v.width,
         height: v.height,
@@ -107,6 +111,7 @@
           typeof meta.potionType === "string"
             ? meta.potionType.slice(0, 40)
             : null,
+        unitCost: null,
         region: { ...region },
         width,
         height,
@@ -170,6 +175,18 @@
       state,
       add,
       observe,
+      setUnitCost(id, value) {
+        const item = state.items.find((i) => i.id === id);
+        if (
+          !item ||
+          (value !== null &&
+            (!Number.isFinite(value) || value < 0 || value > 1e9))
+        )
+          return false;
+        item.unitCost = value;
+        changed();
+        return true;
+      },
       invalidate,
       enable(v) {
         state.enabled = !!v;

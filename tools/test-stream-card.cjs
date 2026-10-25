@@ -95,6 +95,7 @@ assert.equal(
 const nodes = new Map(),
   events = new Map(),
   intervals = [];
+let potionSnapshot = null;
 let writes = 0,
   stored = JSON.stringify(state);
 const q = (id) => {
@@ -110,7 +111,8 @@ const q = (id) => {
   return nodes.get(id);
 };
 const storage = {
-  getItem: () => stored,
+  getItem: (k) =>
+    k === "maple-track-potion-costs-v1" ? potionSnapshot : stored,
   setItem() {
     writes++;
   },
@@ -159,6 +161,20 @@ stored = JSON.stringify({ ...state, samples: [], level: 56, running: false });
 events.get("storage")({ key: "maple-track-v1" });
 assert.equal(q("#cardLevel").textContent, "56");
 assert.equal(q("#cardStatus").textContent, "PAUSED");
+potionSnapshot = JSON.stringify({
+  updatedAt: Date.now(),
+  enabled: true,
+  items: [
+    { group: "hp", price: 80, rate: 100, lastReadAt: Date.now() },
+    { group: "mp", price: 220, rate: 200, lastReadAt: Date.now() },
+  ],
+});
+events.get("storage")({ key: "maple-track-potion-costs-v1" });
+assert.equal(q("#cardHpCost").textContent, "8,000 mesos");
+assert.equal(q("#cardMpCost").textContent, "44,000 mesos");
+potionSnapshot = "invalid";
+events.get("storage")({ key: "maple-track-potion-costs-v1" });
+assert.equal(q("#cardHpCost").textContent, "—");
 stored = "invalid";
 events.get("storage")({ key: null });
 assert.equal(

@@ -22,6 +22,7 @@ body.stream-card{background:#111216;min-width:280px}body.stream-card .app{max-wi
 .stream-chart{margin-top:16px;border-top:1px solid #303139;padding-top:12px}.stream-chart-label{display:flex;justify-content:space-between;gap:8px;font:8px 'DM Mono',monospace;color:#93949f}.stream-chart svg{display:block;width:100%;height:90px;margin-top:8px}.stream-chart>span{font:8px 'DM Mono',monospace;color:#93949f}
 .items-panel{margin-top:24px}.items-panel .panel-head{flex-wrap:wrap;gap:10px}.items-panel h2{margin:0;font-size:21px}.items-panel p{font-size:11px;color:var(--muted);line-height:1.7}.items-controls{display:flex;gap:12px;align-items:center;flex-wrap:wrap}.items-controls label{font-size:12px}.items-panel button:disabled{opacity:.5}
 .quickslot-grid-wrap{overflow-x:auto;margin-top:18px}.quickslot-grid{display:grid;gap:12px;min-width:560px}.quickslot-card{background:var(--panel2);padding:14px;border:1px solid var(--line);border-radius:12px;min-width:0}.quickslot-card-head{display:flex;align-items:center;justify-content:space-between;gap:8px;margin-bottom:10px;font-size:11px;color:var(--muted)}.quickslot-card canvas{width:48px;height:48px;border-radius:7px}.quickslot-card select{display:block;width:100%;background:var(--panel);color:var(--text);border:1px solid var(--line);border-radius:7px;padding:8px 4px;font-size:11px}.quickslot-count{font-size:16px;font-weight:700;margin-top:12px}.quickslot-usage,.quickslot-status{font-size:10px;color:var(--muted);line-height:1.6;margin-top:5px}.slot-inactive{opacity:.6}.item-help{margin-top:18px;font-size:11px;color:var(--muted)}.item-help summary{cursor:pointer}
+.stream-costs{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:10px;margin-top:14px;padding-top:12px;border-top:1px solid #303139}.stream-costs span{display:block;font:8px "DM Mono",monospace;color:#93949f}.stream-costs strong{display:block;font-size:16px;margin-top:3px}.stream-costs small{grid-column:1/-1;color:#93949f;font-size:9px}.quickslot-price[hidden],.stream-costs [hidden]{display:none}.quickslot-price{display:block;font-size:10px;color:var(--muted);margin-top:10px}.quickslot-price input{width:100%;background:var(--panel);border:1px solid var(--line);color:var(--text);border-radius:6px;padding:6px;margin-top:4px;font-size:12px}.quickslot-price small{display:block;font-size:9px;margin-top:3px}
 </style>
 <!-- LEVEL FONT START -->
 <script>(function(root,factory){const api=factory();if(typeof module==='object'&&module.exports)module.exports=api;else root.MapleLevelOcr=api;})(typeof window==='undefined'?globalThis:window,function(){
@@ -689,33 +690,276 @@ root.MapleHudOcr={recognize,resolveReading,percentageReading};
 });
 </script>
 <!-- LOCAL OCR END -->
+<!-- POTION COSTS START -->
+<script>(function (root, factory) {
+  if (typeof module === "object" && module.exports) module.exports = factory();
+  else root.MaplePotionCosts = factory();
+})(typeof window === "undefined" ? globalThis : window, function () {
+  "use strict";
+  const KEY = "maple-track-potion-costs-v1";
+  // NPC BUY prices, checked 2026-10-25. Not sell-back or Free Market prices.
+  // https://meowdb.com/msclassic/npc-shops (Mina/Luna/Arturo launch shop records).
+  const catalog = {
+    red: { group: "hp", price: 50 },
+    orange: { group: "hp", price: 150 },
+    white: { group: "hp", price: 350 },
+    blue: { group: "mp", price: 220 },
+    meat: { group: "hp", price: 80 },
+    lemon: { group: "mp", price: 150 },
+    mana: { group: "mp", price: null },
+    hp: { group: "hp", price: null },
+    mp: { group: "mp", price: null },
+    both: { group: "both", price: null },
+  };
+  const validPrice = (n) =>
+    typeof n === "number" && Number.isFinite(n) && n >= 0 && n <= 1e9;
+  function price(item) {
+    return validPrice(item?.unitCost)
+      ? item.unitCost
+      : (catalog[item?.potionType]?.price ?? null);
+  }
+  function snapshot(store, live, now) {
+    return {
+      updatedAt: now,
+      enabled: !!live && store?.state.enabled === true,
+      items: (store?.state.items || [])
+        .filter((i) => catalog[i.potionType])
+        .map((i) => ({
+          group: catalog[i.potionType].group,
+          price: price(i),
+          rate: store.rate(i),
+          lastReadAt: i.at,
+        })),
+    };
+  }
+  function metrics(state, now) {
+    const out = { hp: null, mp: null, both: null, hasBoth: false };
+    if (
+      !state ||
+      !Array.isArray(state.items) ||
+      state.enabled !== true ||
+      !Number.isFinite(state.updatedAt) ||
+      state.updatedAt > now ||
+      now - state.updatedAt > 25000
+    )
+      return out;
+    for (const group of ["hp", "mp", "both"]) {
+      const items = state.items.filter((i) => i?.group === group);
+      if (group === "both") out.hasBoth = items.length > 0;
+      if (!items.length) continue;
+      let sum = 0,
+        valid = true;
+      for (const i of items) {
+        if (
+          !validPrice(i.price) ||
+          !Number.isFinite(i.rate) ||
+          i.rate < 0 ||
+          !Number.isFinite(i.lastReadAt) ||
+          i.lastReadAt > now ||
+          now - i.lastReadAt > 25000
+        ) {
+          valid = false;
+          break;
+        }
+        sum += i.price * i.rate;
+      }
+      if (valid && Number.isFinite(sum)) out[group] = sum;
+    }
+    return out;
+  }
+  return { KEY, catalog, price, validPrice, snapshot, metrics };
+});
+</script>
+<!-- POTION COSTS END -->
 <!-- STREAM CARD START -->
-<script>(function(root,factory){const api=factory();if(typeof module==='object'&&module.exports)module.exports=api;else root.MapleStreamCard=api;})(typeof window==='undefined'?globalThis:window,function(){
-function metrics(state,now,required,totalExp){
- const samples=(Array.isArray(state.samples)?state.samples:[]).filter(s=>Number.isInteger(s.level)&&s.level>=1&&s.level<=100&&Number.isFinite(s.exp)&&s.exp>=0&&Number.isFinite(s.t)&&s.t<=now).sort((a,b)=>a.t-b.t),latest=samples.at(-1),base=samples.find(s=>s.t>=now-300000);
- const level=latest?.level??state.level,need=required(level),exp=latest?.exp||0;
- const rate=base&&latest&&latest.t>base.t?Math.max(0,(totalExp(latest)-totalExp(base))/((latest.t-base.t)/3600000)):0;
- const remaining=need>0&&rate>0?Math.max(0,(need-exp)/rate*3600000):null;
- const eta=level===100?'MAX LEVEL':remaining===null?'Waiting for EXP':remaining<60000?'Under 1 min':remaining<3600000?Math.round(remaining/60000)+' min':Math.floor(remaining/3600000)+'h '+Math.floor(remaining%3600000/60000)+'m';
- return {level:Number.isInteger(level)&&level>=1&&level<=100?String(level):'—',rate:rate?(base?.estimated||latest?.estimated?'~':'')+Math.round(rate).toLocaleString('en-US'):'—',percent:need?Math.max(0,Math.min(100,exp/need*100)):0,eta,status:!state.updatedAt||now-state.updatedAt>20000?'TRACKER OFFLINE':state.running?'TRACKING':'PAUSED'};
-}
-// Normalize adjacent readings to thirty seconds; gaps stay empty rather than implying steady gains.
-function graph(state,now,totalExp){
- const samples=(state.samples||[]).filter(s=>Number.isFinite(s.t)&&s.t<=now&&Number.isInteger(s.level)&&s.level>=1&&s.level<=100&&Number.isFinite(s.exp)&&s.exp>=0).sort((a,b)=>a.t-b.t),points=[];
- for(let i=1;i<samples.length;i++){const a=samples[i-1],b=samples[i],dt=b.t-a.t,gain=totalExp(b)-totalExp(a);if(b.t<now-300000||dt<=0||dt>45000||gain<0)continue;points.push({t:b.t,value:gain*30000/dt,estimated:!!(a.estimated||b.estimated)});}
- const peak=Math.max(1,...points.map(p=>p.value)),step=10**Math.floor(Math.log10(peak)),max=Math.ceil(peak/step)*step;let previous=null;
- const path=points.map(p=>{const x=Math.max(0,Math.min(300,(p.t-(now-300000))/1000)),y=68-p.value/max*62,move=!previous||p.t-previous.t>45000;previous=p;return (move?'M':'L')+x.toFixed(1)+','+y.toFixed(1);}).join(' ');
- return {path,max,points,estimated:points.some(p=>p.estimated)};
-}
-function mount({document,window,storage,key,required,totalExp}){
- document.title='Maple Track · Stream card';document.body.classList.add('stream-card');
- document.querySelector('.app').innerHTML='<section class="stream-panel" aria-label="Maple Track live stream card"><header><span>MAPLE TRACK</span><span id="cardStatus">CONNECTING</span></header><div class="stream-values"><div><span>LEVEL</span><strong id="cardLevel">—</strong></div><div><span>EXP / HOUR</span><strong id="cardRate">—</strong></div></div><div class="stream-progress"><i id="cardFill"></i></div><footer><span id="cardPercent">0.00%</span><span id="cardEta">Waiting for EXP</span></footer><div class="stream-chart"><div class="stream-chart-label"><span>EXP / 30 SEC · LAST 5 MIN</span><span id="cardGraphPeak">—</span></div><svg viewBox="0 0 342 76" role="img" aria-label="EXP gained per thirty seconds over the last five minutes"><g fill="#93949f" font-size="8" font-family="monospace" text-anchor="end"><text id="cardAxisTop" x="35" y="9">1</text><text id="cardAxisMid" x="35" y="40">0.5</text><text x="35" y="71">0</text></g><g transform="translate(42 0)"><path d="M0,6H300M0,37H300M0,68H300M0,6V68" stroke="#34353e" stroke-width="0.7" fill="none"/><path id="cardGraph" fill="none" stroke="#c7f36b" stroke-width="2" stroke-linejoin="round" stroke-linecap="round"/></g></svg><span id="cardGraphHint">Waiting for readings</span></div></section>';
- const q=id=>document.querySelector(id);
- function render(){let state={};try{state=JSON.parse(storage.getItem(key)||'{}')||{};}catch{}const m=metrics(state,Date.now(),required,totalExp);q('#cardLevel').textContent=m.level;q('#cardRate').textContent=m.rate;q('#cardPercent').textContent=m.percent.toFixed(2)+'%';q('#cardFill').style.width=m.percent+'%';q('#cardEta').textContent=m.eta==='MAX LEVEL'?m.eta:'Level up · '+m.eta;q('#cardStatus').textContent=m.status;const g=graph(state,Date.now(),totalExp);q('#cardGraph').setAttribute('d',g.path);const axis=n=>Intl.NumberFormat('en-US',{notation:'compact',maximumFractionDigits:1}).format(n);q('#cardAxisTop').textContent=axis(g.max);q('#cardAxisMid').textContent=axis(g.max/2);q('#cardGraphPeak').textContent=g.points.length?(g.estimated?'~':'')+Math.ceil(g.max).toLocaleString('en-US')+' peak':'—';q('#cardGraphHint').textContent=g.points.length?(g.estimated?'Estimated from percentage':''):'Waiting for two readings';}
- const onStorage=event=>{if(event.key===key||event.key===null)render();};window.addEventListener('storage',onStorage);const timer=window.setInterval(render,5000);
- window.addEventListener('pagehide',()=>{window.clearInterval(timer);window.removeEventListener('storage',onStorage);},{once:true});render();
-}
-return {metrics,graph,mount};
+<script>(function (root, factory) {
+  const api = factory(
+    typeof module === "object" && module.exports
+      ? require("./potion-costs")
+      : root.MaplePotionCosts,
+  );
+  if (typeof module === "object" && module.exports) module.exports = api;
+  else root.MapleStreamCard = api;
+})(typeof window === "undefined" ? globalThis : window, function (Costs) {
+  function metrics(state, now, required, totalExp) {
+    const samples = (Array.isArray(state.samples) ? state.samples : [])
+        .filter(
+          (s) =>
+            Number.isInteger(s.level) &&
+            s.level >= 1 &&
+            s.level <= 100 &&
+            Number.isFinite(s.exp) &&
+            s.exp >= 0 &&
+            Number.isFinite(s.t) &&
+            s.t <= now,
+        )
+        .sort((a, b) => a.t - b.t),
+      latest = samples.at(-1),
+      base = samples.find((s) => s.t >= now - 300000);
+    const level = latest?.level ?? state.level,
+      need = required(level),
+      exp = latest?.exp || 0;
+    const rate =
+      base && latest && latest.t > base.t
+        ? Math.max(
+            0,
+            (totalExp(latest) - totalExp(base)) /
+              ((latest.t - base.t) / 3600000),
+          )
+        : 0;
+    const remaining =
+      need > 0 && rate > 0
+        ? Math.max(0, ((need - exp) / rate) * 3600000)
+        : null;
+    const eta =
+      level === 100
+        ? "MAX LEVEL"
+        : remaining === null
+          ? "Waiting for EXP"
+          : remaining < 60000
+            ? "Under 1 min"
+            : remaining < 3600000
+              ? Math.round(remaining / 60000) + " min"
+              : Math.floor(remaining / 3600000) +
+                "h " +
+                Math.floor((remaining % 3600000) / 60000) +
+                "m";
+    return {
+      level:
+        Number.isInteger(level) && level >= 1 && level <= 100
+          ? String(level)
+          : "—",
+      rate: rate
+        ? (base?.estimated || latest?.estimated ? "~" : "") +
+          Math.round(rate).toLocaleString("en-US")
+        : "—",
+      percent: need ? Math.max(0, Math.min(100, (exp / need) * 100)) : 0,
+      eta,
+      status:
+        !state.updatedAt || now - state.updatedAt > 20000
+          ? "TRACKER OFFLINE"
+          : state.running
+            ? "TRACKING"
+            : "PAUSED",
+    };
+  }
+  // Normalize adjacent readings to thirty seconds; gaps stay empty rather than implying steady gains.
+  function graph(state, now, totalExp) {
+    const samples = (state.samples || [])
+        .filter(
+          (s) =>
+            Number.isFinite(s.t) &&
+            s.t <= now &&
+            Number.isInteger(s.level) &&
+            s.level >= 1 &&
+            s.level <= 100 &&
+            Number.isFinite(s.exp) &&
+            s.exp >= 0,
+        )
+        .sort((a, b) => a.t - b.t),
+      points = [];
+    for (let i = 1; i < samples.length; i++) {
+      const a = samples[i - 1],
+        b = samples[i],
+        dt = b.t - a.t,
+        gain = totalExp(b) - totalExp(a);
+      if (b.t < now - 300000 || dt <= 0 || dt > 45000 || gain < 0) continue;
+      points.push({
+        t: b.t,
+        value: (gain * 30000) / dt,
+        estimated: !!(a.estimated || b.estimated),
+      });
+    }
+    const peak = Math.max(1, ...points.map((p) => p.value)),
+      step = 10 ** Math.floor(Math.log10(peak)),
+      max = Math.ceil(peak / step) * step;
+    let previous = null;
+    const path = points
+      .map((p) => {
+        const x = Math.max(0, Math.min(300, (p.t - (now - 300000)) / 1000)),
+          y = 68 - (p.value / max) * 62,
+          move = !previous || p.t - previous.t > 45000;
+        previous = p;
+        return (move ? "M" : "L") + x.toFixed(1) + "," + y.toFixed(1);
+      })
+      .join(" ");
+    return { path, max, points, estimated: points.some((p) => p.estimated) };
+  }
+  function mount({
+    document,
+    window,
+    storage,
+    key,
+    required,
+    totalExp,
+    now = Date.now,
+  }) {
+    document.title = "Maple Track · Stream card";
+    document.body.classList.add("stream-card");
+    document.querySelector(".app").innerHTML =
+      '<section class="stream-panel" aria-label="Maple Track live stream card"><header><span>MAPLE TRACK</span><span id="cardStatus">CONNECTING</span></header><div class="stream-values"><div><span>LEVEL</span><strong id="cardLevel">—</strong></div><div><span>EXP / HOUR</span><strong id="cardRate">—</strong></div></div><div class="stream-progress"><i id="cardFill"></i></div><footer><span id="cardPercent">0.00%</span><span id="cardEta">Waiting for EXP</span></footer><div class="stream-costs"><div><span>HP POTIONS / HOUR</span><strong id="cardHpCost">—</strong></div><div><span>MP POTIONS / HOUR</span><strong id="cardMpCost">—</strong></div><div id="cardBothRow" hidden><span>HP + MP / HOUR</span><strong id="cardBothCost">—</strong></div><small>Estimated mesos · observed potion usage</small></div><div class="stream-chart"><div class="stream-chart-label"><span>EXP / 30 SEC · LAST 5 MIN</span><span id="cardGraphPeak">—</span></div><svg viewBox="0 0 342 76" role="img" aria-label="EXP gained per thirty seconds over the last five minutes"><g fill="#93949f" font-size="8" font-family="monospace" text-anchor="end"><text id="cardAxisTop" x="35" y="9">1</text><text id="cardAxisMid" x="35" y="40">0.5</text><text x="35" y="71">0</text></g><g transform="translate(42 0)"><path d="M0,6H300M0,37H300M0,68H300M0,6V68" stroke="#34353e" stroke-width="0.7" fill="none"/><path id="cardGraph" fill="none" stroke="#c7f36b" stroke-width="2" stroke-linejoin="round" stroke-linecap="round"/></g></svg><span id="cardGraphHint">Waiting for readings</span></div></section>';
+    const q = (id) => document.querySelector(id);
+    function render() {
+      let state = {};
+      try {
+        state = JSON.parse(storage.getItem(key) || "{}") || {};
+      } catch {}
+      let costs = {};
+      try {
+        costs = JSON.parse(storage.getItem(Costs.KEY) || "{}");
+      } catch {}
+      const cm = Costs.metrics(costs, now()),
+        costText = (n) =>
+          n === null ? "—" : Math.round(n).toLocaleString("en-US") + " mesos";
+      q("#cardHpCost").textContent = costText(cm.hp);
+      q("#cardMpCost").textContent = costText(cm.mp);
+      q("#cardBothCost").textContent = costText(cm.both);
+      q("#cardBothRow").hidden = !cm.hasBoth;
+      const m = metrics(state, now(), required, totalExp);
+      q("#cardLevel").textContent = m.level;
+      q("#cardRate").textContent = m.rate;
+      q("#cardPercent").textContent = m.percent.toFixed(2) + "%";
+      q("#cardFill").style.width = m.percent + "%";
+      q("#cardEta").textContent =
+        m.eta === "MAX LEVEL" ? m.eta : "Level up · " + m.eta;
+      q("#cardStatus").textContent = m.status;
+      const g = graph(state, now(), totalExp);
+      q("#cardGraph").setAttribute("d", g.path);
+      const axis = (n) =>
+        Intl.NumberFormat("en-US", {
+          notation: "compact",
+          maximumFractionDigits: 1,
+        }).format(n);
+      q("#cardAxisTop").textContent = axis(g.max);
+      q("#cardAxisMid").textContent = axis(g.max / 2);
+      q("#cardGraphPeak").textContent = g.points.length
+        ? (g.estimated ? "~" : "") +
+          Math.ceil(g.max).toLocaleString("en-US") +
+          " peak"
+        : "—";
+      q("#cardGraphHint").textContent = g.points.length
+        ? g.estimated
+          ? "Estimated from percentage"
+          : ""
+        : "Waiting for two readings";
+    }
+    const onStorage = (event) => {
+      if (event.key === key || event.key === Costs.KEY || event.key === null)
+        render();
+    };
+    window.addEventListener("storage", onStorage);
+    const timer = window.setInterval(render, 5000);
+    window.addEventListener(
+      "pagehide",
+      () => {
+        window.clearInterval(timer);
+        window.removeEventListener("storage", onStorage);
+      },
+      { once: true },
+    );
+    render();
+  }
+  return { metrics, graph, mount };
 });
 </script>
 <!-- STREAM CARD END -->
@@ -2732,6 +2976,10 @@ return {detect,crop,anchors,percentageRegion};
             : null,
         potionType:
           typeof v.potionType === "string" ? v.potionType.slice(0, 40) : null,
+        unitCost:
+          Number.isFinite(v.unitCost) && v.unitCost >= 0 && v.unitCost <= 1e9
+            ? v.unitCost
+            : null,
         region: { ...v.region },
         width: v.width,
         height: v.height,
@@ -2794,6 +3042,7 @@ return {detect,crop,anchors,percentageRegion};
           typeof meta.potionType === "string"
             ? meta.potionType.slice(0, 40)
             : null,
+        unitCost: null,
         region: { ...region },
         width,
         height,
@@ -2857,6 +3106,18 @@ return {detect,crop,anchors,percentageRegion};
       state,
       add,
       observe,
+      setUnitCost(id, value) {
+        const item = state.items.find((i) => i.id === id);
+        if (
+          !item ||
+          (value !== null &&
+            (!Number.isFinite(value) || value < 0 || value > 1e9))
+        )
+          return false;
+        item.unitCost = value;
+        changed();
+        return true;
+      },
       invalidate,
       enable(v) {
         state.enabled = !!v;
@@ -3092,6 +3353,7 @@ return {detect,crop,anchors,percentageRegion};
       require("./hud-regions"),
       require("./quickslot-session"),
       require("./quickslot-layout"),
+      require("./potion-costs"),
     );
   else
     root.MapleQuickslots = factory(
@@ -3099,10 +3361,11 @@ return {detect,crop,anchors,percentageRegion};
       root.MapleHudRegions,
       root.MapleQuickslotSession,
       root.MapleQuickslotLayout,
+      root.MaplePotionCosts,
     );
 })(
   typeof window === "undefined" ? globalThis : window,
-  function (Ocr, Regions, Session, Layout) {
+  function (Ocr, Regions, Session, Layout, Costs) {
     "use strict";
     const POTIONS = [
       ["red", "Red Potion"],
@@ -3278,6 +3541,37 @@ return {detect,crop,anchors,percentageRegion};
             assignSlot(index, select.value),
           );
           card.appendChild(select);
+          const priceLabel = document.createElement("label");
+          priceLabel.className = "quickslot-price";
+          priceLabel.textContent = "Mesos / item";
+          const price = document.createElement("input");
+          price.type = "number";
+          price.min = "0";
+          price.max = "1000000000";
+          price.step = "any";
+          price.placeholder = "Enter price";
+          price.setAttribute(
+            "aria-label",
+            "Mesos per item for slot " + (index + 1),
+          );
+          price.addEventListener("change", () => {
+            const item = store?.state.items.find((i) => i.slot === index);
+            if (!item) return;
+            const value =
+              price.value.trim() === "" ? null : Number(price.value);
+            if (value !== null && !Costs.validPrice(value)) {
+              price.value =
+                Costs.price(item) === null ? "" : String(Costs.price(item));
+              return;
+            }
+            store.setUnitCost(item.id, value);
+            price.value =
+              Costs.price(item) === null ? "" : String(Costs.price(item));
+          });
+          const priceHint = document.createElement("small");
+          priceLabel.appendChild(price);
+          priceLabel.appendChild(priceHint);
+          card.appendChild(priceLabel);
           const remaining = document.createElement("div");
           remaining.className = "quickslot-count";
           card.appendChild(remaining);
@@ -3287,13 +3581,29 @@ return {detect,crop,anchors,percentageRegion};
           const status = document.createElement("div");
           status.className = "quickslot-status";
           card.appendChild(status);
-          cards.set(index, { card, thumb, select, remaining, usage, status });
+          cards.set(index, {
+            card,
+            thumb,
+            select,
+            priceLabel,
+            price,
+            priceHint,
+            remaining,
+            usage,
+            status,
+          });
           grid.appendChild(card);
         }
         drawnKind = layout.kind;
       }
       function render() {
         if (!q("#quickslotItems")) return;
+        try {
+          storage?.setItem(
+            Costs.KEY,
+            JSON.stringify(Costs.snapshot(store, !!live, now())),
+          );
+        } catch {}
         q("#trackItems").checked = store?.state.enabled === true;
         q("#trackItems").disabled = !live;
         q("#quickslotLayoutState").textContent = live
@@ -3319,6 +3629,17 @@ return {detect,crop,anchors,percentageRegion};
             type = item?.potionType || "";
           if (c.select.value !== type) c.select.value = type;
           c.select.disabled = !live;
+          c.priceLabel.hidden = !item || !Costs.catalog[type];
+          c.price.disabled = !live;
+          const price = item ? Costs.price(item) : null;
+          if (document.activeElement !== c.price)
+            c.price.value = price === null ? "" : String(price);
+          c.priceHint.textContent =
+            item?.unitCost !== null && item?.unitCost !== undefined
+              ? "Custom price · clear to reset"
+              : price === null
+                ? "Enter your purchase price"
+                : "NPC default · edit for your purchase";
           c.card.classList.toggle("slot-inactive", !live);
           c.remaining.textContent = item
             ? "Remaining " + number(item.count)
@@ -3715,7 +4036,7 @@ return {detect,crop,anchors,percentageRegion};
 <p id="itemTrackingState" role="status" aria-live="polite">Keep the quickslots and bottom HUD visible.</p>
 <div class="quickslot-grid-wrap"><div class="quickslot-grid" id="quickslotGrid" aria-label="Detected quickslot assignments"></div></div>
 <p id="itemsEmpty">Share your game window to see its quickslots here.</p>
-<details class="item-help"><summary>How potion usage is tracked</summary><p>Counts update every 10 seconds. Usage measures observed decreases; refills preserve totals. Moving or replacing stacks can look like use, so reset usage after inventory changes. Rates start after 30 seconds and exclude pauses and long gaps. Unreadable quantities keep the last count; missing digits are never treated as zero. Assignments and totals are saved separately for 8- and 12-slot layouts. New session resets usage for both layouts.</p></details>
+<details class="item-help"><summary>How potion usage is tracked</summary><p>Counts update every 10 seconds. Usage measures observed decreases; refills preserve totals. Moving or replacing stacks can look like use, so reset usage after inventory changes. Rates start after 30 seconds and exclude pauses and long gaps. Unreadable quantities keep the last count; missing digits are never treated as zero. Assignments and totals are saved separately for 8- and 12-slot layouts. New session resets usage for both layouts.</p><p>Stream-card costs are estimates: observed items/hour × mesos/item. Defaults use <a href="https://meowdb.com/msclassic/npc-shops" target="_blank" rel="noopener noreferrer">MeowDB NPC buy prices</a>, checked October 25, 2026. Edit each tracked slot’s price for your shop or Free Market purchase; enter 0 for free items. Unknown prices stay blank. HP + MP items appear separately to avoid counting their cost twice.</p></details>
 </section>
 <section class="panel safety" aria-labelledby="safetyTitle">
 <h2 id="safetyTitle">Is this safe?</h2>

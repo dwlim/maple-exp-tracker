@@ -5,6 +5,7 @@
       require("./hud-regions"),
       require("./quickslot-session"),
       require("./quickslot-layout"),
+      require("./potion-costs"),
     );
   else
     root.MapleQuickslots = factory(
@@ -12,10 +13,11 @@
       root.MapleHudRegions,
       root.MapleQuickslotSession,
       root.MapleQuickslotLayout,
+      root.MaplePotionCosts,
     );
 })(
   typeof window === "undefined" ? globalThis : window,
-  function (Ocr, Regions, Session, Layout) {
+  function (Ocr, Regions, Session, Layout, Costs) {
     "use strict";
     const POTIONS = [
       ["red", "Red Potion"],
@@ -191,6 +193,37 @@
             assignSlot(index, select.value),
           );
           card.appendChild(select);
+          const priceLabel = document.createElement("label");
+          priceLabel.className = "quickslot-price";
+          priceLabel.textContent = "Mesos / item";
+          const price = document.createElement("input");
+          price.type = "number";
+          price.min = "0";
+          price.max = "1000000000";
+          price.step = "any";
+          price.placeholder = "Enter price";
+          price.setAttribute(
+            "aria-label",
+            "Mesos per item for slot " + (index + 1),
+          );
+          price.addEventListener("change", () => {
+            const item = store?.state.items.find((i) => i.slot === index);
+            if (!item) return;
+            const value =
+              price.value.trim() === "" ? null : Number(price.value);
+            if (value !== null && !Costs.validPrice(value)) {
+              price.value =
+                Costs.price(item) === null ? "" : String(Costs.price(item));
+              return;
+            }
+            store.setUnitCost(item.id, value);
+            price.value =
+              Costs.price(item) === null ? "" : String(Costs.price(item));
+          });
+          const priceHint = document.createElement("small");
+          priceLabel.appendChild(price);
+          priceLabel.appendChild(priceHint);
+          card.appendChild(priceLabel);
           const remaining = document.createElement("div");
           remaining.className = "quickslot-count";
           card.appendChild(remaining);
@@ -200,13 +233,29 @@
           const status = document.createElement("div");
           status.className = "quickslot-status";
           card.appendChild(status);
-          cards.set(index, { card, thumb, select, remaining, usage, status });
+          cards.set(index, {
+            card,
+            thumb,
+            select,
+            priceLabel,
+            price,
+            priceHint,
+            remaining,
+            usage,
+            status,
+          });
           grid.appendChild(card);
         }
         drawnKind = layout.kind;
       }
       function render() {
         if (!q("#quickslotItems")) return;
+        try {
+          storage?.setItem(
+            Costs.KEY,
+            JSON.stringify(Costs.snapshot(store, !!live, now())),
+          );
+        } catch {}
         q("#trackItems").checked = store?.state.enabled === true;
         q("#trackItems").disabled = !live;
         q("#quickslotLayoutState").textContent = live
@@ -232,6 +281,17 @@
             type = item?.potionType || "";
           if (c.select.value !== type) c.select.value = type;
           c.select.disabled = !live;
+          c.priceLabel.hidden = !item || !Costs.catalog[type];
+          c.price.disabled = !live;
+          const price = item ? Costs.price(item) : null;
+          if (document.activeElement !== c.price)
+            c.price.value = price === null ? "" : String(price);
+          c.priceHint.textContent =
+            item?.unitCost !== null && item?.unitCost !== undefined
+              ? "Custom price · clear to reset"
+              : price === null
+                ? "Enter your purchase price"
+                : "NPC default · edit for your purchase";
           c.card.classList.toggle("slot-inactive", !live);
           c.remaining.textContent = item
             ? "Remaining " + number(item.count)

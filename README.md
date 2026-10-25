@@ -124,6 +124,12 @@ Each capture shares one pixel buffer across crop readers and releases it after p
 Behavioral tests import these module APIs directly, using injected media, storage, clock and rendering adapters. The assembled-page smoke test verifies embedded script order and browser startup; it does not extract application functions from HTML. `node tools/test-session.cjs` covers persistence/reset compatibility. Existing OCR suites exercise the actual recognition, validation and capture modules against native HUD fixtures.
 
 
+## Potion costs in the stream card
+
+The card shows estimated HP and MP potion costs per hour: each selected slot's observed usage/hour multiplied by its price per item. Known defaults use NPC **buy** prices from [MeowDB's launch shop records](https://meowdb.com/msclassic/npc-shops), checked October 25, 2026: Red 50, Orange 150, White 350, Blue 220, Meat 80 and Lemon 150 mesos. These prices ship with the page; no frames or readings are sent to the database. Unverified prices, including Mana Elixir, stay unknown instead of using sell-back prices or old-version data.
+
+Edit **Mesos / item** on a tracked slot to use your actual purchase price (0 for free items); clear the field to restore its NPC default. Prices persist with that layout. Costs need 30 seconds of usage data and fresh item readings. Missing prices or stale readings show a dash for the affected category, rather than an incomplete total. Combined HP + MP potions have their own cost row and are never counted twice. These are consumption-value estimates, not a purchase ledger.
+
 ## Quickslot potions (beta)
 
 The tracker automatically finds the native 8- or 12-slot panel using the Cash Shop/Menu/Shortcut controls, panel borders and slot headers. It shows a matching four-column grid, with an actual capture thumbnail for each slot. Select a potion type on slots you want to track and leave skills or empty slots as **Not tracked**. No per-item region drawing is required. **Rescan quickslots** reacquires a moved or resized HUD; ordinary captures also check alignment automatically. A hidden or covered panel pauses item readings without changing the last counts.
