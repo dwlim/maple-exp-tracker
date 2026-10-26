@@ -39,6 +39,27 @@ const palette = Array.from({ length: 20 }, (_, v) => {
 });
 const Small = require("../quickslot-small"),
   masks = require("./quickslot-invariant-masks.json").glyphs;
+// Refine imported masks against aligned native glyphs. The imported mask can
+// include transparent holes where a different part of the item icon shows through.
+for (const fixture of require("./quickslot-native-mask-fixtures.json")) {
+  const base = masks[fixture.digit];
+  if (
+    !base ||
+    fixture.observations.length < 2 ||
+    fixture.observations.some((v) => v.gray.length !== base.length)
+  )
+    throw Error("Invalid native mask observations");
+  masks[fixture.digit] = base.map((stable, i) =>
+    stable &&
+    Math.max(...fixture.observations.map((v) => v.gray[i])) -
+      Math.min(...fixture.observations.map((v) => v.gray[i])) <
+      fixture.maxSpread
+      ? 1
+      : 0,
+  );
+  if (masks[fixture.digit].reduce((a, b) => a + b, 0) < 25)
+    throw Error("Too few invariant glyph pixels");
+}
 const font = [];
 for (const f of fixtures) {
   const data = z.inflateSync(Buffer.from(f.rgba, "base64"));
