@@ -98,6 +98,8 @@
       q("#shareGameBtn").classList.toggle("hidden", !!captureStream);
       q("#stopSharingBtn").classList.toggle("hidden", !captureStream);
       q("#sharePreview").classList.toggle("hidden", !captureStream);
+      const downloadFrameButton = q("#downloadCurrentFrame");
+      if (downloadFrameButton) downloadFrameButton.disabled = !captureStream;
       const pauseButton = q("#pauseSessionBtn");
       if (pauseButton) {
         pauseButton.classList.toggle("hidden", !captureStream);

@@ -100,8 +100,16 @@ assert.equal(created, 1);
     2,
     "Cancellation during PNG encoding suppresses the download",
   );
+  checked = false;
+  d.downloadManualFrame(blob, stamp + 60000);
+  assert.equal(clicked, 3, "Manual debug downloads ignore the rejected-frame toggle");
+  assert.equal(
+    filename,
+    "maple-track-manual-2026-10-16T16-01-00-000Z.png",
+  );
+  assert.match(status, /Manual screenshot download requested/);
   console.log(
-    "Debug module: explicit rejection, timestamp, duplication, opt-out, PNG reuse and cleanup passed.",
+    "Debug module: rejected and manual downloads, timestamps, opt-out, PNG reuse and cleanup passed.",
   );
 })().catch((e) => {
   console.error(e);

@@ -137,6 +137,7 @@
       on("#shareGameBtn", capture.connect);
       on("#stopSharingBtn", capture.stop);
       on("#readFrame", () => capture.captureFrame(true));
+      on("#downloadCurrentFrame", () => capture.downloadCurrentFrame());
       on("#pauseSessionBtn", capture.togglePause);
       const manual = () => {
         const level = window.prompt("Character level (for example, 52):");

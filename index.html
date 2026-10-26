@@ -1628,6 +1628,24 @@ return {detect,crop,anchors,percentageRegion};
     isDownloadEnabled = () => true,
     onDownload = () => {},
   }) {
+    function saveBlob(blob, timestamp, prefix, message) {
+      const url = URL.createObjectURL(blob),
+        a = document.createElement("a");
+      a.href = url;
+      a.download =
+        prefix +
+        new Date(timestamp).toISOString().replace(/[:.]/g, "-") +
+        ".png";
+      document.body.appendChild(a);
+      try {
+        a.click();
+        onDownload(message(new Date(timestamp)));
+      } finally {
+        a.remove();
+        setTimeout(() => URL.revokeObjectURL(url), 30000);
+      }
+    }
+
     function downloadDebugFrame(blob, timestamp, accepted) {
       if (
         accepted !== false ||
@@ -1637,25 +1655,20 @@ return {detect,crop,anchors,percentageRegion};
       )
         return;
       downloadDebugFrame.lastFrame = timestamp;
-      const url = URL.createObjectURL(blob),
-        a = document.createElement("a");
-      a.href = url;
-      a.download =
-        "maple-track-" +
-        new Date(timestamp).toISOString().replace(/[:.]/g, "-") +
-        ".png";
-      document.body.appendChild(a);
-      try {
-        a.click();
-        onDownload(
-          "Download requested · " +
-            new Date(timestamp).toLocaleTimeString() +
-            " · allow multiple downloads if prompted",
-        );
-      } finally {
-        a.remove();
-        setTimeout(() => URL.revokeObjectURL(url), 30000);
-      }
+      saveBlob(blob, timestamp, "maple-track-", (date) =>
+        "Rejected-frame download requested · " +
+        date.toLocaleTimeString() +
+        " · allow multiple downloads if prompted",
+      );
+    }
+
+    function downloadManualFrame(blob, timestamp) {
+      if (!enabled || !blob) return;
+      saveBlob(blob, timestamp, "maple-track-manual-", (date) =>
+        "Manual screenshot download requested · " +
+          date.toLocaleTimeString() +
+          " · allow downloads if prompted",
+      );
     }
 
     async function rejectFrame(frame, timestamp, cancelled = () => false) {
@@ -1665,7 +1678,7 @@ return {detect,crop,anchors,percentageRegion};
         (await new Promise((resolve) => frame.toBlob(resolve, "image/png")));
       if (blob && !cancelled()) downloadDebugFrame(blob, timestamp, false);
     }
-    return { downloadFrame: downloadDebugFrame, rejectFrame };
+    return { downloadFrame: downloadDebugFrame, downloadManualFrame, rejectFrame };
   }
   return { create };
 });
@@ -1772,6 +1785,8 @@ return {detect,crop,anchors,percentageRegion};
       q("#shareGameBtn").classList.toggle("hidden", !!captureStream);
       q("#stopSharingBtn").classList.toggle("hidden", !captureStream);
       q("#sharePreview").classList.toggle("hidden", !captureStream);
+      const downloadFrameButton = q("#downloadCurrentFrame");
+      if (downloadFrameButton) downloadFrameButton.disabled = !captureStream;
       const pauseButton = q("#pauseSessionBtn");
       if (pauseButton) {
         pauseButton.classList.toggle("hidden", !captureStream);
@@ -2445,6 +2460,38 @@ return {detect,crop,anchors,percentageRegion};
           view.timing(now() - started, capturedCount);
       }
     }
+    async function downloadCurrentFrame() {
+      if (!debug) return false;
+      if (!stream || video.readyState < 2 || !video.videoWidth) {
+        view.appendOutput("Start screen sharing before downloading a screenshot.");
+        return false;
+      }
+      const frame = document.createElement("canvas");
+      frame.width = video.videoWidth;
+      frame.height = video.videoHeight;
+      frame.getContext("2d").drawImage(video, 0, 0);
+      const timestamp = now();
+      try {
+        const blob = await new Promise((resolve, reject) => {
+          try {
+            frame.toBlob(resolve, "image/png");
+          } catch (error) {
+            reject(error);
+          }
+        });
+        if (!blob) throw new Error("The browser could not encode the frame as PNG.");
+        debugTools.downloadManualFrame(blob, timestamp);
+        return true;
+      } catch (error) {
+        view.appendOutput(
+          "Could not save screenshot: " + (error?.message || String(error)),
+        );
+        return false;
+      } finally {
+        frame.width = 0;
+        frame.height = 0;
+      }
+    }
     async function connect() {
       if (!navigator.mediaDevices?.getDisplayMedia) {
         view.status(
@@ -2517,6 +2564,7 @@ return {detect,crop,anchors,percentageRegion};
       connect,
       stop,
       captureFrame,
+      downloadCurrentFrame,
       togglePause,
       invalidate,
       get stream() {
@@ -3949,6 +3997,7 @@ return {detect,crop,anchors,percentageRegion};
       on("#shareGameBtn", capture.connect);
       on("#stopSharingBtn", capture.stop);
       on("#readFrame", () => capture.captureFrame(true));
+      on("#downloadCurrentFrame", () => capture.downloadCurrentFrame());
       on("#pauseSessionBtn", capture.togglePause);
       const manual = () => {
         const level = window.prompt("Character level (for example, 52):");
@@ -4025,7 +4074,7 @@ return {detect,crop,anchors,percentageRegion};
 <div class="grid"><section class="panel"><div class="panel-head"><span class="label">Session overview</span><span class="tag" id="windowLabel">TRAILING 5 MIN</span></div>
 <div class="stats"><div class="stat"><div class="k">EXP / hour</div><div class="v lime" id="rate">—</div><div class="hint" id="rateHint">Waiting for samples</div></div><div class="stat"><div class="k">EXP gained</div><div class="v" id="gained">0</div><div class="hint">this session</div></div><div class="stat"><div class="k">Recent pace</div><div class="v" id="pace">—</div><div class="hint">over last 5 minutes</div></div><div class="stat"><div class="k">Time to next level</div><div class="v lime" id="nextLevelEta">—</div><div class="hint" id="nextLevelEtaHint">Need more data</div></div></div>
 <div class="chart-wrap"><div class="chart-title"><span>Experience over time</span><span id="sampleCount">0 samples</span></div><svg class="chart" id="chart" viewBox="0 0 700 170" preserveAspectRatio="none" aria-label="Experience chart"><defs><linearGradient id="fill" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#c7f36b" stop-opacity=".2"/><stop offset="1" stop-color="#c7f36b" stop-opacity="0"/></linearGradient></defs><g id="chartContent"></g></svg></div>
-<div class="chart-wrap capture-debug" style="margin-top:12px;padding:10px"><div class="chart-title" style="margin:0 6px 8px"><span>Latest game capture</span><span id="frameStatus">WAITING FOR SHARING</span></div><div class="calibration-tools"><button id="pickLevel">Select level</button><button id="pickExp">Select EXP readout</button><button id="clearRegions">Reset auto regions</button><span id="regionStatus" class="region-status">Searching for the level tiles and EXP readout once a capture arrives.</span></div><div class="ocr-tools"><button id="readFrame">Read frame</button><label><input type="checkbox" id="autoOcr" checked> Read new frames automatically</label></div><div class="ocr-tools"><label><input type="checkbox" id="debugDownloads" checked> Download screenshots with rejected readings</label></div><p id="debugDownloadStatus" class="subtle" style="font-size:10px">Only rejected OCR frames are downloaded. Accepted readings do not create files. Allow multiple downloads if prompted.</p><div id="ocrOutput" class="ocr-output">Waiting for a game capture. Text recognition runs locally in your browser.</div><div class="frame-stage" id="frameStage"><img id="latestFrame" alt="Latest shared game window"><canvas id="frameCanvas"></canvas></div><div id="frameEmpty" class="subtle" style="padding:34px;text-align:center;font-size:11px">Share MapleStory to see a frame here.</div></div>
+<div class="chart-wrap capture-debug" style="margin-top:12px;padding:10px"><div class="chart-title" style="margin:0 6px 8px"><span>Latest game capture</span><span id="frameStatus">WAITING FOR SHARING</span></div><div class="calibration-tools"><button id="pickLevel">Select level</button><button id="pickExp">Select EXP readout</button><button id="clearRegions">Reset auto regions</button><span id="regionStatus" class="region-status">Searching for the level tiles and EXP readout once a capture arrives.</span></div><div class="ocr-tools"><button id="readFrame">Read frame</button><label><input type="checkbox" id="autoOcr" checked> Read new frames automatically</label></div><div class="ocr-tools"><button class="btn" id="downloadCurrentFrame" disabled>Download current screenshot</button><label><input type="checkbox" id="debugDownloads" checked> Download screenshots with rejected readings</label></div><p id="debugDownloadStatus" class="subtle" style="font-size:10px">Rejected OCR frames download automatically. Use Download current screenshot to save a frame on demand. Screenshots stay on your device.</p><div id="ocrOutput" class="ocr-output">Waiting for a game capture. Text recognition runs locally in your browser.</div><div class="frame-stage" id="frameStage"><img id="latestFrame" alt="Latest shared game window"><canvas id="frameCanvas"></canvas></div><div id="frameEmpty" class="subtle" style="padding:34px;text-align:center;font-size:11px">Share MapleStory to see a frame here.</div></div>
 <div class="foot"><span id="lastSample">NO CAPTURE YET</span></div></section>
 <div class="right-col"><section class="panel level-card"><div class="panel-head"><span class="label">Current character</span><span class="tag">MAPLE CLASSIC</span></div><div class="level-row"><div><div class="level-name">LEVEL</div><div class="level-num" id="level">—</div></div><div class="level-name" id="classLabel">AWAITING CAPTURE</div></div><div class="progress"><span id="progressFill" style="width:0%"></span></div><div class="progress-meta"><span id="percent">0.00% to next level</span><span id="remaining">— EXP TO GO</span></div><div class="eta"><div><span>Estimated level up</span><br><b id="eta">—</b></div><span id="etaNote">Need more data</span></div></section>
 <section class="panel setup"><div class="panel-head"><span class="label">Tracking</span><span class="tag">10 SEC INTERVAL</span></div><div class="setup-step"><div class="num">01</div><div class="step-body"><b>Share MapleStory</b><p>Click Share game window and choose MapleStory in the browser picker. Keep this dashboard open while playing. Use Stop sharing to disconnect.</p></div></div><div class="setup-step"><div class="num">02</div><div class="step-body"><b>Calibrate the readout</b><p>On a captured frame, select the Level number and the EXP value with its percentage. The selection is saved relative to the frame size.</p></div></div><p role="note" style="font-size:11px;line-height:1.6;margin:0 0 14px;padding:10px 12px;border-left:3px solid var(--lime);border-radius:6px;background:var(--panel2)"><b style="color:var(--lime)">Recommended:</b> Use <b>Ideal</b> HUD scaling in MapleStory for the most reliable recognition.</p><div class="capture-actions" style="display:flex;gap:10px;flex-wrap:wrap;margin-bottom:14px"><button class="btn" id="shareGameBtn" style="background:var(--lime);color:#171a11;font-weight:800">Share game window</button><button class="btn hidden" id="stopSharingBtn">Stop sharing</button><button class="btn hidden" id="pauseSessionBtn" aria-pressed="false">Pause session</button><button class="btn" id="newSessionBtn">New session</button><button class="btn" id="streamCardBtn">Open stream card</button></div><p class="subtle" style="font-size:11px">For a live overlay, open the stream card and add its browser window as a Window Capture source in your streaming software. Keep the main tracker and card open in the same browser profile.</p><p class="subtle" style="font-size:11px">Choose the MapleStory window. Screenshots are processed locally; no audio is captured.</p><video id="sharePreview" muted playsinline class="hidden" style="width:100%;max-height:160px;object-fit:contain;border-radius:8px;margin-bottom:12px"></video><p id="trackingStatus" class="tracking-summary" role="status" aria-live="polite">Share your game window to start tracking.</p><div class="source"><span>Capture connection</span><b id="sourceState">CHECKING…</b></div><div class="btn-row"><button class="btn" id="sampleBtn">Add sample</button></div><div class="notice" id="notice"></div><div class="log"><div class="log-head"><span class="label">Recent captures</span><button class="btn" id="manualBtn" style="padding:5px 8px">Manual entry</button></div><div class="log-list" id="logList"><div class="log-item"><span>—</span><b>No captures yet</b><span>—</span></div></div></div></section></div></div>

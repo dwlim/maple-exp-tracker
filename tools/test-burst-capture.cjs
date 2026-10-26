@@ -21,6 +21,7 @@ async function run({
     canvases = [],
     delays = [],
     downloads = [],
+    manualDownloads = [],
     statuses = [],
     d = dom(),
     session = S.create({ levelOcr: L }),
@@ -61,6 +62,7 @@ async function run({
     timing() {},
   };
   const debugTools = {
+    downloadManualFrame: (blob, t) => manualDownloads.push({ blob, t }),
     rejectFrame: async (frame, t) => {
       if (!frame._pngBlob)
         await new Promise((resolve) => frame.toBlob(resolve));
@@ -120,6 +122,7 @@ async function run({
     encodes,
     delays,
     downloads,
+    manualDownloads,
     statuses,
   };
 }
@@ -232,6 +235,18 @@ async function run({
   });
   assert.equal(diagnostic.encodes, 1);
   assert.ok(diagnostic.calls.at(-1).frame._pngBlob);
+  const manualDownloadCase = await run({ debug: true });
+  assert.equal(await manualDownloadCase.controller.downloadCurrentFrame(), true);
+  assert.equal(manualDownloadCase.manualDownloads.length, 1);
+  assert.equal(manualDownloadCase.manualDownloads[0].t, 1700000000000);
+  assert.equal(
+    manualDownloadCase.canvases.at(-1).width,
+    0,
+    "Manual screenshot canvas is released",
+  );
+  const notDebug = await run();
+  assert.equal(await notDebug.controller.downloadCurrentFrame(), false);
+  assert.equal(notDebug.manualDownloads.length, 0);
   const failure = await run({
     debug: true,
     decodeError: "Test recognition failure",

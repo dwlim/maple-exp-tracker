@@ -168,6 +168,38 @@
           view.timing(now() - started, capturedCount);
       }
     }
+    async function downloadCurrentFrame() {
+      if (!debug) return false;
+      if (!stream || video.readyState < 2 || !video.videoWidth) {
+        view.appendOutput("Start screen sharing before downloading a screenshot.");
+        return false;
+      }
+      const frame = document.createElement("canvas");
+      frame.width = video.videoWidth;
+      frame.height = video.videoHeight;
+      frame.getContext("2d").drawImage(video, 0, 0);
+      const timestamp = now();
+      try {
+        const blob = await new Promise((resolve, reject) => {
+          try {
+            frame.toBlob(resolve, "image/png");
+          } catch (error) {
+            reject(error);
+          }
+        });
+        if (!blob) throw new Error("The browser could not encode the frame as PNG.");
+        debugTools.downloadManualFrame(blob, timestamp);
+        return true;
+      } catch (error) {
+        view.appendOutput(
+          "Could not save screenshot: " + (error?.message || String(error)),
+        );
+        return false;
+      } finally {
+        frame.width = 0;
+        frame.height = 0;
+      }
+    }
     async function connect() {
       if (!navigator.mediaDevices?.getDisplayMedia) {
         view.status(
@@ -240,6 +272,7 @@
       connect,
       stop,
       captureFrame,
+      downloadCurrentFrame,
       togglePause,
       invalidate,
       get stream() {
