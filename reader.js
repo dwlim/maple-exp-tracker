@@ -72,10 +72,10 @@
             const input = mesoRegion
               ? { mesoImage: cropNormalized(frame._pixels, mesoRegion) }
               : { mesoScanImage: frame._pixels };
-            void localOcr
-            .read(input.mesoScanImage && getMesoReference
+            const mesoRead = input.mesoScanImage && getMesoReference
               ? getMesoReference().then((mesoReference) => localOcr.read({ ...input, mesoReference }))
-              : localOcr.read(input))
+              : localOcr.read(input);
+            void mesoRead
             .then((mesoResult) => {
               if (
                 session.state.paused ||

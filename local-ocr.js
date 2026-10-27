@@ -249,11 +249,13 @@
   }
   function createMesoReference(image) {
     if (!image?.data || image.width < 180 || image.height < 28) return null;
-    const amount = { x: 24, y: 6, w: 145, h: 11 }, features = [];
+    const amount = { x: 24, y: 6, w: 145, h: 11 }, gray = new Uint8Array(image.width * image.height), features = [];
     const grayAt = (x, y) => {
       const i = (y * image.width + x) * 4;
       return Math.round(image.data[i] * 0.299 + image.data[i + 1] * 0.587 + image.data[i + 2] * 0.114);
     };
+    for (let y = 0; y < image.height; y++)
+      for (let x = 0; x < image.width; x++) gray[y * image.width + x] = grayAt(x, y);
     for (let y = 1; y < image.height - 1; y += 2)
       for (let x = 1; x < image.width - 1; x += 2) {
         if (x >= amount.x + 2 && x < amount.x + amount.w - 2 && y >= amount.y + 1 && y < amount.y + amount.h - 1) continue;
@@ -263,59 +265,135 @@
         );
         if (edge >= 9) features.push([x, y, value]);
       }
-    return features.length >= 50 ? { width: image.width, height: image.height, amount, features } : null;
+    return features.length >= 50 ? { width: image.width, height: image.height, amount, gray, features } : null;
+  }
+  function scaleMesoReference(reference, scale) {
+    const width = Math.max(1, Math.round(reference.width * scale)), height = Math.max(1, Math.round(reference.height * scale)),
+      sx = reference.width / width, sy = reference.height / height, gray = new Uint8Array(width * height),
+      amount = { x: reference.amount.x / sx, y: reference.amount.y / sy, w: reference.amount.w / sx, h: reference.amount.h / sy },
+      features = [];
+    for (let y = 0; y < height; y++)
+      for (let x = 0; x < width; x++) {
+        const x0 = Math.floor(x * sx), y0 = Math.floor(y * sy),
+          x1 = Math.min(reference.width, Math.max(x0 + 1, Math.floor((x + 1) * sx))),
+          y1 = Math.min(reference.height, Math.max(y0 + 1, Math.floor((y + 1) * sy)));
+        let total = 0, count = 0;
+        for (let py = y0; py < y1; py++) for (let px = x0; px < x1; px++) { total += reference.gray[py * reference.width + px]; count++; }
+        gray[y * width + x] = total / count;
+      }
+    for (let y = 1; y < height - 1; y++)
+      for (let x = 1; x < width - 1; x++) {
+        if (x >= amount.x + 1 && x < amount.x + amount.w - 1 && y >= amount.y + 1 && y < amount.y + amount.h - 1) continue;
+        const value = gray[y * width + x], edge = Math.max(
+          Math.abs(value - gray[y * width + x - 1]), Math.abs(value - gray[y * width + x + 1]),
+          Math.abs(value - gray[(y - 1) * width + x]), Math.abs(value - gray[(y + 1) * width + x]),
+        );
+        if (edge >= 8) features.push([x, y, value]);
+      }
+    return { width, height, amount, features };
   }
   function locateMesoReference(image, reference) {
     if (!image?.data || !reference?.features?.length) return null;
-    const target = reducedGray(image), scales = [0.14, 0.17, 0.2, 0.24, 0.29, 0.35, 0.42, 0.5, 0.62, 0.76, 0.92, 1.1, 1.3, 1.5],
-      coarseFeatures = reference.features.filter((_, i) => i % Math.max(1, Math.ceil(reference.features.length / 72)) === 0),
-      candidates = [], addCandidate = (candidate) => {
-        const duplicate = candidates.findIndex((prior) =>
-          Math.abs(candidate.cx - prior.cx) < Math.min(candidate.w, prior.w) * 0.38 &&
-          Math.abs(candidate.cy - prior.cy) < Math.min(candidate.h, prior.h) * 0.8,
+    const gray = new Uint8Array(image.width * image.height);
+    for (let i = 0, p = 0; i < image.data.length; i += 4, p++)
+      gray[p] = Math.round(image.data[i] * 0.299 + image.data[i + 1] * 0.587 + image.data[i + 2] * 0.114);
+    const coinMatches = (x, y, scale) => {
+      const coin = { x: x + scale * 8, y: y + scale * 3, w: scale * 15, h: scale * 13 };
+      let gold = 0, count = 0;
+      for (let py = Math.max(0, Math.floor(coin.y)); py < Math.min(image.height, Math.ceil(coin.y + coin.h)); py++)
+        for (let px = Math.max(0, Math.floor(coin.x)); px < Math.min(image.width, Math.ceil(coin.x + coin.w)); px++) {
+          const i = (py * image.width + px) * 4, r = image.data[i], g = image.data[i + 1], b = image.data[i + 2];
+          count++;
+          if (r > 130 && g > 70 && r > g * 1.12 && g > b * 1.1 && r - b > 35) gold++;
+        }
+      return count > 0 && gold / count >= 0.12;
+    };
+    const coarseCandidates = [], scales = [0.5, 0.7, 0.85, 0.95, 1, 1.05, 1.2, 1.45, 1.75, 2.1],
+      addCoarse = (candidate) => {
+        const duplicate = coarseCandidates.findIndex((prior) =>
+          Math.abs(candidate.cx - prior.cx) < Math.min(candidate.width, prior.width) * 0.38 &&
+          Math.abs(candidate.cy - prior.cy) < Math.min(candidate.height, prior.height) * 0.8,
         );
         if (duplicate >= 0) {
-          if (candidate.score < candidates[duplicate].score) candidates[duplicate] = candidate;
-        } else candidates.push(candidate);
-        candidates.sort((a, b) => a.score - b.score);
-        if (candidates.length > 10) candidates.length = 10;
+          if (candidate.score < coarseCandidates[duplicate].score) coarseCandidates[duplicate] = candidate;
+        } else coarseCandidates.push(candidate);
+        coarseCandidates.sort((a, b) => a.score - b.score);
+        if (coarseCandidates.length > 10) coarseCandidates.length = 10;
       };
-    for (const scale of scales) {
-      const width = Math.round(reference.width * scale), height = Math.round(reference.height * scale);
-      if (width < 24 || height < 4 || width >= target.width || height >= target.height) continue;
-      const points = coarseFeatures.map(([x, y, value]) => [Math.round(x * scale), Math.round(y * scale), value]);
-      for (let y = 0; y + height < target.height; y += 3)
-        for (let x = 0; x + width < target.width; x += 3) {
-          let error = 0, cutoff = (candidates.at(-1)?.score ?? 29) * points.length, stopped = false;
-          for (const [fx, fy, value] of points) {
-            error += Math.abs(target.gray[(y + fy) * target.width + x + fx] - value);
-            if (error > cutoff) { stopped = true; break; }
-          }
-          if (!stopped) addCandidate({ x, y, scale, width, height, cx: x + width / 2, cy: y + height / 2, score: error / points.length });
-        }
+    // Find the small gold coin by color first. A full-frame coarse grid misses
+    // otherwise good matches when the HUD sits between grid rows, and wastes
+    // most of its work on background. The coin anchor narrows matching to a
+    // handful of plausible template origins without assuming a fixed screen size.
+    const goldMask = new Uint8Array(image.width * image.height), visited = new Uint8Array(image.width * image.height);
+    for (let p = 0, i = 0; p < goldMask.length; p++, i += 4) {
+      const r = image.data[i], g = image.data[i + 1], b = image.data[i + 2];
+      if (r > 130 && g > 70 && r > g * 1.12 && g > b * 1.1 && r - b > 35) goldMask[p] = 1;
     }
-    if (!candidates.length) return null;
-    let best = null, second = null;
-    for (const candidate of candidates) {
-      const features = reference.features.map(([x, y, value]) => [Math.round(x * candidate.scale), Math.round(y * candidate.scale), value]);
+    const goldComponents = [], queue = new Int32Array(Math.min(goldMask.length, 4096));
+    for (let start = 0; start < goldMask.length; start++) {
+      if (!goldMask[start] || visited[start]) continue;
+      let head = 0, tail = 0, minX = image.width, minY = image.height, maxX = 0, maxY = 0;
+      queue[tail++] = start; visited[start] = 1;
+      while (head < tail) {
+        const index = queue[head++], px = index % image.width, py = (index / image.width) | 0;
+        minX = Math.min(minX, px); minY = Math.min(minY, py); maxX = Math.max(maxX, px); maxY = Math.max(maxY, py);
+        for (let dy = -1; dy <= 1; dy++) for (let dx = -1; dx <= 1; dx++) {
+          const nx = px + dx, ny = py + dy, next = ny * image.width + nx;
+          if (nx >= 0 && ny >= 0 && nx < image.width && ny < image.height && goldMask[next] && !visited[next]) {
+            visited[next] = 1;
+            if (tail < queue.length) queue[tail++] = next;
+          }
+        }
+      }
+      const width = maxX - minX + 1, height = maxY - minY + 1;
+      if (tail >= 14 && width >= 5 && width <= 22 && height >= 5 && height <= 22)
+        goldComponents.push({ x: minX, y: minY, width, height, pixels: tail });
+    }
+    for (const component of goldComponents) for (const scale of scales) {
+      // In the supplied reference, the colored coin's upper-left is at (11,6).
+      const originX = component.x - Math.round(11 * scale), originY = component.y - Math.round(6 * scale),
+        scaled = scaleMesoReference(reference, scale), { width, height } = scaled;
+      if (width < 48 || height < 8 || width >= image.width || height >= image.height || scaled.features.length < 24) continue;
+      const points = scaled.features.filter((_, i) => i % Math.max(1, Math.ceil(scaled.features.length / 180)) === 0);
       for (let dy = -2; dy <= 2; dy++) for (let dx = -2; dx <= 2; dx++) {
-        const x = candidate.x + dx, y = candidate.y + dy;
-        if (x < 0 || y < 0 || x + candidate.width >= target.width || y + candidate.height >= target.height) continue;
+        const x = originX + dx, y = originY + dy;
+        if (x < 0 || y < 0 || x + width >= image.width || y + height >= image.height || !coinMatches(x, y, scale)) continue;
         let error = 0;
-        for (const [fx, fy, value] of features) error += Math.abs(target.gray[(y + fy) * target.width + x + fx] - value);
-        const found = { ...candidate, x, y, cx: x + candidate.width / 2, cy: y + candidate.height / 2, score: error / features.length };
-        if (!best || found.score < best.score) {
-          if (best && (Math.abs(found.cx - best.cx) > Math.min(found.width, best.width) * 0.5 || Math.abs(found.cy - best.cy) > Math.max(found.height, best.height))) second = best;
-          best = found;
-        } else if ((Math.abs(found.cx - best.cx) > Math.min(found.width, best.width) * 0.5 || Math.abs(found.cy - best.cy) > Math.max(found.height, best.height)) && (!second || found.score < second.score)) second = found;
+        for (const [fx, fy, value] of points) error += Math.abs(gray[(y + fy) * image.width + x + fx] - value);
+        addCoarse({ x, y, scale, width, height, cx: x + width / 2, cy: y + height / 2, score: error / points.length });
       }
     }
+    if (!coarseCandidates.length) return null;
+    const matches = [], addMatch = (match) => {
+      const duplicate = matches.findIndex((prior) =>
+        Math.abs(match.cx - prior.cx) < Math.min(match.width, prior.width) * 0.45 &&
+        Math.abs(match.cy - prior.cy) < Math.max(match.height, prior.height),
+      );
+      if (duplicate >= 0) {
+        if (match.score < matches[duplicate].score) matches[duplicate] = match;
+      } else matches.push(match);
+      matches.sort((a, b) => a.score - b.score);
+    };
+    for (const candidate of coarseCandidates.slice(0, 8))
+      for (const scale of [0.92, 0.96, 1, 1.04, 1.08].map((factor) => candidate.scale * factor)) {
+        const scaled = scaleMesoReference(reference, scale), { width, height, features, amount } = scaled;
+        if (features.length < 24) continue;
+        for (let dy = -6; dy <= 6; dy += 2)
+          for (let dx = -6; dx <= 6; dx += 2) {
+            const x = candidate.x + dx, y = candidate.y + dy;
+            if (x < 0 || y < 0 || x + width >= image.width || y + height >= image.height) continue;
+            let error = 0;
+            for (const [fx, fy, value] of features) error += Math.abs(gray[(y + fy) * image.width + x + fx] - value);
+            const score = error / features.length;
+            if (score <= 35 && coinMatches(x, y, scale)) addMatch({ x, y, width, height, cx: x + width / 2, cy: y + height / 2, amount, scale, score });
+          }
+      }
+    const best = matches[0], second = best && matches.find((match) =>
+      Math.abs(match.cx - best.cx) > best.width * 0.5 || Math.abs(match.cy - best.cy) > best.height,
+    );
     if (!best || best.score > 24 || (second && second.score - best.score < 2)) return null;
-    const sx = image.width / target.width, sy = image.height / target.height,
-      x = (best.x + reference.amount.x * best.scale) * sx,
-      y = (best.y + reference.amount.y * best.scale) * sy,
-      w = reference.amount.w * best.scale * sx,
-      h = reference.amount.h * best.scale * sy,
+    const x = best.x + best.amount.x, y = best.y + best.amount.y,
+      w = best.amount.w, h = best.amount.h,
       amountImage = cropPixels(image, { x, y, w, h });
     if (!amountImage || !isMesoField(amountImage)) return null;
     return { region: { x: x / image.width, y: y / image.height, w: w / image.width, h: h / image.height }, amountImage, score: best.score };

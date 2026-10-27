@@ -99,5 +99,31 @@ assert.deepEqual(
   assert.equal((await reader.read(frame, 1700000061000)).accepted, true);
   await new Promise((resolve) => setImmediate(resolve));
   assert.equal(state.mesoStatus, "Meso read unavailable · EXP tracking continues");
+
+  const scanInputs = [],
+    scanState = { paused: false, startAt: 20, samples: [], mesoSamples: [] },
+    scanCapture = { generation: 2, stream: {} },
+    scanSession = {
+      state: scanState,
+      validate: () => ({ valid: true, level: 60, exp: 100, continuity: {}, levelResolution: {} }),
+      addSample() {},
+      addMesoSample(amount, t) { scanState.mesoSamples.push({ amount, t }); },
+      setMesoStatus(status) { scanState.mesoStatus = status; },
+      clearPending() {},
+    },
+    scanReader = Reader.create({
+      session: scanSession,
+      recognition: { async decodeFrame() {} },
+      view,
+      getCapture: () => scanCapture,
+      getMesoReference: async () => ({ features: ["loaded-reference"] }),
+      localOcr: {
+        read(input) { scanInputs.push(input); return Promise.resolve(null); },
+      },
+    });
+  assert.equal((await scanReader.read(frame, 1700000120000)).accepted, true);
+  await new Promise((resolve) => setImmediate(resolve));
+  assert.equal(scanInputs.length, 1, "reference loading must invoke OCR once");
+  assert.deepEqual(scanInputs[0].mesoReference, { features: ["loaded-reference"] });
   console.log("Meso OCR: grouped amounts, scaled crop preprocessing, confidence and exact agreement passed.");
 })();
