@@ -49,6 +49,8 @@
   } = {}) {
     const defaults = {
       samples: [],
+      mesoSamples: [],
+      mesoStatus: "Open inventory, then select the full white amount field",
       level: null,
       source: null,
       running: false,
@@ -118,9 +120,27 @@
     }
     function reset() {
       state.samples = [];
+      state.mesoSamples = [];
+      state.mesoStatus = "Open inventory, then select the full white amount field";
       state.level = null;
       state.startAt = now();
       clearPending();
+      onChange();
+    }
+    function addMesoSample(amount, t = now()) {
+      if (!Number.isSafeInteger(amount) || amount < 0 || !Number.isFinite(t))
+        return false;
+      const last = state.mesoSamples.at(-1);
+      if (last && last.t === t) return false;
+      state.mesoSamples.push({ t, amount });
+      if (state.mesoSamples.length > 720)
+        state.mesoSamples = state.mesoSamples.slice(-720);
+      state.mesoStatus = "Meso total read";
+      onChange();
+      return true;
+    }
+    function setMesoStatus(status) {
+      state.mesoStatus = status;
       onChange();
     }
     function validate(levelResult, expResult, expectedDigits, readAt) {
@@ -223,6 +243,8 @@
       state,
       key,
       samples,
+      addMesoSample,
+      setMesoStatus,
       save,
       addSample,
       reset,

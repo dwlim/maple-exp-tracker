@@ -29,13 +29,17 @@
     );
   }
   function prepare(image, previous) {
-    const a =
+    const validPrevious =
       previous?.width === image.width &&
       previous?.height === image.height &&
-      previous.anchor &&
-      controlVisible(image, previous.anchor)
-        ? previous.anchor
-        : Regions.anchors(image)[0];
+      previous.anchor?.kind === "cash-shop" &&
+      controlVisible(image, previous.anchor);
+    // Cash Shop and the blue static button row are separate alignment
+    // anchors. Potion slots are positioned relative to Cash Shop, so never
+    // reuse the blue OCR anchor for quickslot geometry.
+    const a = validPrevious
+      ? previous.anchor
+      : Regions.anchors(image, "cash-shop")[0];
     if (!a) return null;
     const x = Math.max(0, Math.floor(a.x + a.w * 0.72)),
       y = Math.max(0, Math.floor(a.y - a.h * 4.7)),

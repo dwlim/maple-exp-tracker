@@ -46,6 +46,19 @@ assert.equal(
   "TRACKER OFFLINE",
 );
 assert.equal(C.metrics({}, now, required, totalExp).level, "—");
+assert.deepEqual(
+  C.mesoMetrics(
+    { mesoSamples: [{ amount: 1200000, t: now - 60000 }, { amount: 1300000, t: now }] },
+    now,
+  ),
+  { amount: "1,300,000", rate: "+6,000,000" },
+  "Meso balance and trailing hourly rate render independently",
+);
+assert.equal(
+  C.mesoMetrics({ mesoSamples: [{ amount: 1200000, t: now - 180000 }] }, now).amount,
+  "—",
+  "Stale meso totals are not presented as current",
+);
 assert.equal(
   C.metrics({ level: 100, samples: [] }, now, required, totalExp).eta,
   "MAX LEVEL",

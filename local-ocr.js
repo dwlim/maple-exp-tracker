@@ -205,6 +205,360 @@
     }
     return /^\d[\d.]*\[\d+\.\d{2}%\]$/.test(text) ? text : null;
   }
+  function parseMeso(text) {
+    const clean = String(text || "").trim().replace(/\s/g, "");
+    if (!/^(?:\d{1,3}(?:[,\.]\d{3})+|\d{1,12})$/.test(clean)) return null;
+    const amount = Number(clean.replace(/[,\.]/g, ""));
+    return Number.isSafeInteger(amount) ? amount : null;
+  }
+  function prepareMeso(image, threshold = null) {
+    if (!image?.data || !image.width || !image.height) return null;
+    const scale = 4, pad = 16, width = image.width * scale + pad * 2,
+      height = image.height * scale + pad * 2,
+      data = new Uint8ClampedArray(width * height * 4).fill(255);
+    for (let y = 0; y < image.height; y++)
+      for (let x = 0; x < image.width; x++) {
+        const i = (y * image.width + x) * 4,
+          gray = Math.round(image.data[i] * 0.299 + image.data[i + 1] * 0.587 + image.data[i + 2] * 0.114),
+          value = threshold === null ? gray : gray < threshold ? 0 : 255;
+        for (let dy = 0; dy < scale; dy++)
+          for (let dx = 0; dx < scale; dx++) {
+            const j = ((y * scale + dy + pad) * width + x * scale + dx + pad) * 4;
+            data[j] = data[j + 1] = data[j + 2] = value;
+          }
+      }
+    return { width, height, data };
+  }
+  function isMesoField(image) {
+    let light = 0,
+      ink = 0;
+    const count = image?.width * image?.height;
+    if (!image?.data || !count) return false;
+    for (let i = 0; i < image.data.length; i += 4) {
+      const gray = image.data[i] * 0.299 + image.data[i + 1] * 0.587 + image.data[i + 2] * 0.114;
+      if (gray > 180) light++;
+      if (gray < 90) ink++;
+    }
+    return light / count >= 0.4 && ink / count >= 0.02 && ink / count <= 0.45;
+  }
+  function reducedGray(image) {
+    const factor = Math.max(1, image.width / 640, image.height / 360),
+      width = Math.max(1, Math.floor(image.width / factor)),
+      height = Math.max(1, Math.floor(image.height / factor)),
+      gray = new Uint8Array(width * height),
+      sx = image.width / width,
+      sy = image.height / height;
+    for (let y = 0; y < height; y++)
+      for (let x = 0; x < width; x++) {
+        const x0 = Math.floor(x * sx),
+          y0 = Math.floor(y * sy),
+          x1 = Math.min(image.width, Math.max(x0 + 1, Math.floor((x + 1) * sx))),
+          y1 = Math.min(image.height, Math.max(y0 + 1, Math.floor((y + 1) * sy)));
+        let total = 0,
+          count = 0;
+        for (let py = y0; py < y1; py++)
+          for (let px = x0; px < x1; px++) {
+            const i = (py * image.width + px) * 4;
+            total += image.data[i] * 0.299 + image.data[i + 1] * 0.587 + image.data[i + 2] * 0.114;
+            count++;
+          }
+        gray[y * width + x] = Math.round(total / count);
+      }
+    return { gray, width, height, sx, sy };
+  }
+  function createMesoAnchor(image, region) {
+    if (!image?.data || !region) return null;
+    const reduced = reducedGray(image),
+      ax = Math.max(0, Math.round(region.x * reduced.width)),
+      ay = Math.max(0, Math.round(region.y * reduced.height)),
+      aw = Math.max(2, Math.round(region.w * reduced.width)),
+      ah = Math.max(2, Math.round(region.h * reduced.height)),
+      left = Math.max(10, Math.round(ah * 3)),
+      right = Math.max(20, Math.round(ah * 4)),
+      top = Math.max(3, Math.round(ah * 0.7)),
+      bottom = top,
+      x0 = Math.max(0, ax - left),
+      y0 = Math.max(0, ay - top),
+      x1 = Math.min(reduced.width, ax + aw + right),
+      y1 = Math.min(reduced.height, ay + ah + bottom),
+      amount = { x: ax - x0, y: ay - y0, w: aw, h: ah },
+      width = x1 - x0,
+      height = y1 - y0,
+      features = [],
+      add = (x, y) => {
+        if (x < 1 || y < 1 || x >= width - 1 || y >= height - 1) return;
+        const px = x + x0,
+          py = y + y0,
+          index = py * reduced.width + px,
+          value = reduced.gray[index],
+          edge = Math.max(
+            Math.abs(value - reduced.gray[index - 1]),
+            Math.abs(value - reduced.gray[index + 1]),
+            Math.abs(value - reduced.gray[index - reduced.width]),
+            Math.abs(value - reduced.gray[index + reduced.width]),
+          );
+        if (edge >= 10) features.push([x, y, value]);
+      };
+    // Static coin and MESOS label identify the inventory row. The amount itself
+    // is masked; only the textbox outline is included so changing digits cannot
+    // break alignment.
+    for (let y = 1; y < height - 1; y += 2)
+      for (let x = 1; x < amount.x - 1; x += 2) add(x, y);
+    for (let y = 1; y < height - 1; y += 2)
+      for (let x = amount.x + amount.w + 1; x < width - 1; x += 2) add(x, y);
+    const topY = amount.y - 1,
+      bottomY = amount.y + amount.h;
+    for (let x = amount.x; x < amount.x + amount.w; x += 4) {
+      add(x, topY);
+      add(x, bottomY);
+    }
+    for (let y = amount.y; y < amount.y + amount.h; y += 2) {
+      add(amount.x, y);
+      add(amount.x + amount.w - 1, y);
+    }
+    if (features.length < 30) return null;
+    const sourceAx = Math.max(0, Math.round(region.x * image.width)),
+      sourceAy = Math.max(0, Math.round(region.y * image.height)),
+      sourceAw = Math.max(2, Math.round(region.w * image.width)),
+      sourceAh = Math.max(2, Math.round(region.h * image.height)),
+      sourceLeft = Math.max(20, Math.round(sourceAh * 3)),
+      sourceRight = Math.max(40, Math.round(sourceAh * 4)),
+      sourceTop = Math.max(8, Math.round(sourceAh * 0.7)),
+      sourceX0 = Math.max(0, sourceAx - sourceLeft),
+      sourceY0 = Math.max(0, sourceAy - sourceTop),
+      sourceX1 = Math.min(image.width, sourceAx + sourceAw + sourceRight),
+      sourceY1 = Math.min(image.height, sourceAy + sourceAh + sourceTop),
+      full = {
+        width: sourceX1 - sourceX0,
+        height: sourceY1 - sourceY0,
+        amount: {
+          x: sourceAx - sourceX0,
+          y: sourceAy - sourceY0,
+          w: sourceAw,
+          h: sourceAh,
+        },
+        features: [],
+      },
+      pixelGray = (x, y) => {
+        const i = (y * image.width + x) * 4;
+        return Math.round(image.data[i] * 0.299 + image.data[i + 1] * 0.587 + image.data[i + 2] * 0.114);
+      },
+      fullAdd = (x, y) => {
+        if (x < 1 || y < 1 || x >= full.width - 1 || y >= full.height - 1) return;
+        const px = x + sourceX0,
+          py = y + sourceY0,
+          value = pixelGray(px, py),
+          edge = Math.max(
+            Math.abs(value - pixelGray(px - 1, py)),
+            Math.abs(value - pixelGray(px + 1, py)),
+            Math.abs(value - pixelGray(px, py - 1)),
+            Math.abs(value - pixelGray(px, py + 1)),
+          );
+        if (edge >= 10) full.features.push([x, y, value]);
+      };
+    for (let y = 2; y < full.height - 2; y += 3) {
+      for (let x = 2; x < full.amount.x - 2; x += 3) fullAdd(x, y);
+      for (let x = full.amount.x + full.amount.w + 2; x < full.width - 2; x += 3) fullAdd(x, y);
+    }
+    for (let x = full.amount.x; x < full.amount.x + full.amount.w; x += 8) {
+      fullAdd(x, full.amount.y - 1);
+      fullAdd(x, full.amount.y + full.amount.h);
+    }
+    if (full.features.length < 30) return null;
+    return { width, height, amount, features, full };
+  }
+  function locateMesoAnchor(image, anchor, previousRegion = null) {
+    if (!image?.data || !anchor?.features?.length) return null;
+    const full = anchor.full;
+    if (previousRegion && full?.features?.length) {
+      const scale = (previousRegion.w * image.width) / full.amount.w,
+        expectedX = previousRegion.x * image.width - full.amount.x * scale,
+        expectedY = previousRegion.y * image.height - full.amount.y * scale,
+        radiusX = 18,
+        radiusY = 14;
+      let best = null;
+      for (let y = Math.max(0, Math.round(expectedY) - radiusY); y <= Math.min(image.height - full.height * scale, Math.round(expectedY) + radiusY); y += 2)
+        for (let x = Math.max(0, Math.round(expectedX) - radiusX); x <= Math.min(image.width - full.width * scale, Math.round(expectedX) + radiusX); x += 2) {
+          let error = 0,
+            aborted = false;
+          const cutoff = (best?.score ?? 20) * full.features.length;
+          for (const [fx, fy, value] of full.features) {
+            const tx = x + Math.round(fx * scale),
+              ty = y + Math.round(fy * scale),
+              i = (ty * image.width + tx) * 4,
+              gray = Math.round(image.data[i] * 0.299 + image.data[i + 1] * 0.587 + image.data[i + 2] * 0.114);
+            error += Math.abs(gray - value);
+            if (error > cutoff) {
+              aborted = true;
+              break;
+            }
+          }
+          if (aborted) continue;
+          const score = error / full.features.length;
+          if (!best || score < best.score) best = { x, y, scale, score };
+        }
+      if (best?.score <= 20) {
+        const x = best.x + full.amount.x * best.scale,
+          y = best.y + full.amount.y * best.scale,
+          w = full.amount.w * best.scale,
+          h = full.amount.h * best.scale;
+        return {
+          region: { x: x / image.width, y: y / image.height, w: w / image.width, h: h / image.height },
+          score: best.score,
+          scale: best.scale,
+        };
+      }
+    }
+    const target = reducedGray(image),
+      scales = [1, 0.95, 1.08, 0.85, 0.72, 1.22, 1.38],
+      candidates = [];
+    for (const scale of scales) {
+      const features = anchor.features.map(([x, y, value]) => [Math.round(x * scale), Math.round(y * scale), value]),
+        maxX = Math.round(anchor.width * scale),
+        maxY = Math.round(anchor.height * scale),
+        findTop = (fromX, toX, fromY, toY, step, limit = 6) => {
+          const top = [];
+          for (let y = fromY; y <= toY && y + maxY <= target.height; y += step)
+            for (let x = fromX; x <= toX && x + maxX <= target.width; x += step) {
+              let error = 0,
+                aborted = false;
+              const cutoff = (top.length === limit ? top.at(-1).score : 30) * features.length;
+              for (const [fx, fy, value] of features) {
+                error += Math.abs(target.gray[(y + fy) * target.width + x + fx] - value);
+                if (error > cutoff) {
+                  aborted = true;
+                  break;
+                }
+              }
+              if (aborted) continue;
+              const score = error / features.length;
+              if (score > (top.length === limit ? top.at(-1).score : 30)) continue;
+              const item = { x, y, scale, score },
+                near = top.findIndex((c) => Math.hypot(c.x - x, c.y - y) <= 5);
+              if (near >= 0) {
+                if (score >= top[near].score) continue;
+                top.splice(near, 1);
+              }
+              top.push(item);
+              top.sort((a, b) => a.score - b.score);
+              if (top.length > limit) top.pop();
+            }
+          return top;
+        },
+        seeds = findTop(0, target.width - maxX, 0, target.height - maxY, scale === 1 ? 1 : 3),
+        refined = seeds.map((seed) => {
+          let best = seed;
+          for (let y = Math.max(0, seed.y - 3); y <= Math.min(target.height - maxY, seed.y + 3); y++)
+            for (let x = Math.max(0, seed.x - 3); x <= Math.min(target.width - maxX, seed.x + 3); x++) {
+              let error = 0;
+              for (const [fx, fy, value] of features) {
+                error += Math.abs(target.gray[(y + fy) * target.width + x + fx] - value);
+                if (error > best.score * features.length) break;
+              }
+              const score = error / features.length;
+              if (score < best.score) best = { x, y, scale, score };
+            }
+          return best;
+        });
+      if (scale === 1 && refined[0]?.score <= 2) {
+        const exact = refined[0],
+          x = (exact.x + anchor.amount.x * exact.scale) * target.sx,
+          y = (exact.y + anchor.amount.y * exact.scale) * target.sy,
+          w = anchor.amount.w * exact.scale * target.sx,
+          h = anchor.amount.h * exact.scale * target.sy;
+        return {
+          region: { x: x / image.width, y: y / image.height, w: w / image.width, h: h / image.height },
+          score: exact.score,
+          scale: exact.scale,
+        };
+      }
+      candidates.push(...refined);
+    }
+    candidates.sort((a, b) => a.score - b.score);
+    const coarseBest = candidates[0];
+    if (!coarseBest || coarseBest.score > 30) return null;
+    if (!anchor.full?.features?.length)
+      return null;
+    const seeds = [];
+    for (const candidate of candidates) {
+      const x = candidate.x * target.sx,
+        y = candidate.y * target.sy;
+      if (seeds.some((c) => Math.hypot(c.x - x, c.y - y) < 18)) continue;
+      seeds.push({ ...candidate, sourceX: x, sourceY: y });
+      if (seeds.length >= 12) break;
+    }
+    const refined = [];
+    for (const seed of seeds) {
+      for (const scale of [Math.max(0.5, seed.scale - 0.05), seed.scale, seed.scale + 0.05]) {
+        const width = Math.round(full.width * scale),
+          height = Math.round(full.height * scale),
+          centerX = Math.round(seed.sourceX),
+          centerY = Math.round(seed.sourceY),
+          radius = Math.max(24, Math.ceil(Math.max(target.sx, target.sy) * 8)),
+          fromX = Math.max(0, centerX - radius),
+          toX = Math.min(image.width - width, centerX + radius),
+          fromY = Math.max(0, centerY - radius),
+          toY = Math.min(image.height - height, centerY + radius);
+        let best = null;
+        for (let y = fromY; y <= toY; y += 2)
+          for (let x = fromX; x <= toX; x += 2) {
+            let error = 0,
+              aborted = false;
+            const cutoff = (best?.score ?? 30) * full.features.length;
+            for (const [fx, fy, value] of full.features) {
+              const tx = x + Math.round(fx * scale),
+                ty = y + Math.round(fy * scale),
+                i = (ty * image.width + tx) * 4,
+                gray = Math.round(image.data[i] * 0.299 + image.data[i + 1] * 0.587 + image.data[i + 2] * 0.114);
+              error += Math.abs(gray - value);
+              if (error > cutoff) {
+                aborted = true;
+                break;
+              }
+            }
+            if (aborted) continue;
+            const score = error / full.features.length;
+            if (!best || score < best.score) best = { x, y, scale, score };
+          }
+        if (best) refined.push(best);
+      }
+    }
+    refined.sort((a, b) => a.score - b.score);
+    const best = refined[0];
+    if (!best || best.score > 30) return null;
+    const bestX = best.x + full.amount.x * best.scale,
+      bestY = best.y + full.amount.y * best.scale,
+      other = refined.find((c) =>
+        Math.hypot(
+          c.x + full.amount.x * c.scale - bestX,
+          c.y + full.amount.y * c.scale - bestY,
+        ) > Math.max(12, best.scale * 8),
+      );
+    if (other && other.score - best.score < 3) return null;
+    const x = best.x + full.amount.x * best.scale,
+      y = best.y + full.amount.y * best.scale,
+      w = full.amount.w * best.scale,
+      h = full.amount.h * best.scale;
+    return {
+      region: { x: x / image.width, y: y / image.height, w: w / image.width, h: h / image.height },
+      score: best.score,
+      scale: best.scale,
+    };
+  }
+  async function readMesoAmount(image, recognize) {
+    if (!isMesoField(image)) return null;
+    const results = [];
+    for (const [threshold, kind] of [[null, "meso-value"], [155, "meso-value-binary"]]) {
+      const pixels = prepareMeso(image, threshold),
+        reading = await recognize(pixels, kind),
+        amount = parseMeso(reading.text);
+      if (amount !== null && reading.confidence >= 40)
+        results.push({ amount, confidence: reading.confidence });
+    }
+    return results.length === 2 && results[0].amount === results[1].amount
+      ? { amount: results[0].amount, confidence: Math.round(Math.min(results[0].confidence, results[1].confidence)) }
+      : null;
+  }
   function choose(readings, kind, native) {
     const valid = readings
       .map((r) => ({ ...r, text: normalize(r.text, kind) }))
@@ -391,6 +745,14 @@
               ),
             };
         }
+        if (input.mesoImage) {
+          try {
+            result.meso = await readMesoAmount(input.mesoImage, recognize);
+          } catch {
+            // Meso reading is independent of level and EXP recognition.
+            result.meso = null;
+          }
+        }
         return result;
       });
       queue = task.catch(() => {});
@@ -435,9 +797,13 @@
         const w = await worker();
         if (configuredWorker !== w || configuredKind !== kind) {
           await w.setParameters({
-            tessedit_pageseg_mode: 7,
+            tessedit_pageseg_mode: kind === "meso-scan" ? 11 : 7,
             tessedit_char_whitelist:
-              kind === "level" ? "LV.0123456789" : "0123456789.[]% ",
+              kind === "level"
+                ? "LV.0123456789"
+                : kind.startsWith("meso-value")
+                    ? "0123456789,"
+                    : "0123456789.[]% ",
           });
           configuredWorker = w;
           configuredKind = kind;
@@ -452,7 +818,7 @@
         );
         try {
           const { data } = await w.recognize(c);
-          return { text: data.text, confidence: data.confidence };
+          return { text: data.text, confidence: data.confidence, words: data.words || [] };
         } finally {
           c.width = 0;
           c.height = 0;
@@ -461,5 +827,5 @@
     }
     return browserReader.read(input);
   }
-  return { prepare, normalize, choose, createReader, read };
+  return { prepare, normalize, choose, parseMeso, prepareMeso, isMesoField, createMesoAnchor, locateMesoAnchor, readMesoAmount, createReader, read };
 });

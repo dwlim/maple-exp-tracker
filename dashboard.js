@@ -8,6 +8,7 @@
     window,
     session,
     recognition,
+    localOcr,
     getCapture,
     debug = false,
     now: clock = Date.now,
@@ -59,6 +60,30 @@
         if (gained) q("#gained").textContent = "~" + fmt(gained);
         q("#rateHint").textContent = "Estimated from rounded HUD percentages";
       }
+      const mesoSamples = (state.mesoSamples || [])
+          .filter((s) => Number.isSafeInteger(s.amount) && Number.isFinite(s.t) && s.t <= now)
+          .sort((a, b) => a.t - b.t),
+        firstMeso = mesoSamples[0],
+        latestMeso = mesoSamples.at(-1),
+        mesoBase = mesoSamples.find((s) => s.t >= now - 300000) || firstMeso,
+        mesoNet = firstMeso && latestMeso ? latestMeso.amount - firstMeso.amount : 0,
+        mesoElapsed = latestMeso && mesoBase ? latestMeso.t - mesoBase.t : 0,
+        mesoRate = mesoElapsed >= 60000
+          ? ((latestMeso.amount - mesoBase.amount) * 3600000) / mesoElapsed
+          : 0;
+      if (q("#mesoAmount")) q("#mesoAmount").textContent = latestMeso ? fmt(latestMeso.amount) : "—";
+      if (q("#mesoNet"))
+        q("#mesoNet").textContent = latestMeso
+          ? (mesoNet > 0 ? "+" : mesoNet < 0 ? "−" : "") + fmt(Math.abs(mesoNet))
+          : "—";
+      if (q("#mesoRate"))
+        q("#mesoRate").textContent = mesoElapsed >= 60000
+          ? (mesoRate > 0 ? "+" : mesoRate < 0 ? "−" : "") + fmt(Math.abs(mesoRate))
+          : "—";
+      if (q("#mesoHint"))
+        q("#mesoHint").textContent = latestMeso && now - latestMeso.t > 120000
+          ? "No recent meso read"
+          : state.mesoStatus || "Keep inventory open to read mesos";
       const lvl = state.level,
         req = lvl ? required(lvl) : 0,
         expIn = latest ? latest.exp || 0 : 0,
@@ -232,9 +257,10 @@
     }
 
     function beginRegionSelection(name) {
-      if (state.calibration.auto !== false)
+      if (name !== "meso" && state.calibration.auto !== false)
         state.calibration = { ...currentRegions(), auto: false };
       selecting = selecting === name ? null : name;
+      document.body.classList.toggle("meso-selecting", selecting === "meso");
       dragStart = dragCurrent = null;
       updateRegionStatus();
       drawRegions();
@@ -246,12 +272,13 @@
         l = regions?.level,
         e = regions?.exp;
       q("#regionStatus").textContent =
-        `${automatic ? "Auto regions" : "Custom regions"} · Level ${l ? "ready" : "unset"} · EXP ${e ? "ready" : "unset"}${selecting ? ` · Drag to select ${selecting}` : ""}`;
+        `${automatic ? "Auto regions" : "Custom regions"} · Level ${l ? "ready" : "unset"} · EXP ${e ? "ready" : "unset"} · Meso ${state.mesoAnchor ? "anchored" : state.mesoRegion ? "fixed region" : "unset"}${selecting ? ` · Drag to select ${selecting}${selecting === "meso" ? " the full white amount field" : ""}` : ""}`;
       q("#pickLevel")?.classList.toggle("active", selecting === "level");
       q("#pickExp")?.classList.toggle("active", selecting === "exp");
+      q("#pickMeso")?.classList.toggle("active", selecting === "meso");
     }
     function drawRegions() {
-      if (!debug) return;
+      if (!debug && selecting !== "meso") return;
       const canvas = q("#frameCanvas"),
         img = q("#latestFrame");
       if (!canvas || !img || !img.naturalWidth) return;
@@ -259,10 +286,10 @@
       canvas.width = img.naturalWidth;
       canvas.height = img.naturalHeight;
       ctx.clearRect(0, 0, canvas.width, canvas.height);
-      const colors = { level: "#c7f36b", exp: "#a995ff" };
+      const colors = { level: "#c7f36b", exp: "#a995ff", meso: "#ffd479" };
       const regions = currentRegions(img);
-      for (const name of ["level", "exp"]) {
-        const r = regions[name];
+      for (const name of debug ? ["level", "exp", "meso"] : ["meso"]) {
+        const r = name === "meso" ? state.mesoRegion : regions[name];
         if (!r) continue;
         const x = r.x * canvas.width,
           y = r.y * canvas.height,
@@ -276,7 +303,7 @@
         ctx.font = `bold ${Math.max(18, canvas.width / 55)}px sans-serif`;
         ctx.fillStyle = colors[name];
         ctx.fillText(
-          name === "level" ? "LEVEL" : "EXP",
+          name === "level" ? "LEVEL" : name === "exp" ? "EXP" : "MESO TOTAL",
           x + 4,
           Math.max(18, y - 5),
         );
@@ -439,6 +466,21 @@
       q("#pickExp")?.addEventListener("click", () =>
         beginRegionSelection("exp"),
       );
+      q("#pickMeso")?.addEventListener("click", () =>
+        beginRegionSelection("meso"),
+      );
+      q("#setMesoRegion")?.addEventListener("click", () =>
+        beginRegionSelection("meso"),
+      );
+      q("#clearMeso")?.addEventListener("click", () => {
+        state.mesoRegion = null;
+        state.mesoAnchor = null;
+        selecting = dragStart = dragCurrent = null;
+        document.body.classList.remove("meso-selecting");
+        save();
+        updateRegionStatus();
+        drawRegions();
+      });
       q("#clearRegions")?.addEventListener("click", () => {
         state.calibration = { level: null, exp: null, auto: true };
         selecting = dragStart = dragCurrent = null;
@@ -475,9 +517,32 @@
           y = Math.min(dragStart.y, dragCurrent.y),
           w = Math.abs(dragStart.x - dragCurrent.x),
           h = Math.abs(dragStart.y - dragCurrent.y);
-        if (w > 0.005 && h > 0.005)
-          state.calibration[selecting] = { x, y, w, h };
+        if (w > 0.005 && h > 0.005) {
+          if (selecting === "meso") {
+            state.mesoRegion = { x, y, w, h };
+            state.mesoAnchor = null;
+            try {
+              const image = q("#latestFrame"),
+                pixelsCanvas = document.createElement("canvas");
+              pixelsCanvas.width = image.naturalWidth;
+              pixelsCanvas.height = image.naturalHeight;
+              const ctx = pixelsCanvas.getContext("2d", { willReadFrequently: true });
+              ctx.drawImage(image, 0, 0);
+              state.mesoAnchor = localOcr?.createMesoAnchor(
+                ctx.getImageData(0, 0, pixelsCanvas.width, pixelsCanvas.height),
+                state.mesoRegion,
+              ) || null;
+              pixelsCanvas.width = 0;
+              pixelsCanvas.height = 0;
+            } catch {}
+            state.mesoStatus = state.mesoAnchor
+              ? "Inventory anchor saved · aligning total automatically"
+              : "Amount area saved · template unavailable, using fixed position";
+          }
+          else state.calibration[selecting] = { x, y, w, h };
+        }
         selecting = dragStart = dragCurrent = null;
+        document.body.classList.remove("meso-selecting");
         save();
         updateRegionStatus();
         drawRegions();

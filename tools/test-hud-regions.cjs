@@ -193,7 +193,7 @@ for (const c of require("./hud-anchor-fixtures.json"))
       35,
       -15,
     );
-    const anchor = R.anchors(f);
+    const anchor = R.anchors(f, "cash-shop");
     assert.equal(
       anchor.length,
       1,
@@ -221,7 +221,7 @@ for (const c of require("./hud-anchor-fixtures.json"))
       )
         f.data.fill(0, (y * f.width + x) * 4, (y * f.width + x) * 4 + 4);
     assert.equal(
-      R.anchors(f).length,
+      R.anchors(f, "cash-shop").length,
       0,
       "Cash Shop color alone is insufficient",
     );
@@ -310,7 +310,7 @@ const fullFixture = require("./monitor-oct23-hud-fixtures.json")[0],
     })),
   }),
   fullRegions = R.detect(full, L, MapleHudOcr),
-  button = R.anchors(full)[0];
+  button = R.anchors(full, "cash-shop")[0];
 const restored = R.detect(full, L, MapleHudOcr, {
   ...fullRegions,
   percentageOnly: true,

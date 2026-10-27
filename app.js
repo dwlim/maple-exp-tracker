@@ -85,6 +85,7 @@
         window,
         session,
         recognition,
+        localOcr,
         getCapture: () => capture,
         debug,
       });
@@ -105,6 +106,7 @@
         view,
         debugTools,
         getCapture: () => capture,
+        localOcr,
         debug,
       });
       const items = Quickslots.mount({
