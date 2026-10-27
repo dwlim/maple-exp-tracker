@@ -95,13 +95,21 @@
               ) return;
               if (debug)
                 onMesoPreview(mesoResult?.mesoPreview || input.mesoImage || null);
-              if (mesoResult?.meso?.region && !session.state.mesoAnchor) {
+              const mesoCandidate = mesoResult?.meso?.region
+                ? mesoResult.meso
+                : mesoResult?.mesoCandidate;
+              if (mesoCandidate?.region && !session.state.mesoAnchor) {
                 const anchor = localOcr.createMesoAnchor?.(
                   frame._pixels,
-                  mesoResult.meso.region,
-                  mesoResult.meso.border,
+                  mesoCandidate.region,
+                  mesoCandidate.border,
                 ) || null;
-                session.setMesoAnchor?.(mesoResult.meso.region, anchor);
+                if (anchor)
+                  session.setMesoAnchor?.(mesoCandidate.region, anchor);
+                else
+                  session.setMesoRegion?.(mesoCandidate.region);
+                view.drawRegions?.();
+                view.updateRegionStatus?.();
               }
               if (mesoResult?.meso)
                 session.addMesoSample(mesoResult.meso.amount, readAt);

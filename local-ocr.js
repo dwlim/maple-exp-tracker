@@ -1043,6 +1043,7 @@
               await locateMesoField(input.mesoScanImage, recognize, onPreview);
             result.mesoPreview = field?.amountImage || candidatePreview;
             if (field) {
+              result.mesoCandidate = { region: field.region, border: field.border || null };
               const meso = await readMesoAmount(field.amountImage, recognize);
               result.meso = meso ? { ...meso, region: field.region, border: field.border } : null;
             } else result.meso = null;

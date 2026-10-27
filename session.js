@@ -143,6 +143,13 @@
       state.mesoStatus = status;
       onChange();
     }
+    function setMesoRegion(region) {
+      if (!region) return false;
+      state.mesoRegion = region;
+      save();
+      onChange();
+      return true;
+    }
     function setMesoAnchor(region, anchor) {
       if (!region || !anchor) return false;
       state.mesoRegion = region;
@@ -254,6 +261,7 @@
       samples,
       addMesoSample,
       setMesoStatus,
+      setMesoRegion,
       setMesoAnchor,
       save,
       addSample,

@@ -1269,6 +1269,7 @@ root.MapleHudOcr={recognize,resolveReading,percentageReading};
               await locateMesoField(input.mesoScanImage, recognize, onPreview);
             result.mesoPreview = field?.amountImage || candidatePreview;
             if (field) {
+              result.mesoCandidate = { region: field.region, border: field.border || null };
               const meso = await readMesoAmount(field.amountImage, recognize);
               result.meso = meso ? { ...meso, region: field.region, border: field.border } : null;
             } else result.meso = null;
@@ -2046,6 +2047,13 @@ return {detect,crop,anchors,percentageRegion};
       state.mesoStatus = status;
       onChange();
     }
+    function setMesoRegion(region) {
+      if (!region) return false;
+      state.mesoRegion = region;
+      save();
+      onChange();
+      return true;
+    }
     function setMesoAnchor(region, anchor) {
       if (!region || !anchor) return false;
       state.mesoRegion = region;
@@ -2157,6 +2165,7 @@ return {detect,crop,anchors,percentageRegion};
       samples,
       addMesoSample,
       setMesoStatus,
+      setMesoRegion,
       setMesoAnchor,
       save,
       addSample,
@@ -3167,13 +3176,21 @@ return {detect,crop,anchors,percentageRegion};
               ) return;
               if (debug)
                 onMesoPreview(mesoResult?.mesoPreview || input.mesoImage || null);
-              if (mesoResult?.meso?.region && !session.state.mesoAnchor) {
+              const mesoCandidate = mesoResult?.meso?.region
+                ? mesoResult.meso
+                : mesoResult?.mesoCandidate;
+              if (mesoCandidate?.region && !session.state.mesoAnchor) {
                 const anchor = localOcr.createMesoAnchor?.(
                   frame._pixels,
-                  mesoResult.meso.region,
-                  mesoResult.meso.border,
+                  mesoCandidate.region,
+                  mesoCandidate.border,
                 ) || null;
-                session.setMesoAnchor?.(mesoResult.meso.region, anchor);
+                if (anchor)
+                  session.setMesoAnchor?.(mesoCandidate.region, anchor);
+                else
+                  session.setMesoRegion?.(mesoCandidate.region);
+                view.drawRegions?.();
+                view.updateRegionStatus?.();
               }
               if (mesoResult?.meso)
                 session.addMesoSample(mesoResult.meso.amount, readAt);
