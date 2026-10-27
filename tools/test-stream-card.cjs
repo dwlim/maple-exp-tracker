@@ -221,6 +221,8 @@ require("../app").mount({
 assert.equal(writes, 0);
 assert.equal(q("#cardLevel").textContent, "32");
 assert.equal(q("#cardRate").textContent, "60,000");
+assert.match(q(".app").innerHTML, /<div class="stream-meso-line"><span>NET MESOS \/ HOUR · 5M<\/span>/);
+assert.doesNotMatch(q(".app").innerHTML, /MESO BALANCE|HP COST \/ HOUR|GROSS MESOS \/ HOUR/);
 assert.equal(intervals[0].ms, 5000);
 stored = JSON.stringify({ ...state, samples: [], level: 56, running: false });
 events.get("storage")({ key: "maple-track-v1" });
@@ -235,8 +237,7 @@ potionSnapshot = JSON.stringify({
   ],
 });
 events.get("storage")({ key: "maple-track-potion-costs-v1" });
-assert.equal(q("#cardHpCost").textContent, "8,000 mesos");
-assert.equal(q("#cardMpCost").textContent, "44,000 mesos");
+assert.equal(q("#cardNetMesoRate").textContent, "—");
 potionSnapshot = "invalid";
 events.get("storage")({ key: "maple-track-potion-costs-v1" });
 assert.equal(q("#cardHpCost").textContent, "—");

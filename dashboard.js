@@ -1,7 +1,7 @@
 (function (root, factory) {
-  if (typeof module === "object" && module.exports) module.exports = factory();
-  else root.MapleDashboard = factory();
-})(typeof window === "undefined" ? globalThis : window, function () {
+  if (typeof module === "object" && module.exports) module.exports = factory(require("./potion-costs"));
+  else root.MapleDashboard = factory(root.MaplePotionCosts);
+})(typeof window === "undefined" ? globalThis : window, function (PotionCosts) {
   "use strict";
   function create({
     document,
@@ -10,6 +10,7 @@
     recognition,
     localOcr,
     getCapture,
+    storage,
     debug = false,
     now: clock = Date.now,
   }) {
@@ -65,13 +66,13 @@
           .sort((a, b) => a.t - b.t),
         firstMeso = mesoSamples[0],
         latestMeso = mesoSamples.at(-1),
-        mesoBase = mesoSamples.find((s) => s.t >= now - 300000) || firstMeso,
+        mesoBase = mesoSamples.find((s) => s.t >= now - 300000),
         mesoNet = firstMeso && latestMeso ? latestMeso.amount - firstMeso.amount : 0,
         mesoElapsed = latestMeso && mesoBase ? latestMeso.t - mesoBase.t : 0,
-        mesoRate = mesoElapsed >= 60000
+        mesoRate = mesoElapsed >= 60000 && now - latestMeso.t <= 120000
           ? ((latestMeso.amount - mesoBase.amount) * 3600000) / mesoElapsed
-          : 0;
-      if (q("#mesoAmount")) q("#mesoAmount").textContent = latestMeso ? fmt(latestMeso.amount) : "—";
+          : null;
+      if (q("#mesoAmount")) q("#mesoAmount").textContent = latestMeso && now - latestMeso.t <= 120000 ? fmt(latestMeso.amount) : "—";
       if (q("#mesoNet"))
         q("#mesoNet").textContent = latestMeso
           ? (mesoNet > 0 ? "+" : mesoNet < 0 ? "−" : "") + fmt(Math.abs(mesoNet))
@@ -84,6 +85,36 @@
         q("#mesoHint").textContent = latestMeso && now - latestMeso.t > 120000
           ? "No recent meso read"
           : state.mesoStatus || "Keep inventory open to read mesos";
+      let potionState = {};
+      try {
+        potionState = JSON.parse(storage?.getItem(PotionCosts.KEY) || "{}") || {};
+      } catch {}
+      const potionMetrics = PotionCosts.metrics(potionState, now),
+        costText = (value) => value === null ? "—" : fmt(value),
+        trackedGroups = new Set((potionState.items || []).map((item) => item?.group));
+      if (q("#hpPotionCost")) q("#hpPotionCost").textContent = costText(potionMetrics.hp);
+      if (q("#mpPotionCost")) q("#mpPotionCost").textContent = costText(potionMetrics.mp);
+      if (q("#bothPotionCost")) q("#bothPotionCost").textContent = costText(potionMetrics.both);
+      let netMesoRate = null;
+      if (
+        mesoRate !== null && potionState.enabled === true && trackedGroups.size &&
+        Number.isFinite(potionState.updatedAt) && potionState.updatedAt <= now &&
+        now - potionState.updatedAt <= 25000
+      ) {
+        let spend = 0, known = true;
+        for (const group of trackedGroups) {
+          if (!["hp", "mp", "both"].includes(group) || !Number.isFinite(potionMetrics[group])) {
+            known = false;
+            break;
+          }
+          spend += potionMetrics[group];
+        }
+        if (known) netMesoRate = mesoRate - spend;
+      }
+      if (q("#netMesoRate"))
+        q("#netMesoRate").textContent = netMesoRate === null
+          ? "—"
+          : (netMesoRate > 0 ? "+" : netMesoRate < 0 ? "−" : "") + fmt(Math.abs(netMesoRate));
       const lvl = state.level,
         req = lvl ? required(lvl) : 0,
         expIn = latest ? latest.exp || 0 : 0,

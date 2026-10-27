@@ -90,6 +90,7 @@
         session,
         recognition,
         localOcr,
+        storage,
         getCapture: () => capture,
         debug,
       });
