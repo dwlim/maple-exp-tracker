@@ -45,10 +45,10 @@ d = Debug.create({ ...config, enabled: true });
 d.downloadFrame(blob, stamp, true);
 d.downloadFrame(blob, stamp);
 assert.equal(clicked, 0);
-d.downloadFrame(blob, stamp, false);
+d.downloadFrame(blob, stamp, false, "EXP amount and percentage disagree for level 60");
 assert.equal(clicked, 1);
-assert.equal(filename, "maple-track-2026-10-16T16-00-00-000Z.png");
-assert.match(status, /requested/);
+assert.equal(filename, "maple-track-exp-amount-and-percentage-disagree-for-level-60-2026-10-16T16-00-00-000Z.png");
+assert.match(status, /exp-amount-and-percentage-disagree-for-level-60/);
 timer();
 assert.equal(revoked, 1);
 d.downloadFrame(blob, stamp, false);
@@ -67,8 +67,9 @@ assert.equal(created, 1);
       encodes++;
     },
   };
-  await d.rejectFrame(frame, stamp + 20000);
+  await d.rejectFrame(frame, stamp + 20000, "quickslot quantity unreadable");
   assert.equal(encodes, 0, "Debug downloads reuse the exact preview PNG");
+  assert.equal(filename, "maple-track-quickslot-quantity-unreadable-2026-10-16T16-00-20-000Z.png");
   await Debug.create(config).rejectFrame(frame, stamp + 30000);
   assert.equal(clicked, 2, "Normal mode cannot download error frames");
   checked = false;
@@ -90,6 +91,7 @@ assert.equal(created, 1);
       },
     },
     stamp + 50000,
+    "ocr-processing-error",
     () => cancelled,
   );
   cancelled = true;

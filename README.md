@@ -37,7 +37,7 @@ Run `node tools/test-hud-font.cjs` to check the extracted HUD crops, including w
 
 ## Dashboard and debug mode
 
-In browser capture debug mode (`?debug=1`), only frames rejected by OCR request a timestamped PNG download; accepted readings never create screenshot files. These are full screenshots of the shared surface saved to the browser's download location; they are not uploaded. The browser may require allowing multiple automatic downloads, and save-location prompts depend on browser settings. Uncheck **Download screenshots with rejected readings** to stop downloads, or remove the debug flag. Normal mode never downloads screenshots automatically.
+In browser capture debug mode (`?debug=1`), the checked **Download screenshots with rejected readings** option saves a full screenshot for each rejected EXP/level or unreadable quickslot check. Automatic OCR runs every ten seconds, so repeated failures can cause repeated downloads. Filenames include a short rejection reason (for example, `exp-readout-not-found` or `quickslot-quantity-unreadable`). Accepted readings never create screenshot files. Screenshots are saved to the browser's download location and are not uploaded. Uncheck the option to stop automatic downloads, or remove the debug flag. Normal mode never downloads screenshots automatically.
 
 The normal dashboard shows session metrics, character progress, connection status and recent readings. The rate-card hint shows why a capture was rejected instead of leaving it at "waiting for more samples". A detected level that conflicts with the saved session shows both levels and asks you to start a new session when switching characters. Automatic OCR continues in the background. Manual entry remains available.
 

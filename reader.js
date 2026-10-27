@@ -139,7 +139,8 @@
           view.output(
             "Looking for the EXP readout. Keep the bottom HUD visible and unobstructed, or select a custom region in debug mode.",
           );
-          if (debug && report) await debugTools.rejectFrame(frame, readAt);
+          if (debug && report)
+            await debugTools.rejectFrame(frame, readAt, "exp-readout-not-found");
           return { accepted: false, retry: true };
         }
         const { levelResult, expResult } = frame._reading,
@@ -156,7 +157,7 @@
           result.levelResolution.reason ===
             "Confirming level from EXP on the next frame";
         if (debug && report && !result.valid && !confirmation)
-          await debugTools.rejectFrame(frame, readAt);
+          await debugTools.rejectFrame(frame, readAt, result.rejectionReason);
         if (result.valid) {
           const prior = session.state.samples.at(-1);
           if (!prior || prior.t !== readAt)
@@ -172,6 +173,12 @@
       } catch (error) {
         view.status("error", "Recognition unavailable · " + error.message);
         view.output("OCR failed: " + error.message);
+        if (debug && report)
+          try {
+            await debugTools.rejectFrame(frame, timestamp, "ocr-processing-error");
+          } catch {
+            /* A diagnostic download must not replace the original OCR error. */
+          }
         return { accepted: false, retry: false };
       } finally {
         busy = false;

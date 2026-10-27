@@ -148,7 +148,11 @@
             );
             if (failed)
               try {
-                await debugTools.rejectFrame(failed, failed._capturedAt);
+                await debugTools.rejectFrame(
+                  failed,
+                  failed._capturedAt,
+                  "capture-" + stage + "-error",
+                );
               } catch (downloadError) {
                 view.appendOutput(
                   "Could not save diagnostic frame: " +

@@ -412,7 +412,7 @@
           }
           if (unreadable && !stopped()) {
             try {
-              await onRejectedFrame?.(frame, t, stopped);
+              await onRejectedFrame?.(frame, t, "quickslot-quantity-unreadable", stopped);
             } catch {
               /* Saving diagnostics must not interrupt tracking. */
             }

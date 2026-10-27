@@ -11,12 +11,13 @@
     isDownloadEnabled = () => true,
     onDownload = () => {},
   }) {
-    function saveBlob(blob, timestamp, prefix, message) {
+    function saveBlob(blob, timestamp, prefix, message, suffix = "") {
       const url = URL.createObjectURL(blob),
         a = document.createElement("a");
       a.href = url;
       a.download =
         prefix +
+        (suffix ? suffix + "-" : "") +
         new Date(timestamp).toISOString().replace(/[:.]/g, "-") +
         ".png";
       document.body.appendChild(a);
@@ -29,7 +30,18 @@
       }
     }
 
-    function downloadDebugFrame(blob, timestamp, accepted) {
+    function reasonSlug(reason) {
+      const slug = String(reason || "reading-rejected")
+        .normalize("NFKD")
+        .toLowerCase()
+        .replace(/[^a-z0-9]+/g, "-")
+        .replace(/^-+|-+$/g, "")
+        .slice(0, 56)
+        .replace(/-+$/g, "");
+      return slug || "reading-rejected";
+    }
+
+    function downloadDebugFrame(blob, timestamp, accepted, reason = "reading-rejected") {
       if (
         accepted !== false ||
         !enabled ||
@@ -41,7 +53,8 @@
       saveBlob(blob, timestamp, "maple-track-", (date) =>
         "Rejected-frame download requested · " +
         date.toLocaleTimeString() +
-        " · allow multiple downloads if prompted",
+        " · " + reasonSlug(reason) + " · allow multiple downloads if prompted",
+        reasonSlug(reason),
       );
     }
 
@@ -54,12 +67,12 @@
       );
     }
 
-    async function rejectFrame(frame, timestamp, cancelled = () => false) {
+    async function rejectFrame(frame, timestamp, reason = "reading-rejected", cancelled = () => false) {
       if (!enabled || !frame || !isDownloadEnabled() || cancelled()) return;
       const blob =
         frame._pngBlob ||
         (await new Promise((resolve) => frame.toBlob(resolve, "image/png")));
-      if (blob && !cancelled()) downloadDebugFrame(blob, timestamp, false);
+      if (blob && !cancelled()) downloadDebugFrame(blob, timestamp, false, reason);
     }
     return { downloadFrame: downloadDebugFrame, downloadManualFrame, rejectFrame };
   }

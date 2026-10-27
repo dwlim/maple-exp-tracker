@@ -423,7 +423,8 @@ const eight = packedFrame(cases.find((f) => f.name === "native-8-10")),
   );
   assert.equal(rejected[0][0], failedFrame);
   assert.equal(rejected[0][1], t);
-  assert.equal(rejected[0][2](), false);
+  assert.equal(rejected[0][2], "quickslot-quantity-unreadable");
+  assert.equal(rejected[0][3](), false);
   await smallUI.process(failedFrame, t + 10000, () => true);
   assert.equal(rejected.length, 1, "Cancelled reads cannot request downloads");
   smallUI.store.enable(false);

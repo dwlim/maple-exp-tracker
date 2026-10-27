@@ -2542,12 +2542,13 @@ return {detect,crop,anchors,percentageRegion};
     isDownloadEnabled = () => true,
     onDownload = () => {},
   }) {
-    function saveBlob(blob, timestamp, prefix, message) {
+    function saveBlob(blob, timestamp, prefix, message, suffix = "") {
       const url = URL.createObjectURL(blob),
         a = document.createElement("a");
       a.href = url;
       a.download =
         prefix +
+        (suffix ? suffix + "-" : "") +
         new Date(timestamp).toISOString().replace(/[:.]/g, "-") +
         ".png";
       document.body.appendChild(a);
@@ -2560,7 +2561,18 @@ return {detect,crop,anchors,percentageRegion};
       }
     }
 
-    function downloadDebugFrame(blob, timestamp, accepted) {
+    function reasonSlug(reason) {
+      const slug = String(reason || "reading-rejected")
+        .normalize("NFKD")
+        .toLowerCase()
+        .replace(/[^a-z0-9]+/g, "-")
+        .replace(/^-+|-+$/g, "")
+        .slice(0, 56)
+        .replace(/-+$/g, "");
+      return slug || "reading-rejected";
+    }
+
+    function downloadDebugFrame(blob, timestamp, accepted, reason = "reading-rejected") {
       if (
         accepted !== false ||
         !enabled ||
@@ -2572,7 +2584,8 @@ return {detect,crop,anchors,percentageRegion};
       saveBlob(blob, timestamp, "maple-track-", (date) =>
         "Rejected-frame download requested · " +
         date.toLocaleTimeString() +
-        " · allow multiple downloads if prompted",
+        " · " + reasonSlug(reason) + " · allow multiple downloads if prompted",
+        reasonSlug(reason),
       );
     }
 
@@ -2585,12 +2598,12 @@ return {detect,crop,anchors,percentageRegion};
       );
     }
 
-    async function rejectFrame(frame, timestamp, cancelled = () => false) {
+    async function rejectFrame(frame, timestamp, reason = "reading-rejected", cancelled = () => false) {
       if (!enabled || !frame || !isDownloadEnabled() || cancelled()) return;
       const blob =
         frame._pngBlob ||
         (await new Promise((resolve) => frame.toBlob(resolve, "image/png")));
-      if (blob && !cancelled()) downloadDebugFrame(blob, timestamp, false);
+      if (blob && !cancelled()) downloadDebugFrame(blob, timestamp, false, reason);
     }
     return { downloadFrame: downloadDebugFrame, downloadManualFrame, rejectFrame };
   }
@@ -3354,7 +3367,8 @@ return {detect,crop,anchors,percentageRegion};
           view.output(
             "Looking for the EXP readout. Keep the bottom HUD visible and unobstructed, or select a custom region in debug mode.",
           );
-          if (debug && report) await debugTools.rejectFrame(frame, readAt);
+          if (debug && report)
+            await debugTools.rejectFrame(frame, readAt, "exp-readout-not-found");
           return { accepted: false, retry: true };
         }
         const { levelResult, expResult } = frame._reading,
@@ -3371,7 +3385,7 @@ return {detect,crop,anchors,percentageRegion};
           result.levelResolution.reason ===
             "Confirming level from EXP on the next frame";
         if (debug && report && !result.valid && !confirmation)
-          await debugTools.rejectFrame(frame, readAt);
+          await debugTools.rejectFrame(frame, readAt, result.rejectionReason);
         if (result.valid) {
           const prior = session.state.samples.at(-1);
           if (!prior || prior.t !== readAt)
@@ -3387,6 +3401,12 @@ return {detect,crop,anchors,percentageRegion};
       } catch (error) {
         view.status("error", "Recognition unavailable · " + error.message);
         view.output("OCR failed: " + error.message);
+        if (debug && report)
+          try {
+            await debugTools.rejectFrame(frame, timestamp, "ocr-processing-error");
+          } catch {
+            /* A diagnostic download must not replace the original OCR error. */
+          }
         return { accepted: false, retry: false };
       } finally {
         busy = false;
@@ -3555,7 +3575,11 @@ return {detect,crop,anchors,percentageRegion};
             );
             if (failed)
               try {
-                await debugTools.rejectFrame(failed, failed._capturedAt);
+                await debugTools.rejectFrame(
+                  failed,
+                  failed._capturedAt,
+                  "capture-" + stage + "-error",
+                );
               } catch (downloadError) {
                 view.appendOutput(
                   "Could not save diagnostic frame: " +
@@ -4949,7 +4973,7 @@ return {detect,crop,anchors,percentageRegion};
           }
           if (unreadable && !stopped()) {
             try {
-              await onRejectedFrame?.(frame, t, stopped);
+              await onRejectedFrame?.(frame, t, "quickslot-quantity-unreadable", stopped);
             } catch {
               /* Saving diagnostics must not interrupt tracking. */
             }
@@ -5226,7 +5250,7 @@ return {detect,crop,anchors,percentageRegion};
 <div class="stats"><div class="stat"><div class="k">EXP / hour</div><div class="v lime" id="rate">—</div><div class="hint" id="rateHint">Waiting for samples</div></div><div class="stat"><div class="k">EXP gained</div><div class="v" id="gained">0</div><div class="hint">this session</div></div><div class="stat"><div class="k">Recent pace</div><div class="v" id="pace">—</div><div class="hint">over last 5 minutes</div></div><div class="stat"><div class="k">Time to next level</div><div class="v lime" id="nextLevelEta">—</div><div class="hint" id="nextLevelEtaHint">Need more data</div></div></div>
 <div class="chart-wrap" style="margin-bottom:24px"><div class="chart-title"><span>Mesos</span><button class="btn" id="setMesoRegion" style="padding:5px 8px">Adjust manually</button><span id="mesoHint" role="status">The tracker automatically searches for the standard inventory balance. Keep the item window visible.</span></div><div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(120px,1fr));gap:10px"><div class="stat" style="min-height:92px"><div class="k">Current total</div><div class="v" id="mesoAmount">—</div></div><div class="stat" style="min-height:92px"><div class="k">Net change</div><div class="v" id="mesoNet">—</div><div class="hint">this session</div></div><div class="stat" style="min-height:92px"><div class="k">Gross mesos / hour</div><div class="v lime" id="mesoRate">—</div><div class="hint">trailing 5 minutes</div></div><div class="stat" style="min-height:92px"><div class="k">Net after potions / hour</div><div class="v lime" id="netMesoRate">—</div><div class="hint">trailing 5 minutes</div></div></div><div class="chart-title" style="margin:18px 0 10px"><span>Estimated potion costs · trailing 5 minutes</span></div><div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(120px,1fr));gap:10px"><div class="stat" style="min-height:82px"><div class="k">HP potion cost / hour</div><div class="v" id="hpPotionCost">—</div></div><div class="stat" style="min-height:82px"><div class="k">MP potion cost / hour</div><div class="v" id="mpPotionCost">—</div></div><div class="stat" style="min-height:82px"><div class="k">HP + MP potion cost / hour</div><div class="v" id="bothPotionCost">—</div></div></div></div>
 <div class="chart-wrap"><div class="chart-title"><span>Experience over time</span><span id="sampleCount">0 samples</span></div><svg class="chart" id="chart" viewBox="0 0 700 170" preserveAspectRatio="none" aria-label="Experience chart"><defs><linearGradient id="fill" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#c7f36b" stop-opacity=".2"/><stop offset="1" stop-color="#c7f36b" stop-opacity="0"/></linearGradient></defs><g id="chartContent"></g></svg></div>
-<div class="chart-wrap capture-debug" style="margin-top:12px;padding:10px"><div class="chart-title" style="margin:0 6px 8px"><span>Latest game capture</span><span id="frameStatus">WAITING FOR SHARING</span></div><div class="calibration-tools"><button id="pickLevel">Select level</button><button id="pickExp">Select EXP readout</button><button id="pickMeso">Select meso amount</button><button id="clearMeso">Clear meso region</button><button id="clearRegions">Reset auto regions</button><span id="regionStatus" class="region-status">Searching for the level tiles and EXP readout once a capture arrives.</span></div><div class="ocr-tools"><button id="readFrame">Read frame</button><label><input type="checkbox" id="autoOcr" checked> Read new frames automatically</label></div><div class="ocr-tools"><button class="btn" id="downloadCurrentFrame" disabled>Download current screenshot</button><label><input type="checkbox" id="debugDownloads" checked> Download screenshots with rejected readings</label></div><p id="debugDownloadStatus" class="subtle" style="font-size:10px">Rejected OCR frames download automatically. Use Download current screenshot to save a frame on demand. Screenshots stay on your device.</p><div id="ocrOutput" class="ocr-output">Waiting for a game capture. Text recognition runs locally in your browser.</div><div class="crop-preview-grid" id="cropPreviewGrid"><div><label>LEVEL OCR INPUT</label><img id="levelCropPreview" alt="Exact level crop used by OCR"><small id="levelCropPreviewStatus">Waiting for a crop</small></div><div><label>EXP OCR INPUT</label><img id="expCropPreview" alt="Exact EXP crop used by OCR"><small id="expCropPreviewStatus">Waiting for a crop</small></div><div><label>MESO AMOUNT INPUT</label><img id="mesoCropPreview" alt="Exact meso amount crop used by OCR"><small id="mesoCropPreviewStatus">Waiting for a crop</small></div></div><div class="frame-stage" id="frameStage"><img id="latestFrame" alt="Latest shared game window"><canvas id="frameCanvas"></canvas></div><div id="frameEmpty" class="subtle" style="padding:34px;text-align:center;font-size:11px">Share MapleStory to see a frame here.</div></div>
+<div class="chart-wrap capture-debug" style="margin-top:12px;padding:10px"><div class="chart-title" style="margin:0 6px 8px"><span>Latest game capture</span><span id="frameStatus">WAITING FOR SHARING</span></div><div class="calibration-tools"><button id="pickLevel">Select level</button><button id="pickExp">Select EXP readout</button><button id="pickMeso">Select meso amount</button><button id="clearMeso">Clear meso region</button><button id="clearRegions">Reset auto regions</button><span id="regionStatus" class="region-status">Searching for the level tiles and EXP readout once a capture arrives.</span></div><div class="ocr-tools"><button id="readFrame">Read frame</button><label><input type="checkbox" id="autoOcr" checked> Read new frames automatically</label></div><div class="ocr-tools"><button class="btn" id="downloadCurrentFrame" disabled>Download current screenshot</button><label><input type="checkbox" id="debugDownloads" checked> Download screenshots with rejected readings</label></div><p id="debugDownloadStatus" class="subtle" style="font-size:10px">In debug mode, rejected EXP/level or quickslot readings can download one screenshot per frame. Uncheck downloads to stop automatic files; filenames include the rejection reason. Screenshots stay on your device.</p><div id="ocrOutput" class="ocr-output">Waiting for a game capture. Text recognition runs locally in your browser.</div><div class="crop-preview-grid" id="cropPreviewGrid"><div><label>LEVEL OCR INPUT</label><img id="levelCropPreview" alt="Exact level crop used by OCR"><small id="levelCropPreviewStatus">Waiting for a crop</small></div><div><label>EXP OCR INPUT</label><img id="expCropPreview" alt="Exact EXP crop used by OCR"><small id="expCropPreviewStatus">Waiting for a crop</small></div><div><label>MESO AMOUNT INPUT</label><img id="mesoCropPreview" alt="Exact meso amount crop used by OCR"><small id="mesoCropPreviewStatus">Waiting for a crop</small></div></div><div class="frame-stage" id="frameStage"><img id="latestFrame" alt="Latest shared game window"><canvas id="frameCanvas"></canvas></div><div id="frameEmpty" class="subtle" style="padding:34px;text-align:center;font-size:11px">Share MapleStory to see a frame here.</div></div>
 <div class="foot"><span id="lastSample">NO CAPTURE YET</span></div></section>
 <div class="right-col"><section class="panel level-card"><div class="panel-head"><span class="label">Current character</span><span class="tag">MAPLE CLASSIC</span></div><div class="level-row"><div><div class="level-name">LEVEL</div><div class="level-num" id="level">—</div></div><div class="level-name" id="classLabel">AWAITING CAPTURE</div></div><div class="progress"><span id="progressFill" style="width:0%"></span></div><div class="progress-meta"><span id="percent">0.00% to next level</span><span id="remaining">— EXP TO GO</span></div><div class="eta"><div><span>Estimated level up</span><br><b id="eta">—</b></div><span id="etaNote">Need more data</span></div></section>
 <section class="panel setup"><div class="panel-head"><span class="label">Tracking</span><span class="tag">10 SEC INTERVAL</span></div><div class="setup-step"><div class="num">01</div><div class="step-body"><b>Share MapleStory</b><p>Click Share game window and choose MapleStory in the browser picker. Keep this dashboard open while playing. Use Stop sharing to disconnect.</p></div></div><div class="setup-step"><div class="num">02</div><div class="step-body"><b>Calibrate the readout</b><p>On a captured frame, select the Level number and the EXP value with its percentage. The selection is saved relative to the frame size.</p></div></div><p role="note" style="font-size:11px;line-height:1.6;margin:0 0 14px;padding:10px 12px;border-left:3px solid var(--lime);border-radius:6px;background:var(--panel2)"><b style="color:var(--lime)">Recommended:</b> Use <b>Ideal</b> HUD scaling in MapleStory for the most reliable recognition.</p><div class="capture-actions" style="display:flex;gap:10px;flex-wrap:wrap;margin-bottom:14px"><button class="btn" id="shareGameBtn" style="background:var(--lime);color:#171a11;font-weight:800">Share game window</button><button class="btn hidden" id="stopSharingBtn">Stop sharing</button><button class="btn hidden" id="pauseSessionBtn" aria-pressed="false">Pause session</button><button class="btn" id="newSessionBtn">New session</button><button class="btn" id="streamCardBtn">Open stream card</button></div><p class="subtle" style="font-size:11px">For a live overlay, open the stream card and add its browser window as a Window Capture source in your streaming software. Keep the main tracker and card open in the same browser profile.</p><p class="subtle" style="font-size:11px">Choose the MapleStory window. Screenshots are processed locally; no audio is captured.</p><video id="sharePreview" muted playsinline class="hidden" style="width:100%;max-height:160px;object-fit:contain;border-radius:8px;margin-bottom:12px"></video><p id="trackingStatus" class="tracking-summary" role="status" aria-live="polite">Share your game window to start tracking.</p><div class="source"><span>Capture connection</span><b id="sourceState">CHECKING…</b></div><div class="btn-row"><button class="btn" id="sampleBtn">Add sample</button></div><div class="notice" id="notice"></div><div class="log"><div class="log-head"><span class="label">Recent captures</span><button class="btn" id="manualBtn" style="padding:5px 8px">Manual entry</button></div><div class="log-list" id="logList"><div class="log-item"><span>—</span><b>No captures yet</b><span>—</span></div></div></div></section></div></div>
