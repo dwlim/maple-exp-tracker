@@ -211,6 +211,74 @@
     const amount = Number(clean.replace(/[,\.]/g, ""));
     return Number.isSafeInteger(amount) ? amount : null;
   }
+  function scaleMesoScan(image, maxWidth = 1920) {
+    if (!image?.data || !image.width || !image.height) return null;
+    const scale = Math.min(1, maxWidth / image.width),
+      width = Math.max(1, Math.round(image.width * scale)),
+      height = Math.max(1, Math.round(image.height * scale));
+    if (width === image.width && height === image.height) return { image, scaleX: 1, scaleY: 1 };
+    const data = new Uint8ClampedArray(width * height * 4),
+      sx = image.width / width, sy = image.height / height;
+    for (let y = 0; y < height; y++)
+      for (let x = 0; x < width; x++) {
+        const sx0 = Math.floor(x * sx), sy0 = Math.floor(y * sy),
+          sx1 = Math.min(image.width, Math.max(sx0 + 1, Math.floor((x + 1) * sx))),
+          sy1 = Math.min(image.height, Math.max(sy0 + 1, Math.floor((y + 1) * sy))),
+          target = (y * width + x) * 4;
+        let red = 0, green = 0, blue = 0, alpha = 0, count = 0;
+        for (let py = sy0; py < sy1; py++)
+          for (let px = sx0; px < sx1; px++) {
+            const source = (py * image.width + px) * 4;
+            red += image.data[source]; green += image.data[source + 1];
+            blue += image.data[source + 2]; alpha += image.data[source + 3]; count++;
+          }
+        data[target] = red / count; data[target + 1] = green / count;
+        data[target + 2] = blue / count; data[target + 3] = alpha / count;
+      }
+    return { image: { width, height, data }, scaleX: image.width / width, scaleY: image.height / height };
+  }
+  function cropPixels(image, box) {
+    const x0 = Math.max(0, Math.floor(box.x)), y0 = Math.max(0, Math.floor(box.y)),
+      x1 = Math.min(image.width, Math.ceil(box.x + box.w)), y1 = Math.min(image.height, Math.ceil(box.y + box.h)),
+      width = x1 - x0, height = y1 - y0;
+    if (width < 2 || height < 2) return null;
+    const data = new Uint8ClampedArray(width * height * 4);
+    for (let y = 0; y < height; y++)
+      data.set(image.data.subarray(((y + y0) * image.width + x0) * 4, ((y + y0) * image.width + x1) * 4), y * width * 4);
+    return { width, height, data };
+  }
+  async function locateMesoField(image, recognize) {
+    const scaled = scaleMesoScan(image);
+    if (!scaled) return null;
+    const scan = await recognize(scaled.image, "meso-scan"), words = scan.words || [],
+      labels = words.filter((word) => /^MESOS?$/i.test(String(word.text || "").trim()) && word.bbox),
+      candidates = [];
+    for (const label of labels) {
+      const lb = label.bbox,
+        lh = Math.max(1, lb.y1 - lb.y0);
+      for (const word of words) {
+        const text = String(word.text || "").trim(), b = word.bbox;
+        if (!b || !/^\d[\d,.]*$/.test(text) || parseMeso(text) === null || (word.confidence ?? 0) < 25) continue;
+        const h = Math.max(1, b.y1 - b.y0), gap = lb.x0 - b.x1,
+          centerDelta = Math.abs((lb.y0 + lb.y1 - b.y0 - b.y1) / 2);
+        if (gap < -lh * 0.25 || gap > lh * 3 || centerDelta > Math.max(lh, h) * 0.85) continue;
+        candidates.push({ b, h, label, score: gap / lh + centerDelta / Math.max(lh, h) - (word.confidence ?? 0) / 500 });
+      }
+    }
+    candidates.sort((a, b) => a.score - b.score);
+    if (!candidates.length || (candidates.length > 1 && candidates[1].score - candidates[0].score < 0.35)) return null;
+    const { b, h, label } = candidates[0], sx = scaled.scaleX, sy = scaled.scaleY,
+      lb = label.bbox, labelHeight = Math.max(1, lb.y1 - lb.y0),
+      fieldWidth = Math.max(labelHeight * 12, b.x1 - b.x0 + labelHeight * 4) * sx,
+      fieldHeight = Math.min(image.height, Math.max(labelHeight * 1.8, h * 1.8) * sy),
+      right = Math.min(image.width, lb.x0 * sx - labelHeight * sx * 0.2),
+      x = Math.max(0, right - fieldWidth),
+      y = Math.max(0, Math.min(image.height - fieldHeight, (lb.y0 + lb.y1) * sy / 2 - fieldHeight / 2)),
+      region = { x: x / image.width, y: y / image.height, w: (right - x) / image.width, h: fieldHeight / image.height },
+      amountImage = cropPixels(image, { x, y, w: right - x, h: fieldHeight });
+    if (!amountImage || !isMesoField(amountImage)) return null;
+    return { region, amountImage };
+  }
   function prepareMeso(image, threshold = null) {
     if (!image?.data || !image.width || !image.height) return null;
     const scale = 4, pad = 16, width = image.width * scale + pad * 2,
@@ -753,6 +821,17 @@
             result.meso = null;
           }
         }
+        if (input.mesoScanImage) {
+          try {
+            const field = await locateMesoField(input.mesoScanImage, recognize);
+            if (field) {
+              const meso = await readMesoAmount(field.amountImage, recognize);
+              result.meso = meso ? { ...meso, region: field.region } : null;
+            } else result.meso = null;
+          } catch {
+            result.meso = null;
+          }
+        }
         return result;
       });
       queue = task.catch(() => {});
@@ -799,7 +878,9 @@
           await w.setParameters({
             tessedit_pageseg_mode: kind === "meso-scan" ? 11 : 7,
             tessedit_char_whitelist:
-              kind === "level"
+              kind === "meso-scan"
+                ? "0123456789,.MESOS"
+                : kind === "level"
                 ? "LV.0123456789"
                 : kind.startsWith("meso-value")
                     ? "0123456789,"
@@ -827,5 +908,5 @@
     }
     return browserReader.read(input);
   }
-  return { prepare, normalize, choose, parseMeso, prepareMeso, isMesoField, createMesoAnchor, locateMesoAnchor, readMesoAmount, createReader, read };
+  return { prepare, normalize, choose, parseMeso, prepareMeso, isMesoField, scaleMesoScan, locateMesoField, createMesoAnchor, locateMesoAnchor, readMesoAmount, createReader, read };
 });

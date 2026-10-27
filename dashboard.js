@@ -272,7 +272,7 @@
         l = regions?.level,
         e = regions?.exp;
       q("#regionStatus").textContent =
-        `${automatic ? "Auto regions" : "Custom regions"} · Level ${l ? "ready" : "unset"} · EXP ${e ? "ready" : "unset"} · Meso ${state.mesoAnchor ? "anchored" : state.mesoRegion ? "fixed region" : "unset"}${selecting ? ` · Drag to select ${selecting}${selecting === "meso" ? " the full white amount field" : ""}` : ""}`;
+        `${automatic ? "Auto regions" : "Custom regions"} · Level ${l ? "ready" : "unset"} · EXP ${e ? "ready" : "unset"} · Meso ${state.mesoAnchor ? "aligned" : "automatic scan"}${selecting ? ` · Drag to select ${selecting}${selecting === "meso" ? " the full white amount field (optional override)" : ""}` : ""}`;
       q("#pickLevel")?.classList.toggle("active", selecting === "level");
       q("#pickExp")?.classList.toggle("active", selecting === "exp");
       q("#pickMeso")?.classList.toggle("active", selecting === "meso");
@@ -537,7 +537,7 @@
             } catch {}
             state.mesoStatus = state.mesoAnchor
               ? "Inventory anchor saved · aligning total automatically"
-              : "Amount area saved · template unavailable, using fixed position";
+              : "Manual amount area saved · automatic inventory scan remains available";
           }
           else state.calibration[selecting] = { x, y, w, h };
         }

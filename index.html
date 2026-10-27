@@ -436,6 +436,74 @@ root.MapleHudOcr={recognize,resolveReading,percentageReading};
     const amount = Number(clean.replace(/[,\.]/g, ""));
     return Number.isSafeInteger(amount) ? amount : null;
   }
+  function scaleMesoScan(image, maxWidth = 1920) {
+    if (!image?.data || !image.width || !image.height) return null;
+    const scale = Math.min(1, maxWidth / image.width),
+      width = Math.max(1, Math.round(image.width * scale)),
+      height = Math.max(1, Math.round(image.height * scale));
+    if (width === image.width && height === image.height) return { image, scaleX: 1, scaleY: 1 };
+    const data = new Uint8ClampedArray(width * height * 4),
+      sx = image.width / width, sy = image.height / height;
+    for (let y = 0; y < height; y++)
+      for (let x = 0; x < width; x++) {
+        const sx0 = Math.floor(x * sx), sy0 = Math.floor(y * sy),
+          sx1 = Math.min(image.width, Math.max(sx0 + 1, Math.floor((x + 1) * sx))),
+          sy1 = Math.min(image.height, Math.max(sy0 + 1, Math.floor((y + 1) * sy))),
+          target = (y * width + x) * 4;
+        let red = 0, green = 0, blue = 0, alpha = 0, count = 0;
+        for (let py = sy0; py < sy1; py++)
+          for (let px = sx0; px < sx1; px++) {
+            const source = (py * image.width + px) * 4;
+            red += image.data[source]; green += image.data[source + 1];
+            blue += image.data[source + 2]; alpha += image.data[source + 3]; count++;
+          }
+        data[target] = red / count; data[target + 1] = green / count;
+        data[target + 2] = blue / count; data[target + 3] = alpha / count;
+      }
+    return { image: { width, height, data }, scaleX: image.width / width, scaleY: image.height / height };
+  }
+  function cropPixels(image, box) {
+    const x0 = Math.max(0, Math.floor(box.x)), y0 = Math.max(0, Math.floor(box.y)),
+      x1 = Math.min(image.width, Math.ceil(box.x + box.w)), y1 = Math.min(image.height, Math.ceil(box.y + box.h)),
+      width = x1 - x0, height = y1 - y0;
+    if (width < 2 || height < 2) return null;
+    const data = new Uint8ClampedArray(width * height * 4);
+    for (let y = 0; y < height; y++)
+      data.set(image.data.subarray(((y + y0) * image.width + x0) * 4, ((y + y0) * image.width + x1) * 4), y * width * 4);
+    return { width, height, data };
+  }
+  async function locateMesoField(image, recognize) {
+    const scaled = scaleMesoScan(image);
+    if (!scaled) return null;
+    const scan = await recognize(scaled.image, "meso-scan"), words = scan.words || [],
+      labels = words.filter((word) => /^MESOS?$/i.test(String(word.text || "").trim()) && word.bbox),
+      candidates = [];
+    for (const label of labels) {
+      const lb = label.bbox,
+        lh = Math.max(1, lb.y1 - lb.y0);
+      for (const word of words) {
+        const text = String(word.text || "").trim(), b = word.bbox;
+        if (!b || !/^\d[\d,.]*$/.test(text) || parseMeso(text) === null || (word.confidence ?? 0) < 25) continue;
+        const h = Math.max(1, b.y1 - b.y0), gap = lb.x0 - b.x1,
+          centerDelta = Math.abs((lb.y0 + lb.y1 - b.y0 - b.y1) / 2);
+        if (gap < -lh * 0.25 || gap > lh * 3 || centerDelta > Math.max(lh, h) * 0.85) continue;
+        candidates.push({ b, h, label, score: gap / lh + centerDelta / Math.max(lh, h) - (word.confidence ?? 0) / 500 });
+      }
+    }
+    candidates.sort((a, b) => a.score - b.score);
+    if (!candidates.length || (candidates.length > 1 && candidates[1].score - candidates[0].score < 0.35)) return null;
+    const { b, h, label } = candidates[0], sx = scaled.scaleX, sy = scaled.scaleY,
+      lb = label.bbox, labelHeight = Math.max(1, lb.y1 - lb.y0),
+      fieldWidth = Math.max(labelHeight * 12, b.x1 - b.x0 + labelHeight * 4) * sx,
+      fieldHeight = Math.min(image.height, Math.max(labelHeight * 1.8, h * 1.8) * sy),
+      right = Math.min(image.width, lb.x0 * sx - labelHeight * sx * 0.2),
+      x = Math.max(0, right - fieldWidth),
+      y = Math.max(0, Math.min(image.height - fieldHeight, (lb.y0 + lb.y1) * sy / 2 - fieldHeight / 2)),
+      region = { x: x / image.width, y: y / image.height, w: (right - x) / image.width, h: fieldHeight / image.height },
+      amountImage = cropPixels(image, { x, y, w: right - x, h: fieldHeight });
+    if (!amountImage || !isMesoField(amountImage)) return null;
+    return { region, amountImage };
+  }
   function prepareMeso(image, threshold = null) {
     if (!image?.data || !image.width || !image.height) return null;
     const scale = 4, pad = 16, width = image.width * scale + pad * 2,
@@ -978,6 +1046,17 @@ root.MapleHudOcr={recognize,resolveReading,percentageReading};
             result.meso = null;
           }
         }
+        if (input.mesoScanImage) {
+          try {
+            const field = await locateMesoField(input.mesoScanImage, recognize);
+            if (field) {
+              const meso = await readMesoAmount(field.amountImage, recognize);
+              result.meso = meso ? { ...meso, region: field.region } : null;
+            } else result.meso = null;
+          } catch {
+            result.meso = null;
+          }
+        }
         return result;
       });
       queue = task.catch(() => {});
@@ -1024,7 +1103,9 @@ root.MapleHudOcr={recognize,resolveReading,percentageReading};
           await w.setParameters({
             tessedit_pageseg_mode: kind === "meso-scan" ? 11 : 7,
             tessedit_char_whitelist:
-              kind === "level"
+              kind === "meso-scan"
+                ? "0123456789,.MESOS"
+                : kind === "level"
                 ? "LV.0123456789"
                 : kind.startsWith("meso-value")
                     ? "0123456789,"
@@ -1052,7 +1133,7 @@ root.MapleHudOcr={recognize,resolveReading,percentageReading};
     }
     return browserReader.read(input);
   }
-  return { prepare, normalize, choose, parseMeso, prepareMeso, isMesoField, createMesoAnchor, locateMesoAnchor, readMesoAmount, createReader, read };
+  return { prepare, normalize, choose, parseMeso, prepareMeso, isMesoField, scaleMesoScan, locateMesoField, createMesoAnchor, locateMesoAnchor, readMesoAmount, createReader, read };
 });
 </script>
 <!-- LOCAL OCR END -->
@@ -1628,7 +1709,7 @@ return {detect,crop,anchors,percentageRegion};
     const defaults = {
       samples: [],
       mesoSamples: [],
-      mesoStatus: "Open inventory, then select the full white amount field",
+      mesoStatus: "Searching for the inventory balance automatically",
       level: null,
       source: null,
       running: false,
@@ -1699,7 +1780,7 @@ return {detect,crop,anchors,percentageRegion};
     function reset() {
       state.samples = [];
       state.mesoSamples = [];
-      state.mesoStatus = "Open inventory, then select the full white amount field";
+      state.mesoStatus = "Searching for the inventory balance automatically";
       state.level = null;
       state.startAt = now();
       clearPending();
@@ -1720,6 +1801,15 @@ return {detect,crop,anchors,percentageRegion};
     function setMesoStatus(status) {
       state.mesoStatus = status;
       onChange();
+    }
+    function setMesoAnchor(region, anchor) {
+      if (!region || !anchor) return false;
+      state.mesoRegion = region;
+      state.mesoAnchor = anchor;
+      state.mesoStatus = "Inventory balance found · aligning automatically";
+      save();
+      onChange();
+      return true;
     }
     function validate(levelResult, expResult, expectedDigits, readAt) {
       const independent = parseHudReading("", expResult.rawText),
@@ -1823,6 +1913,7 @@ return {detect,crop,anchors,percentageRegion};
       samples,
       addMesoSample,
       setMesoStatus,
+      setMesoAnchor,
       save,
       addSample,
       reset,
@@ -2390,7 +2481,7 @@ return {detect,crop,anchors,percentageRegion};
         l = regions?.level,
         e = regions?.exp;
       q("#regionStatus").textContent =
-        `${automatic ? "Auto regions" : "Custom regions"} · Level ${l ? "ready" : "unset"} · EXP ${e ? "ready" : "unset"} · Meso ${state.mesoAnchor ? "anchored" : state.mesoRegion ? "fixed region" : "unset"}${selecting ? ` · Drag to select ${selecting}${selecting === "meso" ? " the full white amount field" : ""}` : ""}`;
+        `${automatic ? "Auto regions" : "Custom regions"} · Level ${l ? "ready" : "unset"} · EXP ${e ? "ready" : "unset"} · Meso ${state.mesoAnchor ? "aligned" : "automatic scan"}${selecting ? ` · Drag to select ${selecting}${selecting === "meso" ? " the full white amount field (optional override)" : ""}` : ""}`;
       q("#pickLevel")?.classList.toggle("active", selecting === "level");
       q("#pickExp")?.classList.toggle("active", selecting === "exp");
       q("#pickMeso")?.classList.toggle("active", selecting === "meso");
@@ -2655,7 +2746,7 @@ return {detect,crop,anchors,percentageRegion};
             } catch {}
             state.mesoStatus = state.mesoAnchor
               ? "Inventory anchor saved · aligning total automatically"
-              : "Amount area saved · template unavailable, using fixed position";
+              : "Manual amount area saved · automatic inventory scan remains available";
           }
           else state.calibration[selecting] = { x, y, w, h };
         }
@@ -2750,14 +2841,14 @@ return {detect,crop,anchors,percentageRegion};
         const rawTime = Number(timestamp) || Date.now(),
           readAt = rawTime < 1e12 ? rawTime * 1000 : rawTime;
         if (
-          localOcr && frame._pixels && (session.state.mesoAnchor || session.state.mesoRegion) && !mesoReading &&
+          localOcr && frame._pixels && !mesoReading &&
           (!lastMesoReadAt || readAt - lastMesoReadAt >= 60000)
         ) {
           lastMesoReadAt = readAt;
           mesoReading = true;
           const sessionStartAt = session.state.startAt;
           let mesoRegion = session.state.mesoRegion;
-          if (session.state.mesoAnchor) {
+          if (session.state.mesoAnchor && mesoRegion) {
             const match = localOcr.locateMesoAnchor(
               frame._pixels,
               session.state.mesoAnchor,
@@ -2768,22 +2859,29 @@ return {detect,crop,anchors,percentageRegion};
             if (!mesoRegion)
               session.setMesoStatus("Inventory anchor not found · keep the item window visible");
           }
-          if (!mesoRegion) {
-            mesoReading = false;
-          } else {
+          {
+            const input = mesoRegion
+              ? { mesoImage: cropNormalized(frame._pixels, mesoRegion) }
+              : { mesoScanImage: frame._pixels };
             void localOcr
-            .read({ mesoImage: cropNormalized(frame._pixels, mesoRegion) })
+            .read(input)
             .then((mesoResult) => {
               if (
                 session.state.paused ||
                 generation !== getCapture().generation ||
                 sessionStartAt !== session.state.startAt
               ) return;
+              if (mesoResult?.meso?.region && !session.state.mesoAnchor) {
+                const anchor = localOcr.createMesoAnchor?.(frame._pixels, mesoResult.meso.region) || null;
+                session.setMesoAnchor?.(mesoResult.meso.region, anchor);
+              }
               if (mesoResult?.meso)
                 session.addMesoSample(mesoResult.meso.amount, readAt);
               else
                 session.setMesoStatus(
-                  "Meso total unreadable · keep the inventory open and amount unobstructed",
+                  session.state.mesoAnchor
+                    ? "Meso total unreadable · keep the inventory open and amount unobstructed"
+                    : "Searching for the inventory balance · keep the inventory visible",
                 );
             })
             .catch(() => {
@@ -4645,7 +4743,7 @@ return {detect,crop,anchors,percentageRegion};
 <h1>Your session, <em>at a glance.</em></h1><p class="intro">Automatic EXP tracking · updates every 10 seconds</p>
 <div class="grid"><section class="panel"><div class="panel-head"><span class="label">Session overview</span><span class="tag" id="windowLabel">TRAILING 5 MIN</span></div>
 <div class="stats"><div class="stat"><div class="k">EXP / hour</div><div class="v lime" id="rate">—</div><div class="hint" id="rateHint">Waiting for samples</div></div><div class="stat"><div class="k">EXP gained</div><div class="v" id="gained">0</div><div class="hint">this session</div></div><div class="stat"><div class="k">Recent pace</div><div class="v" id="pace">—</div><div class="hint">over last 5 minutes</div></div><div class="stat"><div class="k">Time to next level</div><div class="v lime" id="nextLevelEta">—</div><div class="hint" id="nextLevelEtaHint">Need more data</div></div></div>
-<div class="chart-wrap" style="margin-bottom:24px"><div class="chart-title"><span>Mesos</span><button class="btn" id="setMesoRegion" style="padding:5px 8px">Select amount</button><span id="mesoHint" role="status">Select the full white amount field once; nearby inventory details keep it aligned.</span></div><div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(120px,1fr));gap:10px"><div class="stat" style="min-height:92px"><div class="k">Current total</div><div class="v" id="mesoAmount">—</div></div><div class="stat" style="min-height:92px"><div class="k">Net change</div><div class="v" id="mesoNet">—</div><div class="hint">this session</div></div><div class="stat" style="min-height:92px"><div class="k">Mesos / hour</div><div class="v lime" id="mesoRate">—</div><div class="hint">projected from recent samples</div></div></div></div>
+<div class="chart-wrap" style="margin-bottom:24px"><div class="chart-title"><span>Mesos</span><button class="btn" id="setMesoRegion" style="padding:5px 8px">Adjust manually</button><span id="mesoHint" role="status">The tracker automatically searches for the standard inventory balance. Keep the item window visible.</span></div><div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(120px,1fr));gap:10px"><div class="stat" style="min-height:92px"><div class="k">Current total</div><div class="v" id="mesoAmount">—</div></div><div class="stat" style="min-height:92px"><div class="k">Net change</div><div class="v" id="mesoNet">—</div><div class="hint">this session</div></div><div class="stat" style="min-height:92px"><div class="k">Mesos / hour</div><div class="v lime" id="mesoRate">—</div><div class="hint">projected from recent samples</div></div></div></div>
 <div class="chart-wrap"><div class="chart-title"><span>Experience over time</span><span id="sampleCount">0 samples</span></div><svg class="chart" id="chart" viewBox="0 0 700 170" preserveAspectRatio="none" aria-label="Experience chart"><defs><linearGradient id="fill" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#c7f36b" stop-opacity=".2"/><stop offset="1" stop-color="#c7f36b" stop-opacity="0"/></linearGradient></defs><g id="chartContent"></g></svg></div>
 <div class="chart-wrap capture-debug" style="margin-top:12px;padding:10px"><div class="chart-title" style="margin:0 6px 8px"><span>Latest game capture</span><span id="frameStatus">WAITING FOR SHARING</span></div><div class="calibration-tools"><button id="pickLevel">Select level</button><button id="pickExp">Select EXP readout</button><button id="pickMeso">Select meso amount</button><button id="clearMeso">Clear meso region</button><button id="clearRegions">Reset auto regions</button><span id="regionStatus" class="region-status">Searching for the level tiles and EXP readout once a capture arrives.</span></div><div class="ocr-tools"><button id="readFrame">Read frame</button><label><input type="checkbox" id="autoOcr" checked> Read new frames automatically</label></div><div class="ocr-tools"><button class="btn" id="downloadCurrentFrame" disabled>Download current screenshot</button><label><input type="checkbox" id="debugDownloads" checked> Download screenshots with rejected readings</label></div><p id="debugDownloadStatus" class="subtle" style="font-size:10px">Rejected OCR frames download automatically. Use Download current screenshot to save a frame on demand. Screenshots stay on your device.</p><div id="ocrOutput" class="ocr-output">Waiting for a game capture. Text recognition runs locally in your browser.</div><div class="frame-stage" id="frameStage"><img id="latestFrame" alt="Latest shared game window"><canvas id="frameCanvas"></canvas></div><div id="frameEmpty" class="subtle" style="padding:34px;text-align:center;font-size:11px">Share MapleStory to see a frame here.</div></div>
 <div class="foot"><span id="lastSample">NO CAPTURE YET</span></div></section>

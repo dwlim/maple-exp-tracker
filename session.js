@@ -50,7 +50,7 @@
     const defaults = {
       samples: [],
       mesoSamples: [],
-      mesoStatus: "Open inventory, then select the full white amount field",
+      mesoStatus: "Searching for the inventory balance automatically",
       level: null,
       source: null,
       running: false,
@@ -121,7 +121,7 @@
     function reset() {
       state.samples = [];
       state.mesoSamples = [];
-      state.mesoStatus = "Open inventory, then select the full white amount field";
+      state.mesoStatus = "Searching for the inventory balance automatically";
       state.level = null;
       state.startAt = now();
       clearPending();
@@ -142,6 +142,15 @@
     function setMesoStatus(status) {
       state.mesoStatus = status;
       onChange();
+    }
+    function setMesoAnchor(region, anchor) {
+      if (!region || !anchor) return false;
+      state.mesoRegion = region;
+      state.mesoAnchor = anchor;
+      state.mesoStatus = "Inventory balance found · aligning automatically";
+      save();
+      onChange();
+      return true;
     }
     function validate(levelResult, expResult, expectedDigits, readAt) {
       const independent = parseHudReading("", expResult.rawText),
@@ -245,6 +254,7 @@
       samples,
       addMesoSample,
       setMesoStatus,
+      setMesoAnchor,
       save,
       addSample,
       reset,

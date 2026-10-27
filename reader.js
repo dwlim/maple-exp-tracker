@@ -49,14 +49,14 @@
         const rawTime = Number(timestamp) || Date.now(),
           readAt = rawTime < 1e12 ? rawTime * 1000 : rawTime;
         if (
-          localOcr && frame._pixels && (session.state.mesoAnchor || session.state.mesoRegion) && !mesoReading &&
+          localOcr && frame._pixels && !mesoReading &&
           (!lastMesoReadAt || readAt - lastMesoReadAt >= 60000)
         ) {
           lastMesoReadAt = readAt;
           mesoReading = true;
           const sessionStartAt = session.state.startAt;
           let mesoRegion = session.state.mesoRegion;
-          if (session.state.mesoAnchor) {
+          if (session.state.mesoAnchor && mesoRegion) {
             const match = localOcr.locateMesoAnchor(
               frame._pixels,
               session.state.mesoAnchor,
@@ -67,22 +67,29 @@
             if (!mesoRegion)
               session.setMesoStatus("Inventory anchor not found · keep the item window visible");
           }
-          if (!mesoRegion) {
-            mesoReading = false;
-          } else {
+          {
+            const input = mesoRegion
+              ? { mesoImage: cropNormalized(frame._pixels, mesoRegion) }
+              : { mesoScanImage: frame._pixels };
             void localOcr
-            .read({ mesoImage: cropNormalized(frame._pixels, mesoRegion) })
+            .read(input)
             .then((mesoResult) => {
               if (
                 session.state.paused ||
                 generation !== getCapture().generation ||
                 sessionStartAt !== session.state.startAt
               ) return;
+              if (mesoResult?.meso?.region && !session.state.mesoAnchor) {
+                const anchor = localOcr.createMesoAnchor?.(frame._pixels, mesoResult.meso.region) || null;
+                session.setMesoAnchor?.(mesoResult.meso.region, anchor);
+              }
               if (mesoResult?.meso)
                 session.addMesoSample(mesoResult.meso.amount, readAt);
               else
                 session.setMesoStatus(
-                  "Meso total unreadable · keep the inventory open and amount unobstructed",
+                  session.state.mesoAnchor
+                    ? "Meso total unreadable · keep the inventory open and amount unobstructed"
+                    : "Searching for the inventory balance · keep the inventory visible",
                 );
             })
             .catch(() => {
