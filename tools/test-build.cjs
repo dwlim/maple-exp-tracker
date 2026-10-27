@@ -37,7 +37,7 @@ const browser = {
   ...d.window,
   document: d.document,
   navigator: {},
-  location: { search: "" },
+  location: { search: "", href: "https://example.test/maple-exp-tracker/" },
   localStorage: {
     getItem: (k) => store.get(k) || null,
     setItem: (k, v) => store.set(k, v),
