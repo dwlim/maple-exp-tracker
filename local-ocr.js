@@ -249,7 +249,7 @@
   }
   function createMesoReference(image) {
     if (!image?.data || image.width < 180 || image.height < 28) return null;
-    // Keep the complete balance box for template matching; OCR trims to its glyphs later.
+    // Include the complete white balance box and its thin border in the OCR crop.
     const amount = { x: 22, y: 0, w: 148, h: 19 }, gray = new Uint8Array(image.width * image.height), features = [];
     const grayAt = (x, y) => {
       const i = (y * image.width + x) * 4;
@@ -402,7 +402,7 @@
       w = best.amount.w, h = best.amount.h,
       amountImage = cropPixels(image, { x, y, w, h });
     if (!amountImage) return null;
-    try { onPreview(amountImage, reference.border); } catch {}
+    try { onPreview(amountImage); } catch {}
     if (!isMesoField(amountImage)) return null;
     return {
       region: { x: x / image.width, y: y / image.height, w: w / image.width, h: h / image.height },
@@ -643,10 +643,10 @@
       }
     }
     if (full.features.length < 30) return null;
-    return { version: 4, width, height, amount, features, full, border };
+    return { version: 3, width, height, amount, features, full };
   }
   function locateMesoAnchor(image, anchor, previousRegion = null) {
-    if (!image?.data || anchor?.version !== 4 || !anchor?.features?.length) return null;
+    if (!image?.data || anchor?.version !== 3 || !anchor?.features?.length) return null;
     const full = anchor.full;
     if (previousRegion && full?.features?.length) {
       const scale = (previousRegion.w * image.width) / full.amount.w,
@@ -823,13 +823,11 @@
       scale: best.scale,
     };
   }
-  async function readMesoAmount(image, recognize, textImage = image, onInput = () => {}) {
-    if (!textImage || !isMesoField(image)) return null;
-    const standardInput = prepareMeso(textImage);
-    try { onInput(standardInput); } catch {}
+  async function readMesoAmount(image, recognize) {
+    if (!isMesoField(image)) return null;
     const results = [];
     for (const [threshold, kind] of [[null, "meso-value"], [155, "meso-value-binary"]]) {
-      const pixels = threshold === null ? standardInput : prepareMeso(textImage, threshold),
+      const pixels = prepareMeso(image, threshold),
         reading = await recognize(pixels, kind),
         amount = parseMeso(reading.text);
       if (amount !== null && reading.confidence >= 40)
@@ -1026,12 +1024,9 @@
             };
         }
         if (input.mesoImage) {
-          result.mesoPreview = prepareMeso(input.mesoImage);
+          result.mesoPreview = input.mesoImage;
           try {
-            result.meso = await readMesoAmount(input.mesoImage, recognize, input.mesoImage, (pixels) => {
-              result.mesoPreview = pixels;
-              input.onMesoPreview?.(pixels);
-            });
+            result.meso = await readMesoAmount(input.mesoImage, recognize);
           } catch {
             // Meso reading is independent of level and EXP recognition.
             result.meso = null;
@@ -1041,17 +1036,14 @@
           try {
             let candidatePreview = null;
             const onPreview = (image) => {
-              candidatePreview = prepareMeso(image);
-              try { input.onMesoPreview?.(candidatePreview); } catch {}
+              candidatePreview = image;
+              try { input.onMesoPreview?.(image); } catch {}
             };
             const field = (input.mesoReference && locateMesoReference(input.mesoScanImage, input.mesoReference, onPreview)) ||
               await locateMesoField(input.mesoScanImage, recognize, onPreview);
-            result.mesoPreview = field ? prepareMeso(field.amountImage) : candidatePreview;
+            result.mesoPreview = field?.amountImage || candidatePreview;
             if (field) {
-              const meso = await readMesoAmount(field.amountImage, recognize, field.amountImage, (pixels) => {
-                result.mesoPreview = pixels;
-                input.onMesoPreview?.(pixels);
-              });
+              const meso = await readMesoAmount(field.amountImage, recognize);
               result.meso = meso ? { ...meso, region: field.region, border: field.border } : null;
             } else result.meso = null;
           } catch {

@@ -475,7 +475,7 @@ root.MapleHudOcr={recognize,resolveReading,percentageReading};
   }
   function createMesoReference(image) {
     if (!image?.data || image.width < 180 || image.height < 28) return null;
-    // Keep the complete balance box for template matching; OCR trims to its glyphs later.
+    // Include the complete white balance box and its thin border in the OCR crop.
     const amount = { x: 22, y: 0, w: 148, h: 19 }, gray = new Uint8Array(image.width * image.height), features = [];
     const grayAt = (x, y) => {
       const i = (y * image.width + x) * 4;
@@ -628,7 +628,7 @@ root.MapleHudOcr={recognize,resolveReading,percentageReading};
       w = best.amount.w, h = best.amount.h,
       amountImage = cropPixels(image, { x, y, w, h });
     if (!amountImage) return null;
-    try { onPreview(amountImage, reference.border); } catch {}
+    try { onPreview(amountImage); } catch {}
     if (!isMesoField(amountImage)) return null;
     return {
       region: { x: x / image.width, y: y / image.height, w: w / image.width, h: h / image.height },
@@ -869,10 +869,10 @@ root.MapleHudOcr={recognize,resolveReading,percentageReading};
       }
     }
     if (full.features.length < 30) return null;
-    return { version: 4, width, height, amount, features, full, border };
+    return { version: 3, width, height, amount, features, full };
   }
   function locateMesoAnchor(image, anchor, previousRegion = null) {
-    if (!image?.data || anchor?.version !== 4 || !anchor?.features?.length) return null;
+    if (!image?.data || anchor?.version !== 3 || !anchor?.features?.length) return null;
     const full = anchor.full;
     if (previousRegion && full?.features?.length) {
       const scale = (previousRegion.w * image.width) / full.amount.w,
@@ -1049,13 +1049,11 @@ root.MapleHudOcr={recognize,resolveReading,percentageReading};
       scale: best.scale,
     };
   }
-  async function readMesoAmount(image, recognize, textImage = image, onInput = () => {}) {
-    if (!textImage || !isMesoField(image)) return null;
-    const standardInput = prepareMeso(textImage);
-    try { onInput(standardInput); } catch {}
+  async function readMesoAmount(image, recognize) {
+    if (!isMesoField(image)) return null;
     const results = [];
     for (const [threshold, kind] of [[null, "meso-value"], [155, "meso-value-binary"]]) {
-      const pixels = threshold === null ? standardInput : prepareMeso(textImage, threshold),
+      const pixels = prepareMeso(image, threshold),
         reading = await recognize(pixels, kind),
         amount = parseMeso(reading.text);
       if (amount !== null && reading.confidence >= 40)
@@ -1252,12 +1250,9 @@ root.MapleHudOcr={recognize,resolveReading,percentageReading};
             };
         }
         if (input.mesoImage) {
-          result.mesoPreview = prepareMeso(input.mesoImage);
+          result.mesoPreview = input.mesoImage;
           try {
-            result.meso = await readMesoAmount(input.mesoImage, recognize, input.mesoImage, (pixels) => {
-              result.mesoPreview = pixels;
-              input.onMesoPreview?.(pixels);
-            });
+            result.meso = await readMesoAmount(input.mesoImage, recognize);
           } catch {
             // Meso reading is independent of level and EXP recognition.
             result.meso = null;
@@ -1267,17 +1262,14 @@ root.MapleHudOcr={recognize,resolveReading,percentageReading};
           try {
             let candidatePreview = null;
             const onPreview = (image) => {
-              candidatePreview = prepareMeso(image);
-              try { input.onMesoPreview?.(candidatePreview); } catch {}
+              candidatePreview = image;
+              try { input.onMesoPreview?.(image); } catch {}
             };
             const field = (input.mesoReference && locateMesoReference(input.mesoScanImage, input.mesoReference, onPreview)) ||
               await locateMesoField(input.mesoScanImage, recognize, onPreview);
-            result.mesoPreview = field ? prepareMeso(field.amountImage) : candidatePreview;
+            result.mesoPreview = field?.amountImage || candidatePreview;
             if (field) {
-              const meso = await readMesoAmount(field.amountImage, recognize, field.amountImage, (pixels) => {
-                result.mesoPreview = pixels;
-                input.onMesoPreview?.(pixels);
-              });
+              const meso = await readMesoAmount(field.amountImage, recognize);
               result.meso = meso ? { ...meso, region: field.region, border: field.border } : null;
             } else result.meso = null;
           } catch {
@@ -3139,7 +3131,7 @@ return {detect,crop,anchors,percentageRegion};
           const sessionStartAt = session.state.startAt;
           // Migrate old saved anchors: the amount crop now includes the full
           // white balance box, so its previous coordinates must be rediscovered.
-          if (session.state.mesoAnchor && session.state.mesoAnchor.version !== 4) {
+          if (session.state.mesoAnchor && session.state.mesoAnchor.version !== 3) {
             session.state.mesoAnchor = null;
             session.state.mesoRegion = null;
             session.save();
@@ -3160,7 +3152,9 @@ return {detect,crop,anchors,percentageRegion};
             const input = mesoRegion
               ? { mesoImage: cropNormalized(frame._pixels, mesoRegion) }
               : { mesoScanImage: frame._pixels };
-            if (debug) input.onMesoPreview = onMesoPreview;
+            if (debug && input.mesoImage) onMesoPreview(input.mesoImage);
+            if (debug && input.mesoScanImage)
+              input.onMesoPreview = onMesoPreview;
             const mesoRead = input.mesoScanImage && getMesoReference
               ? getMesoReference().then((mesoReference) => localOcr.read({ ...input, mesoReference }))
               : localOcr.read(input);
@@ -3172,7 +3166,7 @@ return {detect,crop,anchors,percentageRegion};
                 sessionStartAt !== session.state.startAt
               ) return;
               if (debug)
-                onMesoPreview(mesoResult?.mesoPreview || null);
+                onMesoPreview(mesoResult?.mesoPreview || input.mesoImage || null);
               if (mesoResult?.meso?.region && !session.state.mesoAnchor) {
                 const anchor = localOcr.createMesoAnchor?.(
                   frame._pixels,
@@ -5081,7 +5075,7 @@ return {detect,crop,anchors,percentageRegion};
 <div class="stats"><div class="stat"><div class="k">EXP / hour</div><div class="v lime" id="rate">—</div><div class="hint" id="rateHint">Waiting for samples</div></div><div class="stat"><div class="k">EXP gained</div><div class="v" id="gained">0</div><div class="hint">this session</div></div><div class="stat"><div class="k">Recent pace</div><div class="v" id="pace">—</div><div class="hint">over last 5 minutes</div></div><div class="stat"><div class="k">Time to next level</div><div class="v lime" id="nextLevelEta">—</div><div class="hint" id="nextLevelEtaHint">Need more data</div></div></div>
 <div class="chart-wrap" style="margin-bottom:24px"><div class="chart-title"><span>Mesos</span><button class="btn" id="setMesoRegion" style="padding:5px 8px">Adjust manually</button><span id="mesoHint" role="status">The tracker automatically searches for the standard inventory balance. Keep the item window visible.</span></div><div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(120px,1fr));gap:10px"><div class="stat" style="min-height:92px"><div class="k">Current total</div><div class="v" id="mesoAmount">—</div></div><div class="stat" style="min-height:92px"><div class="k">Net change</div><div class="v" id="mesoNet">—</div><div class="hint">this session</div></div><div class="stat" style="min-height:92px"><div class="k">Gross mesos / hour</div><div class="v lime" id="mesoRate">—</div><div class="hint">trailing 5 minutes</div></div><div class="stat" style="min-height:92px"><div class="k">Net after potions / hour</div><div class="v lime" id="netMesoRate">—</div><div class="hint">trailing 5 minutes</div></div></div><div class="chart-title" style="margin:18px 0 10px"><span>Estimated potion costs · trailing 5 minutes</span></div><div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(120px,1fr));gap:10px"><div class="stat" style="min-height:82px"><div class="k">HP potion cost / hour</div><div class="v" id="hpPotionCost">—</div></div><div class="stat" style="min-height:82px"><div class="k">MP potion cost / hour</div><div class="v" id="mpPotionCost">—</div></div><div class="stat" style="min-height:82px"><div class="k">HP + MP potion cost / hour</div><div class="v" id="bothPotionCost">—</div></div></div></div>
 <div class="chart-wrap"><div class="chart-title"><span>Experience over time</span><span id="sampleCount">0 samples</span></div><svg class="chart" id="chart" viewBox="0 0 700 170" preserveAspectRatio="none" aria-label="Experience chart"><defs><linearGradient id="fill" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#c7f36b" stop-opacity=".2"/><stop offset="1" stop-color="#c7f36b" stop-opacity="0"/></linearGradient></defs><g id="chartContent"></g></svg></div>
-<div class="chart-wrap capture-debug" style="margin-top:12px;padding:10px"><div class="chart-title" style="margin:0 6px 8px"><span>Latest game capture</span><span id="frameStatus">WAITING FOR SHARING</span></div><div class="calibration-tools"><button id="pickLevel">Select level</button><button id="pickExp">Select EXP readout</button><button id="pickMeso">Select meso amount</button><button id="clearMeso">Clear meso region</button><button id="clearRegions">Reset auto regions</button><span id="regionStatus" class="region-status">Searching for the level tiles and EXP readout once a capture arrives.</span></div><div class="ocr-tools"><button id="readFrame">Read frame</button><label><input type="checkbox" id="autoOcr" checked> Read new frames automatically</label></div><div class="ocr-tools"><button class="btn" id="downloadCurrentFrame" disabled>Download current screenshot</button><label><input type="checkbox" id="debugDownloads" checked> Download screenshots with rejected readings</label></div><p id="debugDownloadStatus" class="subtle" style="font-size:10px">Rejected OCR frames download automatically. Use Download current screenshot to save a frame on demand. Screenshots stay on your device.</p><div id="ocrOutput" class="ocr-output">Waiting for a game capture. Text recognition runs locally in your browser.</div><div class="crop-preview-grid" id="cropPreviewGrid"><div><label>LEVEL OCR INPUT</label><img id="levelCropPreview" alt="Exact level crop used by OCR"><small id="levelCropPreviewStatus">Waiting for a crop</small></div><div><label>EXP OCR INPUT</label><img id="expCropPreview" alt="Exact EXP crop used by OCR"><small id="expCropPreviewStatus">Waiting for a crop</small></div><div><label>MESO OCR INPUT · GRAYSCALE</label><img id="mesoCropPreview" alt="Preprocessed meso image passed to OCR"><small id="mesoCropPreviewStatus">Waiting for a crop</small></div></div><div class="frame-stage" id="frameStage"><img id="latestFrame" alt="Latest shared game window"><canvas id="frameCanvas"></canvas></div><div id="frameEmpty" class="subtle" style="padding:34px;text-align:center;font-size:11px">Share MapleStory to see a frame here.</div></div>
+<div class="chart-wrap capture-debug" style="margin-top:12px;padding:10px"><div class="chart-title" style="margin:0 6px 8px"><span>Latest game capture</span><span id="frameStatus">WAITING FOR SHARING</span></div><div class="calibration-tools"><button id="pickLevel">Select level</button><button id="pickExp">Select EXP readout</button><button id="pickMeso">Select meso amount</button><button id="clearMeso">Clear meso region</button><button id="clearRegions">Reset auto regions</button><span id="regionStatus" class="region-status">Searching for the level tiles and EXP readout once a capture arrives.</span></div><div class="ocr-tools"><button id="readFrame">Read frame</button><label><input type="checkbox" id="autoOcr" checked> Read new frames automatically</label></div><div class="ocr-tools"><button class="btn" id="downloadCurrentFrame" disabled>Download current screenshot</button><label><input type="checkbox" id="debugDownloads" checked> Download screenshots with rejected readings</label></div><p id="debugDownloadStatus" class="subtle" style="font-size:10px">Rejected OCR frames download automatically. Use Download current screenshot to save a frame on demand. Screenshots stay on your device.</p><div id="ocrOutput" class="ocr-output">Waiting for a game capture. Text recognition runs locally in your browser.</div><div class="crop-preview-grid" id="cropPreviewGrid"><div><label>LEVEL OCR INPUT</label><img id="levelCropPreview" alt="Exact level crop used by OCR"><small id="levelCropPreviewStatus">Waiting for a crop</small></div><div><label>EXP OCR INPUT</label><img id="expCropPreview" alt="Exact EXP crop used by OCR"><small id="expCropPreviewStatus">Waiting for a crop</small></div><div><label>MESO AMOUNT INPUT</label><img id="mesoCropPreview" alt="Exact meso amount crop used by OCR"><small id="mesoCropPreviewStatus">Waiting for a crop</small></div></div><div class="frame-stage" id="frameStage"><img id="latestFrame" alt="Latest shared game window"><canvas id="frameCanvas"></canvas></div><div id="frameEmpty" class="subtle" style="padding:34px;text-align:center;font-size:11px">Share MapleStory to see a frame here.</div></div>
 <div class="foot"><span id="lastSample">NO CAPTURE YET</span></div></section>
 <div class="right-col"><section class="panel level-card"><div class="panel-head"><span class="label">Current character</span><span class="tag">MAPLE CLASSIC</span></div><div class="level-row"><div><div class="level-name">LEVEL</div><div class="level-num" id="level">—</div></div><div class="level-name" id="classLabel">AWAITING CAPTURE</div></div><div class="progress"><span id="progressFill" style="width:0%"></span></div><div class="progress-meta"><span id="percent">0.00% to next level</span><span id="remaining">— EXP TO GO</span></div><div class="eta"><div><span>Estimated level up</span><br><b id="eta">—</b></div><span id="etaNote">Need more data</span></div></section>
 <section class="panel setup"><div class="panel-head"><span class="label">Tracking</span><span class="tag">10 SEC INTERVAL</span></div><div class="setup-step"><div class="num">01</div><div class="step-body"><b>Share MapleStory</b><p>Click Share game window and choose MapleStory in the browser picker. Keep this dashboard open while playing. Use Stop sharing to disconnect.</p></div></div><div class="setup-step"><div class="num">02</div><div class="step-body"><b>Calibrate the readout</b><p>On a captured frame, select the Level number and the EXP value with its percentage. The selection is saved relative to the frame size.</p></div></div><p role="note" style="font-size:11px;line-height:1.6;margin:0 0 14px;padding:10px 12px;border-left:3px solid var(--lime);border-radius:6px;background:var(--panel2)"><b style="color:var(--lime)">Recommended:</b> Use <b>Ideal</b> HUD scaling in MapleStory for the most reliable recognition.</p><div class="capture-actions" style="display:flex;gap:10px;flex-wrap:wrap;margin-bottom:14px"><button class="btn" id="shareGameBtn" style="background:var(--lime);color:#171a11;font-weight:800">Share game window</button><button class="btn hidden" id="stopSharingBtn">Stop sharing</button><button class="btn hidden" id="pauseSessionBtn" aria-pressed="false">Pause session</button><button class="btn" id="newSessionBtn">New session</button><button class="btn" id="streamCardBtn">Open stream card</button></div><p class="subtle" style="font-size:11px">For a live overlay, open the stream card and add its browser window as a Window Capture source in your streaming software. Keep the main tracker and card open in the same browser profile.</p><p class="subtle" style="font-size:11px">Choose the MapleStory window. Screenshots are processed locally; no audio is captured.</p><video id="sharePreview" muted playsinline class="hidden" style="width:100%;max-height:160px;object-fit:contain;border-radius:8px;margin-bottom:12px"></video><p id="trackingStatus" class="tracking-summary" role="status" aria-live="polite">Share your game window to start tracking.</p><div class="source"><span>Capture connection</span><b id="sourceState">CHECKING…</b></div><div class="btn-row"><button class="btn" id="sampleBtn">Add sample</button></div><div class="notice" id="notice"></div><div class="log"><div class="log-head"><span class="label">Recent captures</span><button class="btn" id="manualBtn" style="padding:5px 8px">Manual entry</button></div><div class="log-list" id="logList"><div class="log-item"><span>—</span><b>No captures yet</b><span>—</span></div></div></div></section></div></div>
