@@ -250,7 +250,7 @@
   function createMesoReference(image) {
     if (!image?.data || image.width < 180 || image.height < 28) return null;
     // Include the complete white balance box and its thin border in the OCR crop.
-    const amount = { x: 22, y: 4, w: 148, h: 15 }, gray = new Uint8Array(image.width * image.height), features = [];
+    const amount = { x: 22, y: 0, w: 148, h: 19 }, gray = new Uint8Array(image.width * image.height), features = [];
     const grayAt = (x, y) => {
       const i = (y * image.width + x) * 4;
       return Math.round(image.data[i] * 0.299 + image.data[i + 1] * 0.587 + image.data[i + 2] * 0.114);
@@ -259,14 +259,19 @@
       for (let x = 0; x < image.width; x++) gray[y * image.width + x] = grayAt(x, y);
     for (let y = 1; y < image.height - 1; y += 2)
       for (let x = 1; x < image.width - 1; x += 2) {
-        if (x >= amount.x + 2 && x < amount.x + amount.w - 2 && y >= amount.y + 1 && y < amount.y + amount.h - 1) continue;
+        // Keep the fixed black outline as alignment evidence, but mask the
+        // variable digits inside it.
+        if (x >= amount.x + 4 && x < amount.x + amount.w - 4 && y >= amount.y + 4 && y < amount.y + amount.h - 4) continue;
         const value = grayAt(x, y), edge = Math.max(
           Math.abs(value - grayAt(x - 1, y)), Math.abs(value - grayAt(x + 1, y)),
           Math.abs(value - grayAt(x, y - 1)), Math.abs(value - grayAt(x, y + 1)),
         );
         if (edge >= 9) features.push([x, y, value]);
       }
-    return features.length >= 50 ? { width: image.width, height: image.height, amount, gray, features } : null;
+    return features.length >= 50 ? {
+      width: image.width, height: image.height, amount, gray, features,
+      border: { x: 2 / amount.w, y: 2 / amount.h, w: 145 / amount.w, h: 16 / amount.h },
+    } : null;
   }
   function scaleMesoReference(reference, scale) {
     const width = Math.max(1, Math.round(reference.width * scale)), height = Math.max(1, Math.round(reference.height * scale)),
@@ -399,7 +404,10 @@
     if (!amountImage) return null;
     try { onPreview(amountImage); } catch {}
     if (!isMesoField(amountImage)) return null;
-    return { region: { x: x / image.width, y: y / image.height, w: w / image.width, h: h / image.height }, amountImage, score: best.score };
+    return {
+      region: { x: x / image.width, y: y / image.height, w: w / image.width, h: h / image.height },
+      amountImage, score: best.score, border: reference.border,
+    };
   }
   function loadMesoReference(document, url) {
     return new Promise((resolve) => {
@@ -508,7 +516,7 @@
       }
     return { gray, width, height, sx, sy };
   }
-  function createMesoAnchor(image, region) {
+  function createMesoAnchor(image, region, border = null) {
     if (!image?.data || !region) return null;
     const reduced = reducedGray(image),
       ax = Math.max(0, Math.round(region.x * reduced.width)),
@@ -558,6 +566,20 @@
       add(amount.x, y);
       add(amount.x + amount.w - 1, y);
     }
+    if (border) {
+      const bx = ax + Math.round(border.x * aw),
+        by = ay + Math.round(border.y * ah),
+        bw = Math.max(2, Math.round(border.w * aw)),
+        bh = Math.max(2, Math.round(border.h * ah));
+      for (let x = bx; x < bx + bw; x += 2) {
+        add(x, by);
+        add(x, by + bh - 1);
+      }
+      for (let y = by; y < by + bh; y += 2) {
+        add(bx, y);
+        add(bx + bw - 1, y);
+      }
+    }
     if (features.length < 30) return null;
     const sourceAx = Math.max(0, Math.round(region.x * image.width)),
       sourceAy = Math.max(0, Math.round(region.y * image.height)),
@@ -606,11 +628,25 @@
       fullAdd(x, full.amount.y - 1);
       fullAdd(x, full.amount.y + full.amount.h);
     }
+    if (border) {
+      const bx = full.amount.x + Math.round(border.x * full.amount.w),
+        by = full.amount.y + Math.round(border.y * full.amount.h),
+        bw = Math.max(2, Math.round(border.w * full.amount.w)),
+        bh = Math.max(2, Math.round(border.h * full.amount.h));
+      for (let x = bx; x < bx + bw; x += 2) {
+        fullAdd(x, by);
+        fullAdd(x, by + bh - 1);
+      }
+      for (let y = by; y < by + bh; y += 2) {
+        fullAdd(bx, y);
+        fullAdd(bx + bw - 1, y);
+      }
+    }
     if (full.features.length < 30) return null;
-    return { version: 2, width, height, amount, features, full };
+    return { version: 3, width, height, amount, features, full };
   }
   function locateMesoAnchor(image, anchor, previousRegion = null) {
-    if (!image?.data || anchor?.version !== 2 || !anchor?.features?.length) return null;
+    if (!image?.data || anchor?.version !== 3 || !anchor?.features?.length) return null;
     const full = anchor.full;
     if (previousRegion && full?.features?.length) {
       const scale = (previousRegion.w * image.width) / full.amount.w,
@@ -1008,7 +1044,7 @@
             result.mesoPreview = field?.amountImage || candidatePreview;
             if (field) {
               const meso = await readMesoAmount(field.amountImage, recognize);
-              result.meso = meso ? { ...meso, region: field.region } : null;
+              result.meso = meso ? { ...meso, region: field.region, border: field.border } : null;
             } else result.meso = null;
           } catch {
             result.meso = null;
