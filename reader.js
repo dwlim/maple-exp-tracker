@@ -27,6 +27,7 @@
     debugTools,
     getCapture,
     localOcr,
+    getMesoReference,
     debug = false,
   }) {
     let busy = false,
@@ -72,7 +73,9 @@
               ? { mesoImage: cropNormalized(frame._pixels, mesoRegion) }
               : { mesoScanImage: frame._pixels };
             void localOcr
-            .read(input)
+            .read(input.mesoScanImage && getMesoReference
+              ? getMesoReference().then((mesoReference) => localOcr.read({ ...input, mesoReference }))
+              : localOcr.read(input))
             .then((mesoResult) => {
               if (
                 session.state.paused ||

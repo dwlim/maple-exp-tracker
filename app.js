@@ -61,6 +61,10 @@
         });
         return { dispose() {} };
       }
+      const mesoReference = localOcr?.loadMesoReference?.(
+        document,
+        new URL("assets/meso-balance-reference.png", location.href).href,
+      ) || Promise.resolve(null);
       let view, capture;
       const session = Session.create({
         storage,
@@ -107,6 +111,7 @@
         debugTools,
         getCapture: () => capture,
         localOcr,
+        getMesoReference: () => mesoReference,
         debug,
       });
       const items = Quickslots.mount({

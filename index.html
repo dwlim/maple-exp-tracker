@@ -472,6 +472,97 @@ root.MapleHudOcr={recognize,resolveReading,percentageReading};
       data.set(image.data.subarray(((y + y0) * image.width + x0) * 4, ((y + y0) * image.width + x1) * 4), y * width * 4);
     return { width, height, data };
   }
+  function createMesoReference(image) {
+    if (!image?.data || image.width < 180 || image.height < 28) return null;
+    const amount = { x: 24, y: 6, w: 145, h: 11 }, features = [];
+    const grayAt = (x, y) => {
+      const i = (y * image.width + x) * 4;
+      return Math.round(image.data[i] * 0.299 + image.data[i + 1] * 0.587 + image.data[i + 2] * 0.114);
+    };
+    for (let y = 1; y < image.height - 1; y += 2)
+      for (let x = 1; x < image.width - 1; x += 2) {
+        if (x >= amount.x + 2 && x < amount.x + amount.w - 2 && y >= amount.y + 1 && y < amount.y + amount.h - 1) continue;
+        const value = grayAt(x, y), edge = Math.max(
+          Math.abs(value - grayAt(x - 1, y)), Math.abs(value - grayAt(x + 1, y)),
+          Math.abs(value - grayAt(x, y - 1)), Math.abs(value - grayAt(x, y + 1)),
+        );
+        if (edge >= 9) features.push([x, y, value]);
+      }
+    return features.length >= 50 ? { width: image.width, height: image.height, amount, features } : null;
+  }
+  function locateMesoReference(image, reference) {
+    if (!image?.data || !reference?.features?.length) return null;
+    const target = reducedGray(image), scales = [0.14, 0.17, 0.2, 0.24, 0.29, 0.35, 0.42, 0.5, 0.62, 0.76, 0.92, 1.1, 1.3, 1.5],
+      coarseFeatures = reference.features.filter((_, i) => i % Math.max(1, Math.ceil(reference.features.length / 72)) === 0),
+      candidates = [], addCandidate = (candidate) => {
+        const duplicate = candidates.findIndex((prior) =>
+          Math.abs(candidate.cx - prior.cx) < Math.min(candidate.w, prior.w) * 0.38 &&
+          Math.abs(candidate.cy - prior.cy) < Math.min(candidate.h, prior.h) * 0.8,
+        );
+        if (duplicate >= 0) {
+          if (candidate.score < candidates[duplicate].score) candidates[duplicate] = candidate;
+        } else candidates.push(candidate);
+        candidates.sort((a, b) => a.score - b.score);
+        if (candidates.length > 10) candidates.length = 10;
+      };
+    for (const scale of scales) {
+      const width = Math.round(reference.width * scale), height = Math.round(reference.height * scale);
+      if (width < 24 || height < 4 || width >= target.width || height >= target.height) continue;
+      const points = coarseFeatures.map(([x, y, value]) => [Math.round(x * scale), Math.round(y * scale), value]);
+      for (let y = 0; y + height < target.height; y += 3)
+        for (let x = 0; x + width < target.width; x += 3) {
+          let error = 0, cutoff = (candidates.at(-1)?.score ?? 29) * points.length, stopped = false;
+          for (const [fx, fy, value] of points) {
+            error += Math.abs(target.gray[(y + fy) * target.width + x + fx] - value);
+            if (error > cutoff) { stopped = true; break; }
+          }
+          if (!stopped) addCandidate({ x, y, scale, width, height, cx: x + width / 2, cy: y + height / 2, score: error / points.length });
+        }
+    }
+    if (!candidates.length) return null;
+    let best = null, second = null;
+    for (const candidate of candidates) {
+      const features = reference.features.map(([x, y, value]) => [Math.round(x * candidate.scale), Math.round(y * candidate.scale), value]);
+      for (let dy = -2; dy <= 2; dy++) for (let dx = -2; dx <= 2; dx++) {
+        const x = candidate.x + dx, y = candidate.y + dy;
+        if (x < 0 || y < 0 || x + candidate.width >= target.width || y + candidate.height >= target.height) continue;
+        let error = 0;
+        for (const [fx, fy, value] of features) error += Math.abs(target.gray[(y + fy) * target.width + x + fx] - value);
+        const found = { ...candidate, x, y, cx: x + candidate.width / 2, cy: y + candidate.height / 2, score: error / features.length };
+        if (!best || found.score < best.score) {
+          if (best && (Math.abs(found.cx - best.cx) > Math.min(found.width, best.width) * 0.5 || Math.abs(found.cy - best.cy) > Math.max(found.height, best.height))) second = best;
+          best = found;
+        } else if ((Math.abs(found.cx - best.cx) > Math.min(found.width, best.width) * 0.5 || Math.abs(found.cy - best.cy) > Math.max(found.height, best.height)) && (!second || found.score < second.score)) second = found;
+      }
+    }
+    if (!best || best.score > 24 || (second && second.score - best.score < 2)) return null;
+    const sx = image.width / target.width, sy = image.height / target.height,
+      x = (best.x + reference.amount.x * best.scale) * sx,
+      y = (best.y + reference.amount.y * best.scale) * sy,
+      w = reference.amount.w * best.scale * sx,
+      h = reference.amount.h * best.scale * sy,
+      amountImage = cropPixels(image, { x, y, w, h });
+    if (!amountImage || !isMesoField(amountImage)) return null;
+    return { region: { x: x / image.width, y: y / image.height, w: w / image.width, h: h / image.height }, amountImage, score: best.score };
+  }
+  function loadMesoReference(document, url) {
+    return new Promise((resolve) => {
+      const image = document.createElement("img");
+      image.onload = () => {
+        try {
+          const canvas = document.createElement("canvas");
+          canvas.width = image.naturalWidth; canvas.height = image.naturalHeight;
+          const context = canvas.getContext("2d", { willReadFrequently: true });
+          context.drawImage(image, 0, 0);
+          const reference = createMesoReference(context.getImageData(0, 0, canvas.width, canvas.height));
+          canvas.width = 0; canvas.height = 0;
+          resolve(reference);
+        } catch { resolve(null); }
+      };
+      image.onerror = () => resolve(null);
+      image.src = url;
+    });
+  }
   async function locateMesoField(image, recognize) {
     const scaled = scaleMesoScan(image);
     if (!scaled) return null;
@@ -1048,7 +1139,8 @@ root.MapleHudOcr={recognize,resolveReading,percentageReading};
         }
         if (input.mesoScanImage) {
           try {
-            const field = await locateMesoField(input.mesoScanImage, recognize);
+            const field = (input.mesoReference && locateMesoReference(input.mesoScanImage, input.mesoReference)) ||
+              await locateMesoField(input.mesoScanImage, recognize);
             if (field) {
               const meso = await readMesoAmount(field.amountImage, recognize);
               result.meso = meso ? { ...meso, region: field.region } : null;
@@ -1133,7 +1225,7 @@ root.MapleHudOcr={recognize,resolveReading,percentageReading};
     }
     return browserReader.read(input);
   }
-  return { prepare, normalize, choose, parseMeso, prepareMeso, isMesoField, scaleMesoScan, locateMesoField, createMesoAnchor, locateMesoAnchor, readMesoAmount, createReader, read };
+  return { prepare, normalize, choose, parseMeso, prepareMeso, isMesoField, scaleMesoScan, createMesoReference, locateMesoReference, loadMesoReference, locateMesoField, createMesoAnchor, locateMesoAnchor, readMesoAmount, createReader, read };
 });
 </script>
 <!-- LOCAL OCR END -->
@@ -2819,6 +2911,7 @@ return {detect,crop,anchors,percentageRegion};
     debugTools,
     getCapture,
     localOcr,
+    getMesoReference,
     debug = false,
   }) {
     let busy = false,
@@ -2864,7 +2957,9 @@ return {detect,crop,anchors,percentageRegion};
               ? { mesoImage: cropNormalized(frame._pixels, mesoRegion) }
               : { mesoScanImage: frame._pixels };
             void localOcr
-            .read(input)
+            .read(input.mesoScanImage && getMesoReference
+              ? getMesoReference().then((mesoReference) => localOcr.read({ ...input, mesoReference }))
+              : localOcr.read(input))
             .then((mesoResult) => {
               if (
                 session.state.paused ||
@@ -4589,6 +4684,10 @@ return {detect,crop,anchors,percentageRegion};
         });
         return { dispose() {} };
       }
+      const mesoReference = localOcr?.loadMesoReference?.(
+        document,
+        new URL("assets/meso-balance-reference.png", location.href).href,
+      ) || Promise.resolve(null);
       let view, capture;
       const session = Session.create({
         storage,
@@ -4635,6 +4734,7 @@ return {detect,crop,anchors,percentageRegion};
         debugTools,
         getCapture: () => capture,
         localOcr,
+        getMesoReference: () => mesoReference,
         debug,
       });
       const items = Quickslots.mount({
