@@ -96,7 +96,7 @@ assert.deepEqual(
   assert.equal((await reader.read(frame, 1700000000000)).accepted, true);
   await new Promise((resolve) => setImmediate(resolve));
   assert.equal(state.mesoSamples[0].amount, 1132963);
-  assert.equal((await reader.read(frame, 1700000061000)).accepted, true);
+  assert.equal((await reader.read(frame, 1700000010000)).accepted, true);
   await new Promise((resolve) => setImmediate(resolve));
   assert.equal(state.mesoStatus, "Meso read unavailable · EXP tracking continues");
 

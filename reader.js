@@ -51,7 +51,7 @@
           readAt = rawTime < 1e12 ? rawTime * 1000 : rawTime;
         if (
           localOcr && frame._pixels && !mesoReading &&
-          (!lastMesoReadAt || readAt - lastMesoReadAt >= 60000)
+          (!lastMesoReadAt || readAt - lastMesoReadAt >= 10000)
         ) {
           lastMesoReadAt = readAt;
           mesoReading = true;
