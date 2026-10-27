@@ -852,12 +852,14 @@
       scale: best.scale,
     };
   }
-  async function readMesoAmount(image, recognize, textImage = cropMesoText(image)) {
-    if (!isMesoField(image)) return null;
+  async function readMesoAmount(image, recognize, textImage = cropMesoText(image), onInput = () => {}) {
     if (!textImage) return null;
+    const standardInput = prepareMeso(textImage);
+    try { onInput(standardInput); } catch {}
+    if (!isMesoField(image)) return null;
     const results = [];
     for (const [threshold, kind] of [[null, "meso-value"], [155, "meso-value-binary"]]) {
-      const pixels = prepareMeso(textImage, threshold),
+      const pixels = threshold === null ? standardInput : prepareMeso(textImage, threshold),
         reading = await recognize(pixels, kind),
         amount = parseMeso(reading.text);
       if (amount !== null && reading.confidence >= 40)
@@ -1055,10 +1057,12 @@
         }
         if (input.mesoImage) {
           const textImage = cropMesoText(input.mesoImage, input.mesoBorder || null);
-          result.mesoPreview = textImage || input.mesoImage;
-          try { input.onMesoPreview?.(result.mesoPreview); } catch {}
+          result.mesoPreview = textImage ? prepareMeso(textImage) : null;
           try {
-            result.meso = await readMesoAmount(input.mesoImage, recognize, textImage);
+            result.meso = await readMesoAmount(input.mesoImage, recognize, textImage, (pixels) => {
+              result.mesoPreview = pixels;
+              input.onMesoPreview?.(pixels);
+            });
           } catch {
             // Meso reading is independent of level and EXP recognition.
             result.meso = null;
@@ -1074,9 +1078,12 @@
             const field = (input.mesoReference && locateMesoReference(input.mesoScanImage, input.mesoReference, onPreview)) ||
               await locateMesoField(input.mesoScanImage, recognize, onPreview);
             const textImage = field && cropMesoText(field.amountImage, field.border);
-            result.mesoPreview = textImage || candidatePreview || field?.amountImage || null;
+            result.mesoPreview = textImage ? prepareMeso(textImage) : candidatePreview || field?.amountImage || null;
             if (field) {
-              const meso = await readMesoAmount(field.amountImage, recognize, textImage);
+              const meso = await readMesoAmount(field.amountImage, recognize, textImage, (pixels) => {
+                result.mesoPreview = pixels;
+                input.onMesoPreview?.(pixels);
+              });
               result.meso = meso ? { ...meso, region: field.region, border: field.border } : null;
             } else result.meso = null;
           } catch {

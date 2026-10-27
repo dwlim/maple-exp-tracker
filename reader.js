@@ -95,7 +95,7 @@
                 sessionStartAt !== session.state.startAt
               ) return;
               if (debug)
-                onMesoPreview(mesoResult?.mesoPreview || input.mesoImage || null);
+                onMesoPreview(mesoResult?.mesoPreview || null);
               if (mesoResult?.meso?.region && !session.state.mesoAnchor) {
                 const anchor = localOcr.createMesoAnchor?.(
                   frame._pixels,
