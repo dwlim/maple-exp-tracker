@@ -479,6 +479,33 @@
       }
     return { width, height, data };
   }
+  function mesoAdaptiveThreshold(image) {
+    const histogram = new Uint32Array(256), count = image?.width * image?.height;
+    if (!image?.data || !count) return 155;
+    for (let i = 0; i < image.data.length; i += 4) {
+      const gray = Math.max(0, Math.min(255, Math.round(
+        image.data[i] * 0.299 + image.data[i + 1] * 0.587 + image.data[i + 2] * 0.114,
+      )));
+      histogram[gray]++;
+    }
+    let total = 0;
+    for (let value = 0; value < 256; value++) total += value * histogram[value];
+    let backgroundWeight = 0, backgroundSum = 0, bestVariance = -1, threshold = 155;
+    for (let value = 0; value < 256; value++) {
+      backgroundWeight += histogram[value];
+      if (!backgroundWeight) continue;
+      const foregroundWeight = count - backgroundWeight;
+      if (!foregroundWeight) break;
+      backgroundSum += value * histogram[value];
+      const difference = backgroundSum / backgroundWeight - (total - backgroundSum) / foregroundWeight,
+        variance = backgroundWeight * foregroundWeight * difference * difference;
+      if (variance > bestVariance) {
+        bestVariance = variance;
+        threshold = value;
+      }
+    }
+    return Math.max(96, Math.min(210, threshold));
+  }
   function isMesoField(image) {
     let light = 0,
       ink = 0;
@@ -833,8 +860,21 @@
       if (amount !== null && reading.confidence >= 40)
         results.push({ amount, confidence: reading.confidence });
     }
-    return results.length === 2 && results[0].amount === results[1].amount
-      ? { amount: results[0].amount, confidence: Math.round(Math.min(results[0].confidence, results[1].confidence)) }
+    if (results.length === 2 && results[0].amount === results[1].amount)
+      return { amount: results[0].amount, confidence: Math.round(Math.min(results[0].confidence, results[1].confidence)) };
+    const adaptive = await recognize(prepareMeso(image, mesoAdaptiveThreshold(image)), "meso-value-adaptive"),
+      adaptiveAmount = parseMeso(adaptive.text);
+    if (adaptiveAmount !== null && adaptive.confidence >= 40)
+      results.push({ amount: adaptiveAmount, confidence: adaptive.confidence });
+    const votes = new Map();
+    for (const result of results) {
+      const group = votes.get(result.amount) || [];
+      group.push(result.confidence);
+      votes.set(result.amount, group);
+    }
+    const winner = [...votes.entries()].filter(([, confidences]) => confidences.length >= 2);
+    return winner.length === 1
+      ? { amount: winner[0][0], confidence: Math.round(Math.min(...winner[0][1])) }
       : null;
   }
   function choose(readings, kind, native) {
@@ -1102,7 +1142,7 @@
                 : kind === "level"
                 ? "LV.0123456789"
                 : kind.startsWith("meso-value")
-                    ? "0123456789,"
+                    ? "0123456789,."
                     : "0123456789.[]% ",
           });
           configuredWorker = w;

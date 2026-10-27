@@ -1,8 +1,13 @@
 const assert = require("node:assert/strict"),
+  fs = require("node:fs"),
+  path = require("node:path"),
+  { PNG } = require("pngjs"),
+  Tesseract = require("tesseract.js"),
   Ocr = require("../local-ocr"),
   Reader = require("../reader");
 
 assert.equal(Ocr.parseMeso("1,180,795"), 1180795);
+assert.equal(Ocr.parseMeso("1.180.795"), 1180795);
 assert.equal(Ocr.parseMeso("1180795"), 1180795);
 assert.equal(Ocr.parseMeso("1,18,795"), null);
 assert.equal(Ocr.parseMeso("3"), 3);
@@ -39,16 +44,41 @@ assert.deepEqual(
   assert.deepEqual(result, { amount: 1132963, confidence: 88 });
   assert.deepEqual(kinds, ["meso-value", "meso-value-binary"]);
 
-  const mismatch = await Ocr.readMesoAmount(image, async (_pixels, kind) => ({
-    text: kind.endsWith("binary") ? "1,132,968" : "1,132,963",
+  const conflicting = await Ocr.readMesoAmount(image, async (_pixels, kind) => ({
+    text: kind === "meso-value" ? "1,132,963" : kind === "meso-value-binary" ? "1,132,968" : "1,132,969",
     confidence: 95,
   }));
-  assert.equal(mismatch, null, "different preprocessing results must not be saved");
+  assert.equal(conflicting, null, "three conflicting preprocessing results must remain unreadable");
+  const recovered = await Ocr.readMesoAmount(image, async (_pixels, kind) => ({
+    text: kind === "meso-value-binary" ? "1,132,968" : "1,132,963",
+    confidence: kind === "meso-value-adaptive" ? 91 : 95,
+  }));
+  assert.deepEqual(recovered, { amount: 1132963, confidence: 91 }, "adaptive pass can resolve one differing pass by 2-of-3 agreement");
   const lowConfidence = await Ocr.readMesoAmount(image, async () => ({
     text: "1,132,963",
     confidence: 39,
   }));
   assert.equal(lowConfidence, null);
+
+  const sample = PNG.sync.read(fs.readFileSync(path.join(__dirname, "fixtures/meso-clear-1135117.png"))),
+    worker = await Tesseract.createWorker("eng", 1, {
+      corePath: path.resolve(__dirname, "../assets/ocr"),
+      langPath: path.resolve(__dirname, "../assets/ocr"),
+      gzip: true,
+    });
+  const actual = await Ocr.readMesoAmount(sample, async (pixels) => {
+    await worker.setParameters({
+      tessedit_pageseg_mode: 7,
+      tessedit_char_whitelist: "0123456789,.",
+    });
+    const input = new PNG({ width: pixels.width, height: pixels.height });
+    input.data = Buffer.from(pixels.data);
+    const { data } = await worker.recognize(PNG.sync.write(input));
+    return { text: data.text, confidence: data.confidence };
+  });
+  await worker.terminate();
+  assert.equal(actual?.amount, 1135117, "captured balance-box fixture should read 1,135,117 using bundled Tesseract");
+  assert.ok(actual.confidence >= 40);
 
   let mesoReads = 0;
   const capture = { generation: 1, stream: {} },
@@ -125,5 +155,5 @@ assert.deepEqual(
   await new Promise((resolve) => setImmediate(resolve));
   assert.equal(scanInputs.length, 1, "reference loading must invoke OCR once");
   assert.deepEqual(scanInputs[0].mesoReference, { features: ["loaded-reference"] });
-  console.log("Meso OCR: grouped amounts, scaled crop preprocessing, confidence and exact agreement passed.");
+  console.log("Meso OCR: grouped amounts, bundled Tesseract fixture, confidence and adaptive consensus passed.");
 })();
