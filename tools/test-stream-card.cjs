@@ -221,7 +221,9 @@ require("../app").mount({
 assert.equal(writes, 0);
 assert.equal(q("#cardLevel").textContent, "32");
 assert.equal(q("#cardRate").textContent, "60,000");
-assert.match(q(".app").innerHTML, /<div class="stream-meso-line"><span>NET MESOS \/ HOUR · 5M<\/span>/);
+assert.match(q(".app").innerHTML, /<div class="stream-metrics-line">/);
+for (const id of ["cardHpCost", "cardMpCost", "cardMesoRate", "cardNetMesoRate"])
+  assert.ok(q(".app").innerHTML.includes(`id="${id}"`));
 assert.doesNotMatch(q(".app").innerHTML, /MESO BALANCE|HP COST \/ HOUR|GROSS MESOS \/ HOUR/);
 assert.equal(intervals[0].ms, 5000);
 stored = JSON.stringify({ ...state, samples: [], level: 56, running: false });

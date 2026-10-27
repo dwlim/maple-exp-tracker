@@ -161,7 +161,7 @@
     document.title = "Maple Track · Stream card";
     document.body.classList.add("stream-card");
     document.querySelector(".app").innerHTML =
-      '<section class="stream-panel" aria-label="Maple Track live stream card"><header><span>MAPLE TRACK</span><span id="cardStatus">CONNECTING</span></header><div class="stream-values"><div><span>LEVEL</span><strong id="cardLevel">—</strong></div><div><span>EXP / HOUR</span><strong id="cardRate">—</strong></div></div><div class="stream-progress"><i id="cardFill"></i></div><footer><span id="cardPercent">0.00%</span><span id="cardEta">Waiting for EXP</span></footer><div class="stream-meso-line"><span>NET MESOS / HOUR · 5M</span><strong id="cardNetMesoRate">—</strong></div><div class="stream-chart"><div class="stream-chart-label"><span>EXP / 30 SEC · LAST 5 MIN</span><span id="cardGraphPeak">—</span></div><svg viewBox="0 0 342 76" role="img" aria-label="EXP gained per thirty seconds over the last five minutes"><g fill="#93949f" font-size="8" font-family="monospace" text-anchor="end"><text id="cardAxisTop" x="35" y="9">1</text><text id="cardAxisMid" x="35" y="40">0.5</text><text x="35" y="71">0</text></g><g transform="translate(42 0)"><path d="M0,6H300M0,37H300M0,68H300M0,6V68" stroke="#34353e" stroke-width="0.7" fill="none"/><path id="cardGraph" fill="none" stroke="#c7f36b" stroke-width="2" stroke-linejoin="round" stroke-linecap="round"/></g></svg><span id="cardGraphHint">Waiting for readings</span></div></section>';
+      '<section class="stream-panel" aria-label="Maple Track live stream card"><header><span>MAPLE TRACK</span><span id="cardStatus">CONNECTING</span></header><div class="stream-values"><div><span>LEVEL</span><strong id="cardLevel">—</strong></div><div><span>EXP / HOUR</span><strong id="cardRate">—</strong></div></div><div class="stream-progress"><i id="cardFill"></i></div><footer><span id="cardPercent">0.00%</span><span id="cardEta">Waiting for EXP</span></footer><div class="stream-metrics-line"><div><span>HP COST/HR</span><strong id="cardHpCost">—</strong></div><div><span>MP COST/HR</span><strong id="cardMpCost">—</strong></div><div><span>GROSS MESO/HR</span><strong id="cardMesoRate">—</strong></div><div><span>NET MESO/HR</span><strong id="cardNetMesoRate">—</strong></div></div><div class="stream-chart"><div class="stream-chart-label"><span>EXP / 30 SEC · LAST 5 MIN</span><span id="cardGraphPeak">—</span></div><svg viewBox="0 0 342 76" role="img" aria-label="EXP gained per thirty seconds over the last five minutes"><g fill="#93949f" font-size="8" font-family="monospace" text-anchor="end"><text id="cardAxisTop" x="35" y="9">1</text><text id="cardAxisMid" x="35" y="40">0.5</text><text x="35" y="71">0</text></g><g transform="translate(42 0)"><path d="M0,6H300M0,37H300M0,68H300M0,6V68" stroke="#34353e" stroke-width="0.7" fill="none"/><path id="cardGraph" fill="none" stroke="#c7f36b" stroke-width="2" stroke-linejoin="round" stroke-linecap="round"/></g></svg><span id="cardGraphHint">Waiting for readings</span></div></section>';
     const q = (id) => document.querySelector(id);
     function render() {
       let state = {};
@@ -172,11 +172,21 @@
       try {
         costs = JSON.parse(storage.getItem(Costs.KEY) || "{}");
       } catch {}
-      const cm = Costs.metrics(costs, now());
+      const cm = Costs.metrics(costs, now()),
+        compact = (value) => value === null || value === undefined
+          ? "—"
+          : Intl.NumberFormat("en-US", { notation: "compact", maximumFractionDigits: 1 }).format(Math.round(value));
+      q("#cardHpCost").textContent = compact(cm.hp);
+      q("#cardMpCost").textContent = compact(cm.mp);
       const m = metrics(state, now(), required, totalExp);
       const mm = mesoMetrics(state, now());
       const net = netMesoRate(mm.rateValue, costs, cm, now());
-      q("#cardNetMesoRate").textContent = net === null ? "—" : formatMesoRate(net);
+      q("#cardMesoRate").textContent = mm.rateValue === null
+        ? "—"
+        : (mm.rateValue > 0 ? "+" : mm.rateValue < 0 ? "−" : "") + compact(Math.abs(mm.rateValue));
+      q("#cardNetMesoRate").textContent = net === null
+        ? "—"
+        : (net > 0 ? "+" : net < 0 ? "−" : "") + compact(Math.abs(net));
       q("#cardLevel").textContent = m.level;
       q("#cardRate").textContent = m.rate;
       q("#cardPercent").textContent = m.percent.toFixed(2) + "%";
