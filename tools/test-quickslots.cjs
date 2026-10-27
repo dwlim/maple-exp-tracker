@@ -71,11 +71,12 @@ const item = s.add("HP potions", region, 1000, 1000),
     s.observe(id, { count: n, confidence }, t * 1000);
 assert.ok(read(1000, 0));
 assert.ok(read(998, 10));
-assert.equal(s.rate(item), null);
+assert.equal(s.rate(item, 20000), null);
 read(996, 20);
 read(995, 30);
 assert.equal(item.used, 5);
-assert.equal(s.rate(item), 600);
+assert.equal(s.rate(item, 30000), 600);
+assert.equal(s.rate(item, 330001), null, "Potion rates use only observations in the trailing five-minute window");
 assert.equal(
   read(1050, 40),
   false,
@@ -132,7 +133,7 @@ assert.equal(
 );
 loaded.reset();
 assert.equal(loaded.state.items[0].used, 0);
-assert.equal(loaded.rate(loaded.state.items[0]), null);
+assert.equal(loaded.rate(loaded.state.items[0], 2000000), null);
 for (let i = 0; i < 11; i++) s.add("item" + i, region, 1000, 1000);
 assert.equal(s.add("thirteenth", region, 1000, 1000), null);
 
@@ -403,8 +404,8 @@ const eight = packedFrame(cases.find((f) => f.name === "native-8-10")),
     mp = smallUI.store.state.items.find((i) => i.slot === 2);
   assert.equal(hp.used, 1);
   assert.equal(mp.used, 2);
-  assert.ok(Math.abs(smallUI.store.rate(hp) - 90) < 0.02);
-  assert.ok(Math.abs(smallUI.store.rate(mp) - 180) < 0.02);
+  assert.ok(Math.abs(smallUI.store.rate(hp, sequence.at(-1).timestamp) - 90) < 0.02);
+  assert.ok(Math.abs(smallUI.store.rate(mp, sequence.at(-1).timestamp) - 180) < 0.02);
   assert.equal(
     rejected.length,
     0,

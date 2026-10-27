@@ -88,6 +88,30 @@ assert.equal(
   "Stale meso totals are not presented as current",
 );
 assert.equal(
+  C.mesoMetrics(
+    { mesoSamples: [
+      { amount: 1000, t: now - 360000 },
+      { amount: 1200, t: now - 200000 },
+      { amount: 1500, t: now - 100000 },
+      { amount: 1600, t: now },
+    ] },
+    now,
+  ).rateValue,
+  7200,
+  "Meso hourly rate excludes readings older than the trailing five-minute window",
+);
+assert.equal(
+  C.mesoMetrics(
+    { mesoSamples: [
+      { amount: 1000, t: now - 400000 },
+      { amount: 1600, t: now },
+    ] },
+    now,
+  ).rateValue,
+  null,
+  "Meso hourly rate does not fall back to an out-of-window baseline",
+);
+assert.equal(
   C.metrics({ level: 100, samples: [] }, now, required, totalExp).eta,
   "MAX LEVEL",
 );

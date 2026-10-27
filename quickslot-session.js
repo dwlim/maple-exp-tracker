@@ -58,6 +58,9 @@
             : null,
         used: Number.isFinite(v.used) && v.used >= 0 ? v.used : 0,
         seconds: Number.isFinite(v.seconds) && v.seconds >= 0 ? v.seconds : 0,
+        usageSamples: Array.isArray(v.usageSamples)
+          ? v.usageSamples.filter((s) => Number.isFinite(s?.t) && Number.isFinite(s?.seconds) && s.seconds > 0 && s.seconds <= 25 && Number.isFinite(s?.used) && s.used >= 0).slice(-200)
+          : [],
         at: null,
         pending: null,
         status: "Waiting for capture",
@@ -98,7 +101,7 @@
       let item = state.items.find((v) => v.id === id);
       if (!item) {
         if (state.items.length >= 12) return null;
-        item = { id: ++serial, used: 0, seconds: 0 };
+        item = { id: ++serial, used: 0, seconds: 0, usageSamples: [] };
         state.items.push(item);
       }
       Object.assign(item, {
@@ -116,6 +119,7 @@
         width,
         height,
         count: null,
+        usageSamples: [],
         at: null,
         pending: null,
         status: "Waiting for capture",
@@ -165,7 +169,11 @@
       }
       if (dt !== null && dt <= 25) {
         item.seconds += dt;
-        item.used += Math.max(0, item.count - count);
+        const used = Math.max(0, item.count - count);
+        item.used += used;
+        item.usageSamples ||= [];
+        item.usageSamples.push({ t, seconds: dt, used });
+        item.usageSamples = item.usageSamples.filter((s) => s.t > t - 300000).slice(-200);
       }
       Object.assign(item, { count, at: t, pending: null, status: "Reading" });
       changed();
@@ -202,12 +210,26 @@
         for (const i of state.items) {
           i.used = 0;
           i.seconds = 0;
+          i.usageSamples = [];
         }
         invalidate();
         changed();
       },
-      rate(item) {
-        return item.seconds >= 30 ? (item.used / item.seconds) * 3600 : null;
+      rate(item, now = Date.now()) {
+        if (!item || !Number.isFinite(now)) return null;
+        const cutoff = now - 300000;
+        let used = 0,
+          seconds = 0;
+        for (const sample of item.usageSamples || []) {
+          if (!Number.isFinite(sample.t) || sample.t > now || sample.t <= cutoff || !Number.isFinite(sample.seconds) || sample.seconds <= 0 || sample.seconds > 25 || !Number.isFinite(sample.used) || sample.used < 0) continue;
+          const observedStart = sample.t - sample.seconds * 1000,
+            overlapMs = sample.t - Math.max(cutoff, observedStart);
+          if (overlapMs <= 0) continue;
+          const fraction = overlapMs / (sample.seconds * 1000);
+          seconds += overlapMs / 1000;
+          used += sample.used * fraction;
+        }
+        return seconds >= 30 ? (used / seconds) * 3600 : null;
       },
     };
   }

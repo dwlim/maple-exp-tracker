@@ -300,8 +300,8 @@
             ? "Used " +
               number(item.used) +
               " · " +
-              number(store.rate(item)) +
-              " / hour"
+              number(store.rate(item, now())) +
+              " / hour · 5m"
             : "";
           c.status.textContent = !live
             ? "Waiting for quickslots"

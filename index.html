@@ -1344,7 +1344,7 @@ root.MapleHudOcr={recognize,resolveReading,percentageReading};
         .map((i) => ({
           group: catalog[i.potionType].group,
           price: price(i),
-          rate: store.rate(i),
+          rate: store.rate(i, now),
           lastReadAt: i.at,
         })),
     };
@@ -1465,7 +1465,7 @@ root.MapleHudOcr={recognize,resolveReading,percentageReading};
         .filter((s) => Number.isSafeInteger(s.amount) && s.amount >= 0 && Number.isFinite(s.t) && s.t <= now)
         .sort((a, b) => a.t - b.t),
       latest = samples.at(-1),
-      base = samples.find((s) => s.t >= now - 300000) || samples[0],
+      base = samples.find((s) => s.t >= now - 300000),
       elapsed = latest && base ? latest.t - base.t : 0,
       rate = elapsed >= 60000 ? ((latest.amount - base.amount) * 3600000) / elapsed : null;
     return {
@@ -1552,7 +1552,7 @@ root.MapleHudOcr={recognize,resolveReading,percentageReading};
     document.title = "Maple Track · Stream card";
     document.body.classList.add("stream-card");
     document.querySelector(".app").innerHTML =
-      '<section class="stream-panel" aria-label="Maple Track live stream card"><header><span>MAPLE TRACK</span><span id="cardStatus">CONNECTING</span></header><div class="stream-values"><div><span>LEVEL</span><strong id="cardLevel">—</strong></div><div><span>EXP / HOUR</span><strong id="cardRate">—</strong></div></div><div class="stream-progress"><i id="cardFill"></i></div><footer><span id="cardPercent">0.00%</span><span id="cardEta">Waiting for EXP</span></footer><div class="stream-costs"><div><span>HP POTIONS / HOUR</span><strong id="cardHpCost">—</strong></div><div><span>MP POTIONS / HOUR</span><strong id="cardMpCost">—</strong></div><div id="cardBothRow" hidden><span>HP + MP / HOUR</span><strong id="cardBothCost">—</strong></div><small>Estimated mesos · observed potion usage</small></div><div class="stream-meso-values"><div><span>MESO BALANCE</span><strong id="cardMesoBalance">—</strong></div><div><span>MESOS / HOUR</span><strong id="cardMesoRate">—</strong></div></div><div class="stream-net"><span>NET MESOS / HOUR</span><strong id="cardNetMesoRate">—</strong><small id="cardNetMesoHint">Needs fresh meso and priced potion readings</small></div><div class="stream-chart"><div class="stream-chart-label"><span>EXP / 30 SEC · LAST 5 MIN</span><span id="cardGraphPeak">—</span></div><svg viewBox="0 0 342 76" role="img" aria-label="EXP gained per thirty seconds over the last five minutes"><g fill="#93949f" font-size="8" font-family="monospace" text-anchor="end"><text id="cardAxisTop" x="35" y="9">1</text><text id="cardAxisMid" x="35" y="40">0.5</text><text x="35" y="71">0</text></g><g transform="translate(42 0)"><path d="M0,6H300M0,37H300M0,68H300M0,6V68" stroke="#34353e" stroke-width="0.7" fill="none"/><path id="cardGraph" fill="none" stroke="#c7f36b" stroke-width="2" stroke-linejoin="round" stroke-linecap="round"/></g></svg><span id="cardGraphHint">Waiting for readings</span></div></section>';
+      '<section class="stream-panel" aria-label="Maple Track live stream card"><header><span>MAPLE TRACK</span><span id="cardStatus">CONNECTING</span></header><div class="stream-values"><div><span>LEVEL</span><strong id="cardLevel">—</strong></div><div><span>EXP / HOUR</span><strong id="cardRate">—</strong></div></div><div class="stream-progress"><i id="cardFill"></i></div><footer><span id="cardPercent">0.00%</span><span id="cardEta">Waiting for EXP</span></footer><div class="stream-costs"><div><span>HP COST / HOUR · 5M</span><strong id="cardHpCost">—</strong></div><div><span>MP COST / HOUR · 5M</span><strong id="cardMpCost">—</strong></div><div id="cardBothRow" hidden><span>HP + MP COST / HOUR · 5M</span><strong id="cardBothCost">—</strong></div><small>Estimated mesos · observed potion usage</small></div><div class="stream-meso-values"><div><span>MESO BALANCE</span><strong id="cardMesoBalance">—</strong></div><div><span>GROSS MESOS / HOUR · 5M</span><strong id="cardMesoRate">—</strong></div></div><div class="stream-net"><span>NET MESOS / HOUR · 5M</span><strong id="cardNetMesoRate">—</strong><small id="cardNetMesoHint">Needs fresh meso and priced potion readings</small></div><div class="stream-chart"><div class="stream-chart-label"><span>EXP / 30 SEC · LAST 5 MIN</span><span id="cardGraphPeak">—</span></div><svg viewBox="0 0 342 76" role="img" aria-label="EXP gained per thirty seconds over the last five minutes"><g fill="#93949f" font-size="8" font-family="monospace" text-anchor="end"><text id="cardAxisTop" x="35" y="9">1</text><text id="cardAxisMid" x="35" y="40">0.5</text><text x="35" y="71">0</text></g><g transform="translate(42 0)"><path d="M0,6H300M0,37H300M0,68H300M0,6V68" stroke="#34353e" stroke-width="0.7" fill="none"/><path id="cardGraph" fill="none" stroke="#c7f36b" stroke-width="2" stroke-linejoin="round" stroke-linecap="round"/></g></svg><span id="cardGraphHint">Waiting for readings</span></div></section>';
     const q = (id) => document.querySelector(id);
     function render() {
       let state = {};
@@ -3900,6 +3900,9 @@ return {detect,crop,anchors,percentageRegion};
             : null,
         used: Number.isFinite(v.used) && v.used >= 0 ? v.used : 0,
         seconds: Number.isFinite(v.seconds) && v.seconds >= 0 ? v.seconds : 0,
+        usageSamples: Array.isArray(v.usageSamples)
+          ? v.usageSamples.filter((s) => Number.isFinite(s?.t) && Number.isFinite(s?.seconds) && s.seconds > 0 && s.seconds <= 25 && Number.isFinite(s?.used) && s.used >= 0).slice(-200)
+          : [],
         at: null,
         pending: null,
         status: "Waiting for capture",
@@ -3940,7 +3943,7 @@ return {detect,crop,anchors,percentageRegion};
       let item = state.items.find((v) => v.id === id);
       if (!item) {
         if (state.items.length >= 12) return null;
-        item = { id: ++serial, used: 0, seconds: 0 };
+        item = { id: ++serial, used: 0, seconds: 0, usageSamples: [] };
         state.items.push(item);
       }
       Object.assign(item, {
@@ -3958,6 +3961,7 @@ return {detect,crop,anchors,percentageRegion};
         width,
         height,
         count: null,
+        usageSamples: [],
         at: null,
         pending: null,
         status: "Waiting for capture",
@@ -4007,7 +4011,11 @@ return {detect,crop,anchors,percentageRegion};
       }
       if (dt !== null && dt <= 25) {
         item.seconds += dt;
-        item.used += Math.max(0, item.count - count);
+        const used = Math.max(0, item.count - count);
+        item.used += used;
+        item.usageSamples ||= [];
+        item.usageSamples.push({ t, seconds: dt, used });
+        item.usageSamples = item.usageSamples.filter((s) => s.t > t - 300000).slice(-200);
       }
       Object.assign(item, { count, at: t, pending: null, status: "Reading" });
       changed();
@@ -4044,12 +4052,26 @@ return {detect,crop,anchors,percentageRegion};
         for (const i of state.items) {
           i.used = 0;
           i.seconds = 0;
+          i.usageSamples = [];
         }
         invalidate();
         changed();
       },
-      rate(item) {
-        return item.seconds >= 30 ? (item.used / item.seconds) * 3600 : null;
+      rate(item, now = Date.now()) {
+        if (!item || !Number.isFinite(now)) return null;
+        const cutoff = now - 300000;
+        let used = 0,
+          seconds = 0;
+        for (const sample of item.usageSamples || []) {
+          if (!Number.isFinite(sample.t) || sample.t > now || sample.t <= cutoff || !Number.isFinite(sample.seconds) || sample.seconds <= 0 || sample.seconds > 25 || !Number.isFinite(sample.used) || sample.used < 0) continue;
+          const observedStart = sample.t - sample.seconds * 1000,
+            overlapMs = sample.t - Math.max(cutoff, observedStart);
+          if (overlapMs <= 0) continue;
+          const fraction = overlapMs / (sample.seconds * 1000);
+          seconds += overlapMs / 1000;
+          used += sample.used * fraction;
+        }
+        return seconds >= 30 ? (used / seconds) * 3600 : null;
       },
     };
   }
@@ -4563,8 +4585,8 @@ return {detect,crop,anchors,percentageRegion};
             ? "Used " +
               number(item.used) +
               " · " +
-              number(store.rate(item)) +
-              " / hour"
+              number(store.rate(item, now())) +
+              " / hour · 5m"
             : "";
           c.status.textContent = !live
             ? "Waiting for quickslots"

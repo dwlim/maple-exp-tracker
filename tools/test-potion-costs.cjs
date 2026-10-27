@@ -50,6 +50,10 @@ const unknown = store.add("Other HP", region, 100, 100, null, {
 unknown.at = now;
 unknown.used = 1;
 unknown.seconds = 30;
+unknown.usageSamples = [
+  { t: now - 15000, seconds: 15, used: 0 },
+  { t: now, seconds: 15, used: 1 },
+];
 assert.equal(
   get().hp,
   null,
@@ -63,6 +67,10 @@ const both = store.add("Elixir", region, 100, 100, null, {
 both.at = now;
 both.used = 1;
 both.seconds = 30;
+both.usageSamples = [
+  { t: now - 15000, seconds: 15, used: 0 },
+  { t: now, seconds: 15, used: 1 },
+];
 store.setUnitCost(both.id, 3000);
 assert.equal(get().both, 360000);
 assert.equal(get().hp, 27000, "Combined cost is not counted twice");

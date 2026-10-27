@@ -34,7 +34,7 @@
         .map((i) => ({
           group: catalog[i.potionType].group,
           price: price(i),
-          rate: store.rate(i),
+          rate: store.rate(i, now),
           lastReadAt: i.at,
         })),
     };
