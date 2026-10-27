@@ -82,7 +82,30 @@
       rate: rate === null || !latest || now - latest.t > 120000
         ? "—"
         : (rate > 0 ? "+" : rate < 0 ? "−" : "") + Math.round(Math.abs(rate)).toLocaleString("en-US"),
+      rateValue: rate === null || !latest || now - latest.t > 120000 ? null : rate,
     };
+  }
+  function netMesoRate(rateValue, potionState, potionMetrics, now) {
+    if (
+      !Number.isFinite(rateValue) ||
+      !potionState ||
+      potionState.enabled !== true ||
+      !Array.isArray(potionState.items) ||
+      !potionState.items.length ||
+      !Number.isFinite(potionState.updatedAt) ||
+      potionState.updatedAt > now ||
+      now - potionState.updatedAt > 25000
+    ) return null;
+    const groups = new Set(potionState.items.map((item) => item?.group));
+    let spend = 0;
+    for (const group of groups) {
+      if (!["hp", "mp", "both"].includes(group) || !Number.isFinite(potionMetrics[group])) return null;
+      spend += potionMetrics[group];
+    }
+    return Number.isFinite(spend) ? rateValue - spend : null;
+  }
+  function formatMesoRate(rate) {
+    return (rate > 0 ? "+" : rate < 0 ? "−" : "") + Math.round(Math.abs(rate)).toLocaleString("en-US");
   }
   // Normalize adjacent readings to thirty seconds; gaps stay empty rather than implying steady gains.
   function graph(state, now, totalExp) {
@@ -140,7 +163,7 @@
     document.querySelector(".app").innerHTML =
       '<section class="stream-panel" aria-label="Maple Track live stream card"><header><span>MAPLE TRACK</span><span id="cardStatus">CONNECTING</span></header><div class="stream-values"><div><span>LEVEL</span><strong id="cardLevel">—</strong></div><div><span>EXP / HOUR</span><strong id="cardRate">—</strong></div></div><div class="stream-progress"><i id="cardFill"></i></div><footer><span id="cardPercent">0.00%</span><span id="cardEta">Waiting for EXP</span></footer><div class="stream-costs"><div><span>HP POTIONS / HOUR</span><strong id="cardHpCost">—</strong></div><div><span>MP POTIONS / HOUR</span><strong id="cardMpCost">—</strong></div><div id="cardBothRow" hidden><span>HP + MP / HOUR</span><strong id="cardBothCost">—</strong></div><small>Estimated mesos · observed potion usage</small></div><div class="stream-chart"><div class="stream-chart-label"><span>EXP / 30 SEC · LAST 5 MIN</span><span id="cardGraphPeak">—</span></div><svg viewBox="0 0 342 76" role="img" aria-label="EXP gained per thirty seconds over the last five minutes"><g fill="#93949f" font-size="8" font-family="monospace" text-anchor="end"><text id="cardAxisTop" x="35" y="9">1</text><text id="cardAxisMid" x="35" y="40">0.5</text><text x="35" y="71">0</text></g><g transform="translate(42 0)"><path d="M0,6H300M0,37H300M0,68H300M0,6V68" stroke="#34353e" stroke-width="0.7" fill="none"/><path id="cardGraph" fill="none" stroke="#c7f36b" stroke-width="2" stroke-linejoin="round" stroke-linecap="round"/></g></svg><span id="cardGraphHint">Waiting for readings</span></div></section>';
     document.querySelector(".stream-values").innerHTML +=
-      '<div style="display:flex;justify-content:space-between;gap:12px;margin-top:12px;font:9px \'DM Mono\',monospace;color:#93949f"><span>MESO BALANCE <strong id="cardMesoBalance" style="display:block;color:#f1f0f7;font:700 16px Manrope,sans-serif">—</strong></span><span style="text-align:right">MESOS / HOUR <strong id="cardMesoRate" style="display:block;color:#c7f36b;font:700 16px Manrope,sans-serif">—</strong></span></div>';
+      '<div style="display:flex;justify-content:space-between;gap:12px;margin-top:12px;font:9px \'DM Mono\',monospace;color:#93949f"><span>MESO BALANCE <strong id="cardMesoBalance" style="display:block;color:#f1f0f7;font:700 16px Manrope,sans-serif">—</strong></span><span style="text-align:right">MESOS / HOUR <strong id="cardMesoRate" style="display:block;color:#c7f36b;font:700 16px Manrope,sans-serif">—</strong></span></div><div class="stream-net"><span>NET MESOS / HOUR</span><strong id="cardNetMesoRate">—</strong><small id="cardNetMesoHint">Needs fresh meso and priced potion readings</small></div>';
     const q = (id) => document.querySelector(id);
     function render() {
       let state = {};
@@ -160,8 +183,13 @@
       q("#cardBothRow").hidden = !cm.hasBoth;
       const m = metrics(state, now(), required, totalExp);
       const mm = mesoMetrics(state, now());
+      const net = netMesoRate(mm.rateValue, costs, cm, now());
       q("#cardMesoBalance").textContent = mm.amount;
       q("#cardMesoRate").textContent = mm.rate;
+      q("#cardNetMesoRate").textContent = net === null ? "—" : formatMesoRate(net);
+      q("#cardNetMesoHint").textContent = net === null
+        ? "Needs fresh meso and priced potion readings"
+        : "Meso gain after observed potion costs";
       q("#cardLevel").textContent = m.level;
       q("#cardRate").textContent = m.rate;
       q("#cardPercent").textContent = m.percent.toFixed(2) + "%";
@@ -205,5 +233,5 @@
     );
     render();
   }
-  return { metrics, mesoMetrics, graph, mount };
+  return { metrics, mesoMetrics, netMesoRate, graph, mount };
 });
