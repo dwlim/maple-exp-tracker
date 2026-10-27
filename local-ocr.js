@@ -1072,13 +1072,14 @@
           try {
             let candidatePreview = null;
             const onPreview = (image, border) => {
-              candidatePreview = cropMesoText(image, border) || image;
+              const textImage = cropMesoText(image, border);
+              candidatePreview = textImage ? prepareMeso(textImage) : null;
               try { input.onMesoPreview?.(candidatePreview); } catch {}
             };
             const field = (input.mesoReference && locateMesoReference(input.mesoScanImage, input.mesoReference, onPreview)) ||
               await locateMesoField(input.mesoScanImage, recognize, onPreview);
             const textImage = field && cropMesoText(field.amountImage, field.border);
-            result.mesoPreview = textImage ? prepareMeso(textImage) : candidatePreview || field?.amountImage || null;
+            result.mesoPreview = textImage ? prepareMeso(textImage) : candidatePreview;
             if (field) {
               const meso = await readMesoAmount(field.amountImage, recognize, textImage, (pixels) => {
                 result.mesoPreview = pixels;

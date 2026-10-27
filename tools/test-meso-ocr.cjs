@@ -29,25 +29,28 @@ assert.deepEqual(
   assert.equal(Ocr.isMesoField(image), true);
   assert.equal(Ocr.isMesoField({ ...image, data: new Uint8ClampedArray(image.data.length).fill(255) }), false);
 
-  const kinds = [],
-    result = await Ocr.readMesoAmount(image, async (pixels, kind) => {
-      kinds.push(kind);
-      assert.equal(pixels.width, 143 * 4 + 32);
-      assert.equal(pixels.height, 17 * 4 + 32);
-      return { text: "1,132,963", confidence: kind.endsWith("binary") ? 88 : 94 };
-    });
+  const kinds = [];
+  let preview = null;
+  const result = await Ocr.readMesoAmount(image, async (pixels, kind) => {
+    kinds.push(kind);
+    assert.equal(pixels.width, 143 * 4 + 32);
+    assert.equal(pixels.height, 17 * 4 + 32);
+    return { text: "1,132,963", confidence: kind.endsWith("binary") ? 88 : 94 };
+  }, image, (pixels) => { preview = pixels; });
+  assert.equal(preview?.width, 143 * 4 + 32, "debug preview is the preprocessed OCR input");
+  assert.equal(preview?.height, 17 * 4 + 32, "debug preview is the preprocessed OCR input");
   assert.deepEqual(result, { amount: 1132963, confidence: 88 });
   assert.deepEqual(kinds, ["meso-value", "meso-value-binary"]);
 
   const mismatch = await Ocr.readMesoAmount(image, async (_pixels, kind) => ({
     text: kind.endsWith("binary") ? "1,132,968" : "1,132,963",
     confidence: 95,
-  }));
+  }), image);
   assert.equal(mismatch, null, "different preprocessing results must not be saved");
   const lowConfidence = await Ocr.readMesoAmount(image, async () => ({
     text: "1,132,963",
     confidence: 39,
-  }));
+  }), image);
   assert.equal(lowConfidence, null);
 
   let mesoReads = 0;
