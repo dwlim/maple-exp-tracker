@@ -12,6 +12,8 @@ assert.equal(Ocr.parseMeso("1180795"), 1180795);
 assert.equal(Ocr.parseMeso("1,18,795"), null);
 assert.equal(Ocr.parseMeso("3"), 3);
 assert.equal(Ocr.parseMeso("1,132,963 MESOS"), null);
+assert.equal(Ocr.parseMeso("2,147,483,647"), 2147483647);
+assert.equal(Ocr.parseMeso("2,147,483,648"), null, "meso balances must stay within the signed 32-bit range");
 const source = { width: 4, height: 3, data: new Uint8ClampedArray(4 * 3 * 4) };
 for (let i = 0; i < source.data.length; i++) source.data[i] = i % 256;
 const selected = Reader.cropNormalized(source, { x: 0.25, y: 0, w: 0.5, h: 1 });
@@ -60,8 +62,17 @@ assert.deepEqual(
   }));
   assert.equal(lowConfidence, null);
 
-  const singleFive = PNG.sync.read(fs.readFileSync(path.join(__dirname, "fixtures/meso-single-5.png")));
-  assert.deepEqual(Ocr.recognizeSingleMesoFive(singleFive), { amount: 5, confidence: 100 });
+  const singleFive = PNG.sync.read(fs.readFileSync(path.join(__dirname, "fixtures/meso-single-5.png"))),
+    twoDigitNineteen = PNG.sync.read(fs.readFileSync(path.join(__dirname, "fixtures/meso-two-digit-19.png")));
+  for (const [fixture, expected] of [
+    ["meso-single-5.png", 5], ["meso-two-digit-19.png", 19],
+    ["meso-clear-1135117.png", 1135117], ["meso-known-1090609.png", 1090609],
+    ["meso-known-1112112.png", 1112112],
+    ["meso-known-1100934.png", 1100934], ["meso-known-1101282.png", 1101282],
+  ]) {
+    const pixels = PNG.sync.read(fs.readFileSync(path.join(__dirname, "fixtures", fixture)));
+    assert.equal(Ocr.recognizeMesoDigits(pixels)?.amount, expected, `verified digit templates should read ${expected}`);
+  }
   const balanceReference = Ocr.createMesoReference(PNG.sync.read(fs.readFileSync(path.join(__dirname, "../assets/meso-balance-reference.png")))),
     compactBalanceRow = PNG.sync.read(fs.readFileSync(path.join(__dirname, "fixtures/meso-row-single-5.png"))),
     locatedBalance = Ocr.locateMesoReference(compactBalanceRow, balanceReference);
@@ -71,6 +82,11 @@ assert.deepEqual(
     { amount: 5, confidence: 100 },
     "verified isolated 5 should be recovered after OCR drops the glyph",
   );
+  assert.deepEqual(
+    await Ocr.readMesoAmount(twoDigitNineteen, async () => ({ text: "", confidence: 0 })),
+    { amount: 19, confidence: 100 },
+    "verified 1 and 9 glyphs should be recovered when OCR drops a two-digit balance",
+  );
   const threeShape = { width: 148, height: 19, data: new Uint8ClampedArray(148 * 19 * 4).fill(255) },
     threeRows = [".###.", "#...#", "....#", "..##.", "....#", "....#", "#...#", ".###."];
   for (let y = 0; y < threeRows.length; y++)
@@ -79,7 +95,44 @@ assert.deepEqual(
         const i = ((y + 6) * threeShape.width + x + 138) * 4;
         threeShape.data[i] = threeShape.data[i + 1] = threeShape.data[i + 2] = 0;
       }
-  assert.equal(Ocr.recognizeSingleMesoFive(threeShape), null, "single-digit fallback must reject a different digit");
+  assert.deepEqual(Ocr.recognizeMesoDigits(threeShape), { amount: 3, confidence: 100 }, "single-digit fallback should classify a verified 3");
+
+  const verifiedGlyphs = [
+    [".###.", "#...#", "#...#", "#...#", "#...#", "#...#", "#...#", ".###."],
+    ["..#..", "###..", "..#..", "..#..", "..#..", "..#..", "..#..", "#####"],
+    [".###.", "#...#", "....#", "...#.", "..#..", ".#...", "#....", "#####"],
+    [".###.", "#...#", "....#", "..##.", "....#", "....#", "#...#", ".###."],
+    ["...#.", "..##.", ".#.#.", "#..#.", "#####", "...#.", "...#.", "...#."],
+    ["#####", "#....", "#....", "####.", "....#", "....#", "#...#", ".###."],
+    ["..##.", ".#...", "#....", "####.", "#...#", "#...#", "#...#", ".###."],
+    ["#####", "....#", "...#.", "...#.", "..#..", "..#..", ".#...", ".#..."],
+    [".###.", "#...#", "#...#", ".###.", "#...#", "#...#", "#...#", ".###."],
+    [".###.", "#...#", "#...#", "#...#", ".####", "....#", "...#.", ".##.."],
+  ];
+  function drawAmount(digits) {
+    const output = { width: 148, height: 19, data: new Uint8ClampedArray(148 * 19 * 4).fill(255) };
+    let x = 24;
+    for (let i = 0; i < digits.length; i++) {
+      for (let y = 0; y < 8; y++)
+        for (let column = 0; column < 5; column++)
+          if (verifiedGlyphs[Number(digits[i])][y][column] === "#") {
+            const index = ((y + 6) * output.width + x + column) * 4;
+            output.data[index] = output.data[index + 1] = output.data[index + 2] = 0;
+          }
+      x += 6;
+      const remaining = digits.length - i - 1;
+      if (remaining > 0 && remaining % 3 === 0) {
+        for (let y = 0; y < 3; y++) {
+          const index = ((y + 11) * output.width + x) * 4;
+          output.data[index] = output.data[index + 1] = output.data[index + 2] = 0;
+        }
+        x += 3;
+      }
+    }
+    return output;
+  }
+  assert.deepEqual(Ocr.recognizeMesoDigits(drawAmount("2147483647")), { amount: 2147483647, confidence: 100 }, "digit fallback should support the full ten-digit signed 32-bit maximum");
+  assert.equal(Ocr.recognizeMesoDigits(drawAmount("2147483648")), null, "digit fallback should reject values above the signed 32-bit maximum");
 
   const sample = PNG.sync.read(fs.readFileSync(path.join(__dirname, "fixtures/meso-clear-1135117.png"))),
     worker = await Tesseract.createWorker("eng", 1, {
@@ -108,6 +161,14 @@ assert.deepEqual(
     return { text: data.text, confidence: data.confidence };
   });
   assert.equal(actualSingle?.amount, 5, "single clear 5 fixture should recover when bundled Tesseract drops the glyph");
+  const actualNineteen = await Ocr.readMesoAmount(twoDigitNineteen, async (pixels) => {
+    await worker.setParameters({ tessedit_pageseg_mode: 7, tessedit_char_whitelist: "0123456789,." });
+    const input = new PNG({ width: pixels.width, height: pixels.height });
+    input.data = Buffer.from(pixels.data);
+    const { data } = await worker.recognize(PNG.sync.write(input));
+    return { text: data.text, confidence: data.confidence };
+  });
+  assert.equal(actualNineteen?.amount, 19, "two-digit balance fixture should recover when bundled Tesseract drops both glyphs");
   await worker.terminate();
 
   let mesoReads = 0;

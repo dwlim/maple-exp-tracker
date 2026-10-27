@@ -209,7 +209,7 @@
     const clean = String(text || "").trim().replace(/\s/g, "");
     if (!/^(?:\d{1,3}(?:[,\.]\d{3})+|\d{1,12})$/.test(clean)) return null;
     const amount = Number(clean.replace(/[,\.]/g, ""));
-    return Number.isSafeInteger(amount) ? amount : null;
+    return Number.isSafeInteger(amount) && amount <= 2147483647 ? amount : null;
   }
   function scaleMesoScan(image, maxWidth = 1920) {
     if (!image?.data || !image.width || !image.height) return null;
@@ -854,19 +854,21 @@
       scale: best.scale,
     };
   }
-  function recognizeSingleMesoFive(image) {
+  function recognizeMesoDigits(image) {
     if (!image?.data || image.width < 10 || image.height < 10) return null;
     const width = image.width, height = image.height,
       ink = new Uint8Array(width * height), visited = new Uint8Array(width * height),
-      five = [
-        "#####",
-        "#....",
-        "#....",
-        "####.",
-        "....#",
-        "....#",
-        "#...#",
-        ".###.",
+      templates = [
+        [[".###.", "#...#", "#...#", "#...#", "#...#", "#...#", "#...#", ".###."]],
+        [["..#..", "###..", "..#..", "..#..", "..#..", "..#..", "..#..", "#####"]],
+        [[".###.", "#...#", "....#", "...#.", "..#..", ".#...", "#....", "#####"]],
+        [[".###.", "#...#", "....#", "..##.", "....#", "....#", "#...#", ".###."]],
+        [["...#.", "..##.", ".#.#.", "#..#.", "#####", "...#.", "...#.", "...#."]],
+        [["#####", "#....", "#....", "####.", "....#", "....#", "#...#", ".###."]],
+        [["..##.", ".#...", "#....", "####.", "#...#", "#...#", "#...#", ".###."]],
+        [["#####", "....#", "...#.", "...#.", "..#..", "..#..", ".#...", ".#..."]],
+        [[".###.", "#...#", "#...#", ".###.", "#...#", "#...#", "#...#", ".###."]],
+        [[".###.", "#...#", "#...#", "#...#", ".####", "....#", "...#.", ".##.."]],
       ];
     for (let y = 2; y < height - 2; y++)
       for (let x = 2; x < width - 2; x++) {
@@ -874,7 +876,7 @@
           gray = image.data[i] * 0.299 + image.data[i + 1] * 0.587 + image.data[i + 2] * 0.114;
         if (gray < 150) ink[y * width + x] = 1;
       }
-    const glyphs = [];
+    const glyphs = [], separators = [];
     for (let y = 2; y < height - 2; y++)
       for (let x = 2; x < width - 2; x++) {
         const start = y * width + x;
@@ -896,22 +898,48 @@
             }
         }
         const boxWidth = maxX - minX + 1, boxHeight = maxY - minY + 1;
-        // Ignore the balance box border and tiny comma-like marks. Only use
-        // this fallback when exactly one digit-sized connected component exists.
-        if (boxWidth >= 4 && boxWidth <= 8 && boxHeight >= 7 && boxHeight <= 10 && queue.length >= 12)
+        if (boxWidth >= 2 && boxWidth <= 8 && boxHeight >= 7 && boxHeight <= 10 && queue.length >= 8)
           glyphs.push({ x: minX, y: minY, width: boxWidth, height: boxHeight });
+        else if (boxWidth >= 1 && boxWidth <= 4 && boxHeight >= 2 && boxHeight <= 6 && queue.length >= 2)
+          separators.push({ x: minX, y: minY, width: boxWidth, height: boxHeight });
       }
-    if (glyphs.length !== 1) return null;
-    const glyph = glyphs[0];
-    let mismatches = 0;
-    for (let row = 0; row < five.length; row++)
-      for (let column = 0; column < five[row].length; column++) {
-        const x = glyph.x + Math.min(glyph.width - 1, Math.floor((column + 0.5) * glyph.width / 5)),
-          y = glyph.y + Math.min(glyph.height - 1, Math.floor((row + 0.5) * glyph.height / 8)),
-          actual = ink[y * width + x] ? "#" : ".";
-        if (actual !== five[row][column]) mismatches++;
-      }
-    return mismatches <= 2 ? { amount: 5, confidence: Math.round((1 - mismatches / 40) * 100) } : null;
+    if (glyphs.length < 1 || glyphs.length > 10) return null;
+    glyphs.sort((a, b) => a.x - b.x);
+    separators.sort((a, b) => a.x - b.x);
+    const expectedSeparators = Math.floor((glyphs.length - 1) / 3);
+    if (separators.length !== expectedSeparators) return null;
+    for (let i = 0; i < separators.length; i++) {
+      const digitsBeforeSeparator = glyphs.length - (separators.length - i) * 3,
+        previous = glyphs[digitsBeforeSeparator - 1],
+        next = glyphs[digitsBeforeSeparator],
+        separator = separators[i];
+      if (!previous || !next || separator.x <= previous.x + previous.width - 1 || separator.x + separator.width > next.x)
+        return null;
+    }
+    let digits = "", confidence = 100;
+    for (const glyph of glyphs) {
+      const scores = templates.map((variants, digit) => {
+        let best = 40;
+        for (const template of variants) {
+          let mismatches = 0;
+          for (let row = 0; row < 8; row++)
+            for (let column = 0; column < 5; column++) {
+              const x = glyph.x + Math.min(glyph.width - 1, Math.floor((column + 0.5) * glyph.width / 5)),
+                y = glyph.y + Math.min(glyph.height - 1, Math.floor((row + 0.5) * glyph.height / 8)),
+                actual = ink[y * width + x] ? "#" : ".";
+              if (actual !== template[row][column]) mismatches++;
+            }
+          best = Math.min(best, mismatches);
+        }
+        return { digit, mismatches: best };
+      }).sort((a, b) => a.mismatches - b.mismatches);
+      if (scores[0].mismatches > 2 || scores[1].mismatches - scores[0].mismatches < 2) return null;
+      digits += scores[0].digit;
+      confidence = Math.min(confidence, Math.round((1 - scores[0].mismatches / 40) * 100));
+    }
+    if (digits.length > 1 && digits[0] === "0") return null;
+    const amount = Number(digits);
+    return Number.isSafeInteger(amount) && amount <= 2147483647 ? { amount, confidence } : null;
   }
   async function readMesoAmount(image, recognize) {
     if (!isMesoField(image)) return null;
@@ -938,10 +966,10 @@
     const winner = [...votes.entries()].filter(([, confidences]) => confidences.length >= 2);
     if (winner.length === 1)
       return { amount: winner[0][0], confidence: Math.round(Math.min(...winner[0][1])) };
-    // Very small balances can contain only one digit. Tesseract sometimes
-    // drops that glyph entirely; recognize only the exact verified Maple
-    // Classic 5 shape, and only when OCR produced no usable candidate.
-    return results.length === 0 ? recognizeSingleMesoFive(image) : null;
+    // Short balances can be too small for Tesseract to segment. Use verified
+    // Maple Classic glyphs only when OCR produced no usable candidate; reject
+    // unknown/ambiguous shapes and preserve the game's signed 32-bit ceiling.
+    return results.length === 0 ? recognizeMesoDigits(image) : null;
   }
   function choose(readings, kind, native) {
     const valid = readings
@@ -1233,5 +1261,5 @@
     }
     return browserReader.read(input);
   }
-  return { prepare, normalize, choose, parseMeso, prepareMeso, isMesoField, scaleMesoScan, createMesoReference, locateMesoReference, loadMesoReference, locateMesoField, createMesoAnchor, locateMesoAnchor, recognizeSingleMesoFive, readMesoAmount, createReader, read };
+  return { prepare, normalize, choose, parseMeso, prepareMeso, isMesoField, scaleMesoScan, createMesoReference, locateMesoReference, loadMesoReference, locateMesoField, createMesoAnchor, locateMesoAnchor, recognizeMesoDigits, readMesoAmount, createReader, read };
 });
