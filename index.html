@@ -475,16 +475,20 @@ root.MapleHudOcr={recognize,resolveReading,percentageReading};
   }
   function createMesoReference(image) {
     if (!image?.data || image.width < 180 || image.height < 28) return null;
-    // Include the complete white balance box and its thin border in the OCR crop.
-    const amount = { x: 22, y: 0, w: 148, h: 19 }, gray = new Uint8Array(image.width * image.height), features = [];
+    // The row's lower padding varies between inventory layouts. Match only the
+    // coin and the complete white amount box, whose size and alignment stay fixed.
+    const amount = { x: 22, y: 0, w: 148, h: 19 },
+      width = Math.min(image.width, amount.x + amount.w + 10),
+      height = Math.min(image.height, amount.y + amount.h + 1),
+      gray = new Uint8Array(width * height), features = [];
     const grayAt = (x, y) => {
       const i = (y * image.width + x) * 4;
       return Math.round(image.data[i] * 0.299 + image.data[i + 1] * 0.587 + image.data[i + 2] * 0.114);
     };
-    for (let y = 0; y < image.height; y++)
-      for (let x = 0; x < image.width; x++) gray[y * image.width + x] = grayAt(x, y);
-    for (let y = 1; y < image.height - 1; y += 2)
-      for (let x = 1; x < image.width - 1; x += 2) {
+    for (let y = 0; y < height; y++)
+      for (let x = 0; x < width; x++) gray[y * width + x] = grayAt(x, y);
+    for (let y = 1; y < height - 1; y += 2)
+      for (let x = 1; x < width - 1; x += 2) {
         // Keep the fixed black outline as alignment evidence, but mask the
         // variable digits inside it.
         if (x >= amount.x + 4 && x < amount.x + amount.w - 4 && y >= amount.y + 4 && y < amount.y + amount.h - 4) continue;
@@ -495,7 +499,7 @@ root.MapleHudOcr={recognize,resolveReading,percentageReading};
         if (edge >= 9) features.push([x, y, value]);
       }
     return features.length >= 50 ? {
-      width: image.width, height: image.height, amount, gray, features,
+      width, height, amount, gray, features,
       border: { x: 2 / amount.w, y: 2 / amount.h, w: 145 / amount.w, h: 16 / amount.h },
     } : null;
   }
@@ -1076,6 +1080,65 @@ root.MapleHudOcr={recognize,resolveReading,percentageReading};
       scale: best.scale,
     };
   }
+  function recognizeSingleMesoFive(image) {
+    if (!image?.data || image.width < 10 || image.height < 10) return null;
+    const width = image.width, height = image.height,
+      ink = new Uint8Array(width * height), visited = new Uint8Array(width * height),
+      five = [
+        "#####",
+        "#....",
+        "#....",
+        "####.",
+        "....#",
+        "....#",
+        "#...#",
+        ".###.",
+      ];
+    for (let y = 2; y < height - 2; y++)
+      for (let x = 2; x < width - 2; x++) {
+        const i = (y * width + x) * 4,
+          gray = image.data[i] * 0.299 + image.data[i + 1] * 0.587 + image.data[i + 2] * 0.114;
+        if (gray < 150) ink[y * width + x] = 1;
+      }
+    const glyphs = [];
+    for (let y = 2; y < height - 2; y++)
+      for (let x = 2; x < width - 2; x++) {
+        const start = y * width + x;
+        if (!ink[start] || visited[start]) continue;
+        const queue = [start];
+        visited[start] = 1;
+        let minX = x, maxX = x, minY = y, maxY = y;
+        for (let cursor = 0; cursor < queue.length; cursor++) {
+          const index = queue[cursor], px = index % width, py = (index / width) | 0;
+          minX = Math.min(minX, px); maxX = Math.max(maxX, px);
+          minY = Math.min(minY, py); maxY = Math.max(maxY, py);
+          for (let dy = -1; dy <= 1; dy++)
+            for (let dx = -1; dx <= 1; dx++) {
+              const nx = px + dx, ny = py + dy, next = ny * width + nx;
+              if (nx >= 2 && ny >= 2 && nx < width - 2 && ny < height - 2 && ink[next] && !visited[next]) {
+                visited[next] = 1;
+                queue.push(next);
+              }
+            }
+        }
+        const boxWidth = maxX - minX + 1, boxHeight = maxY - minY + 1;
+        // Ignore the balance box border and tiny comma-like marks. Only use
+        // this fallback when exactly one digit-sized connected component exists.
+        if (boxWidth >= 4 && boxWidth <= 8 && boxHeight >= 7 && boxHeight <= 10 && queue.length >= 12)
+          glyphs.push({ x: minX, y: minY, width: boxWidth, height: boxHeight });
+      }
+    if (glyphs.length !== 1) return null;
+    const glyph = glyphs[0];
+    let mismatches = 0;
+    for (let row = 0; row < five.length; row++)
+      for (let column = 0; column < five[row].length; column++) {
+        const x = glyph.x + Math.min(glyph.width - 1, Math.floor((column + 0.5) * glyph.width / 5)),
+          y = glyph.y + Math.min(glyph.height - 1, Math.floor((row + 0.5) * glyph.height / 8)),
+          actual = ink[y * width + x] ? "#" : ".";
+        if (actual !== five[row][column]) mismatches++;
+      }
+    return mismatches <= 2 ? { amount: 5, confidence: Math.round((1 - mismatches / 40) * 100) } : null;
+  }
   async function readMesoAmount(image, recognize) {
     if (!isMesoField(image)) return null;
     const results = [];
@@ -1099,9 +1162,12 @@ root.MapleHudOcr={recognize,resolveReading,percentageReading};
       votes.set(result.amount, group);
     }
     const winner = [...votes.entries()].filter(([, confidences]) => confidences.length >= 2);
-    return winner.length === 1
-      ? { amount: winner[0][0], confidence: Math.round(Math.min(...winner[0][1])) }
-      : null;
+    if (winner.length === 1)
+      return { amount: winner[0][0], confidence: Math.round(Math.min(...winner[0][1])) };
+    // Very small balances can contain only one digit. Tesseract sometimes
+    // drops that glyph entirely; recognize only the exact verified Maple
+    // Classic 5 shape, and only when OCR produced no usable candidate.
+    return results.length === 0 ? recognizeSingleMesoFive(image) : null;
   }
   function choose(readings, kind, native) {
     const valid = readings
@@ -1393,7 +1459,7 @@ root.MapleHudOcr={recognize,resolveReading,percentageReading};
     }
     return browserReader.read(input);
   }
-  return { prepare, normalize, choose, parseMeso, prepareMeso, isMesoField, scaleMesoScan, createMesoReference, locateMesoReference, loadMesoReference, locateMesoField, createMesoAnchor, locateMesoAnchor, readMesoAmount, createReader, read };
+  return { prepare, normalize, choose, parseMeso, prepareMeso, isMesoField, scaleMesoScan, createMesoReference, locateMesoReference, loadMesoReference, locateMesoField, createMesoAnchor, locateMesoAnchor, recognizeSingleMesoFive, readMesoAmount, createReader, read };
 });
 </script>
 <!-- LOCAL OCR END -->

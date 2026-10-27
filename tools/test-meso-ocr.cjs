@@ -60,6 +60,27 @@ assert.deepEqual(
   }));
   assert.equal(lowConfidence, null);
 
+  const singleFive = PNG.sync.read(fs.readFileSync(path.join(__dirname, "fixtures/meso-single-5.png")));
+  assert.deepEqual(Ocr.recognizeSingleMesoFive(singleFive), { amount: 5, confidence: 100 });
+  const balanceReference = Ocr.createMesoReference(PNG.sync.read(fs.readFileSync(path.join(__dirname, "../assets/meso-balance-reference.png")))),
+    compactBalanceRow = PNG.sync.read(fs.readFileSync(path.join(__dirname, "fixtures/meso-row-single-5.png"))),
+    locatedBalance = Ocr.locateMesoReference(compactBalanceRow, balanceReference);
+  assert.ok(locatedBalance, "compact balance template should align to the shorter inventory row");
+  assert.deepEqual(
+    await Ocr.readMesoAmount(locatedBalance.amountImage, async () => ({ text: "", confidence: 0 })),
+    { amount: 5, confidence: 100 },
+    "verified isolated 5 should be recovered after OCR drops the glyph",
+  );
+  const threeShape = { width: 148, height: 19, data: new Uint8ClampedArray(148 * 19 * 4).fill(255) },
+    threeRows = [".###.", "#...#", "....#", "..##.", "....#", "....#", "#...#", ".###."];
+  for (let y = 0; y < threeRows.length; y++)
+    for (let x = 0; x < threeRows[y].length; x++)
+      if (threeRows[y][x] === "#") {
+        const i = ((y + 6) * threeShape.width + x + 138) * 4;
+        threeShape.data[i] = threeShape.data[i + 1] = threeShape.data[i + 2] = 0;
+      }
+  assert.equal(Ocr.recognizeSingleMesoFive(threeShape), null, "single-digit fallback must reject a different digit");
+
   const sample = PNG.sync.read(fs.readFileSync(path.join(__dirname, "fixtures/meso-clear-1135117.png"))),
     worker = await Tesseract.createWorker("eng", 1, {
       corePath: path.resolve(__dirname, "../assets/ocr"),
@@ -76,9 +97,18 @@ assert.deepEqual(
     const { data } = await worker.recognize(PNG.sync.write(input));
     return { text: data.text, confidence: data.confidence };
   });
-  await worker.terminate();
   assert.equal(actual?.amount, 1135117, "captured balance-box fixture should read 1,135,117 using bundled Tesseract");
   assert.ok(actual.confidence >= 40);
+
+  const actualSingle = await Ocr.readMesoAmount(singleFive, async (pixels) => {
+    await worker.setParameters({ tessedit_pageseg_mode: 7, tessedit_char_whitelist: "0123456789,." });
+    const input = new PNG({ width: pixels.width, height: pixels.height });
+    input.data = Buffer.from(pixels.data);
+    const { data } = await worker.recognize(PNG.sync.write(input));
+    return { text: data.text, confidence: data.confidence };
+  });
+  assert.equal(actualSingle?.amount, 5, "single clear 5 fixture should recover when bundled Tesseract drops the glyph");
+  await worker.terminate();
 
   let mesoReads = 0;
   const capture = { generation: 1, stream: {} },
