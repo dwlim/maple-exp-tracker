@@ -78,10 +78,7 @@
           }
           {
             const input = mesoRegion
-              ? {
-                  mesoImage: cropNormalized(frame._pixels, mesoRegion),
-                  mesoBorder: session.state.mesoAnchor?.border || null,
-                }
+              ? { mesoImage: cropNormalized(frame._pixels, mesoRegion) }
               : { mesoScanImage: frame._pixels };
             if (debug) input.onMesoPreview = onMesoPreview;
             const mesoRead = input.mesoScanImage && getMesoReference
