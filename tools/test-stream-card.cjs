@@ -51,8 +51,36 @@ assert.deepEqual(
     { mesoSamples: [{ amount: 1200000, t: now - 60000 }, { amount: 1300000, t: now }] },
     now,
   ),
-  { amount: "1,300,000", rate: "+6,000,000" },
+  { amount: "1,300,000", rate: "+6,000,000", rateValue: 6000000 },
   "Meso balance and trailing hourly rate render independently",
+);
+const currentPotionCosts = {
+  enabled: true,
+  updatedAt: now,
+  items: [
+    { group: "hp", price: 80, rate: 100, lastReadAt: now },
+    { group: "mp", price: 220, rate: 200, lastReadAt: now },
+  ],
+};
+assert.equal(
+  C.netMesoRate(
+    6000000,
+    currentPotionCosts,
+    { hp: 8000, mp: 44000, both: null },
+    now,
+  ),
+  5948000,
+  "Net meso rate subtracts the observed HP and MP potion costs",
+);
+assert.equal(
+  C.netMesoRate(
+    6000000,
+    currentPotionCosts,
+    { hp: null, mp: 44000, both: null },
+    now,
+  ),
+  null,
+  "Net meso rate stays unavailable when a tracked potion cost is unknown",
 );
 assert.equal(
   C.mesoMetrics({ mesoSamples: [{ amount: 1200000, t: now - 180000 }] }, now).amount,
