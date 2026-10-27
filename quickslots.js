@@ -6,6 +6,7 @@
       require("./quickslot-session"),
       require("./quickslot-layout"),
       require("./potion-costs"),
+      require("./quickslot-icon"),
     );
   else
     root.MapleQuickslots = factory(
@@ -14,10 +15,11 @@
       root.MapleQuickslotSession,
       root.MapleQuickslotLayout,
       root.MaplePotionCosts,
+      root.MapleQuickslotIcon,
     );
 })(
   typeof window === "undefined" ? globalThis : window,
-  function (Ocr, Regions, Session, Layout, Costs) {
+  function (Ocr, Regions, Session, Layout, Costs, Icon) {
     "use strict";
     const POTIONS = [
       ["red", "Red Potion"],
@@ -43,7 +45,8 @@
       const q = (id) => document.querySelector(id),
         profiles = new Map(),
         cards = new Map(),
-        cache = new Map();
+        cache = new Map(),
+        emptyFrames = new Map();
       let store = null,
         live = null,
         last = null,
@@ -147,6 +150,7 @@
         if (type && !potion) return false;
         const existing = store.state.items.find((i) => i.slot === index);
         if (existing?.potionType === type) return true;
+        emptyFrames.delete(index);
         restart();
         if (existing) store.remove(existing.id);
         if (potion) {
@@ -354,12 +358,14 @@
             if (stopped()) return;
           }
           if (!found) {
+            emptyFrames.clear();
             live = null;
             store?.invalidate();
             render();
             return;
           }
           if (!store || last?.kind !== found.kind) {
+            emptyFrames.clear();
             store?.invalidate();
             revision++;
             run = revision;
@@ -377,6 +383,30 @@
               c.thumb
                 .getContext("2d")
                 .drawImage(frame, b.x, b.y, b.w, b.h, 0, 0, 48, 48);
+          }
+          // A blank icon is expected when a tracked stack runs out. Require
+          // two distinct, nearby captures before clearing to ride out effects,
+          // cursor overlap, and temporary capture artifacts.
+          for (const item of [...store.state.items]) {
+            if (!Number.isInteger(item.slot)) continue;
+            const slot = found.slots[item.slot];
+            if (!slot) continue;
+            if (!Icon.clearlyEmpty(image, slot.box)) {
+              emptyFrames.delete(item.slot);
+              continue;
+            }
+            const previous = emptyFrames.get(item.slot);
+            if (!previous || t <= previous.t || t - previous.t > 25000) {
+              emptyFrames.set(item.slot, { count: 1, t });
+              continue;
+            }
+            if (previous.count + 1 < 2) {
+              emptyFrames.set(item.slot, { count: previous.count + 1, t });
+              continue;
+            }
+            emptyFrames.delete(item.slot);
+            cache.delete(item.id);
+            store.remove(item.id);
           }
           if (!store.state.enabled) return;
           let unreadable = false;

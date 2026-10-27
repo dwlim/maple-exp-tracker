@@ -139,6 +139,7 @@ assert.equal(s.add("thirteenth", region, 1000, 1000), null);
 
 const { dom, packedFrame } = require("./test-helpers.cjs"),
   Layout = require("../quickslot-layout"),
+  Icon = require("../quickslot-icon"),
   cases = require("./quickslot-layout-fixtures.json");
 for (const f of cases) {
   const im = packedFrame(f),
@@ -189,6 +190,22 @@ for (const f of cases) {
     "Controls alone do not imply a slot layout",
   );
 }
+const emptySample = cases.find((f) => f.name === "native-8-0"),
+  emptyImage = packedFrame(emptySample),
+  emptyLayout = Layout.detect(emptyImage);
+assert.ok(emptyLayout);
+for (const slot of [5, 6])
+  assert.equal(
+    Icon.clearlyEmpty(emptyImage, emptyLayout.slots[slot].box),
+    true,
+    "A genuinely blank native quickslot is recognized",
+  );
+for (const slot of [0, 1, 2, 3, 4, 7])
+  assert.equal(
+    Icon.clearlyEmpty(emptyImage, emptyLayout.slots[slot].box),
+    false,
+    "An item or skill icon is never mistaken for an empty slot",
+  );
 const ref = cases.find((f) => f.expected === 12),
   refImage = packedFrame(ref),
   refLayout = Layout.detect(refImage),
@@ -454,6 +471,28 @@ const eight = packedFrame(cases.find((f) => f.name === "native-8-10")),
   assert.equal(freshUI.store.state.items[1].count, 323);
   assert.equal(freshUI.store.state.items[1].used, 0);
   freshUI.dispose();
+  const emptyUI = Items.mount({
+    ...dom(),
+    storage: { getItem: () => null, setItem() {} },
+    getCapture: () => capture,
+  });
+  await emptyUI.process(frame(emptyImage), 1000);
+  emptyUI.assignSlot(5, "hp");
+  emptyUI.store.enable(false);
+  await emptyUI.process(frame(emptyImage), 11000);
+  assert.equal(emptyUI.store.state.items.length, 1, "One blank capture is not enough to clear");
+  await emptyUI.process(frame(emptyImage), 21000);
+  assert.equal(emptyUI.store.state.items.length, 0, "Two blank captures clear a tracked slot");
+  emptyUI.assignSlot(1, "hp");
+  emptyUI.store.enable(false);
+  await emptyUI.process(frame(emptyImage), 31000);
+  await emptyUI.process(frame(emptyImage), 41000);
+  assert.equal(
+    emptyUI.store.state.items[0]?.slot,
+    1,
+    "A visible potion icon keeps its assignment",
+  );
+  emptyUI.dispose();
   const smallImage = packedFrame(sequence[0]),
     sl = Layout.detect(smallImage).slots[2].quantity,
     smallCrop = require("../hud-regions").crop(smallImage, {
@@ -469,7 +508,7 @@ const eight = packedFrame(cases.find((f) => f.name === "native-8-10")),
     "Actual worker imports the small-font decoder",
   );
   console.log(
-    "Quickslots: real 8/12-slot HUDs, automatic quantities, potion assignments, separate saved layouts, usage/refills, cancellation, missing panels, worker imports and cached counts passed.",
+    "Quickslots: real 8/12-slot HUDs, empty-icon clearing, automatic quantities, potion assignments, separate saved layouts, usage/refills, cancellation, missing panels, worker imports and cached counts passed.",
   );
 })().catch((e) => {
   console.error(e);

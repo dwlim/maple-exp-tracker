@@ -4558,6 +4558,74 @@ return {detect,crop,anchors,percentageRegion};
 });
 </script>
 <!-- QUICKSLOT LAYOUT END -->
+<!-- QUICKSLOT ICON START -->
+<script>(function (root, factory) {
+  if (typeof module === "object" && module.exports) module.exports = factory();
+  else root.MapleQuickslotIcon = factory();
+})(typeof window === "undefined" ? globalThis : window, function () {
+  "use strict";
+
+  // Only call a slot empty when its icon's center is uniformly the pale empty
+  // cell background. The quantity and key label areas are deliberately left
+  // out. Uncertain, gray, or covered icons return false and keep the mapping.
+  function clearlyEmpty(image, box) {
+    if (
+      !image?.data ||
+      !box ||
+      !Number.isFinite(box.x) ||
+      !Number.isFinite(box.y) ||
+      !Number.isFinite(box.w) ||
+      !Number.isFinite(box.h) ||
+      box.w < 12 ||
+      box.h < 12
+    )
+      return false;
+    const x0 = Math.max(0, Math.floor(box.x + box.w * 0.16)),
+      x1 = Math.min(image.width, Math.ceil(box.x + box.w * 0.84)),
+      y0 = Math.max(0, Math.floor(box.y + box.h * 0.28)),
+      y1 = Math.min(image.height, Math.ceil(box.y + box.h * 0.7));
+    if (x1 - x0 < 5 || y1 - y0 < 5) return false;
+    let count = 0,
+      sum = 0,
+      squares = 0,
+      chromatic = 0,
+      edges = 0;
+    const lumaAt = (x, y) => {
+      const i = (y * image.width + x) * 4,
+        r = image.data[i],
+        g = image.data[i + 1],
+        b = image.data[i + 2];
+      return 0.299 * r + 0.587 * g + 0.114 * b;
+    };
+    for (let y = y0; y < y1; y++)
+      for (let x = x0; x < x1; x++) {
+        const i = (y * image.width + x) * 4,
+          r = image.data[i],
+          g = image.data[i + 1],
+          b = image.data[i + 2];
+        if (Math.max(r, g, b) - Math.min(r, g, b) > 40) chromatic++;
+        const value = lumaAt(x, y);
+        sum += value;
+        squares += value * value;
+        count++;
+        if (x > x0 && Math.abs(value - lumaAt(x - 1, y)) > 22) edges++;
+      }
+    if (!count) return false;
+    const mean = sum / count,
+      deviation = Math.sqrt(Math.max(0, squares / count - mean * mean));
+    return (
+      mean >= 215 &&
+      mean <= 253 &&
+      deviation <= 17 &&
+      chromatic / count <= 0.025 &&
+      edges / count <= 0.065
+    );
+  }
+
+  return { clearlyEmpty };
+});
+</script>
+<!-- QUICKSLOT ICON END -->
 <!-- QUICKSLOTS START -->
 <script>(function (root, factory) {
   if (typeof module === "object" && module.exports)
@@ -4567,6 +4635,7 @@ return {detect,crop,anchors,percentageRegion};
       require("./quickslot-session"),
       require("./quickslot-layout"),
       require("./potion-costs"),
+      require("./quickslot-icon"),
     );
   else
     root.MapleQuickslots = factory(
@@ -4575,10 +4644,11 @@ return {detect,crop,anchors,percentageRegion};
       root.MapleQuickslotSession,
       root.MapleQuickslotLayout,
       root.MaplePotionCosts,
+      root.MapleQuickslotIcon,
     );
 })(
   typeof window === "undefined" ? globalThis : window,
-  function (Ocr, Regions, Session, Layout, Costs) {
+  function (Ocr, Regions, Session, Layout, Costs, Icon) {
     "use strict";
     const POTIONS = [
       ["red", "Red Potion"],
@@ -4604,7 +4674,8 @@ return {detect,crop,anchors,percentageRegion};
       const q = (id) => document.querySelector(id),
         profiles = new Map(),
         cards = new Map(),
-        cache = new Map();
+        cache = new Map(),
+        emptyFrames = new Map();
       let store = null,
         live = null,
         last = null,
@@ -4708,6 +4779,7 @@ return {detect,crop,anchors,percentageRegion};
         if (type && !potion) return false;
         const existing = store.state.items.find((i) => i.slot === index);
         if (existing?.potionType === type) return true;
+        emptyFrames.delete(index);
         restart();
         if (existing) store.remove(existing.id);
         if (potion) {
@@ -4915,12 +4987,14 @@ return {detect,crop,anchors,percentageRegion};
             if (stopped()) return;
           }
           if (!found) {
+            emptyFrames.clear();
             live = null;
             store?.invalidate();
             render();
             return;
           }
           if (!store || last?.kind !== found.kind) {
+            emptyFrames.clear();
             store?.invalidate();
             revision++;
             run = revision;
@@ -4938,6 +5012,30 @@ return {detect,crop,anchors,percentageRegion};
               c.thumb
                 .getContext("2d")
                 .drawImage(frame, b.x, b.y, b.w, b.h, 0, 0, 48, 48);
+          }
+          // A blank icon is expected when a tracked stack runs out. Require
+          // two distinct, nearby captures before clearing to ride out effects,
+          // cursor overlap, and temporary capture artifacts.
+          for (const item of [...store.state.items]) {
+            if (!Number.isInteger(item.slot)) continue;
+            const slot = found.slots[item.slot];
+            if (!slot) continue;
+            if (!Icon.clearlyEmpty(image, slot.box)) {
+              emptyFrames.delete(item.slot);
+              continue;
+            }
+            const previous = emptyFrames.get(item.slot);
+            if (!previous || t <= previous.t || t - previous.t > 25000) {
+              emptyFrames.set(item.slot, { count: 1, t });
+              continue;
+            }
+            if (previous.count + 1 < 2) {
+              emptyFrames.set(item.slot, { count: previous.count + 1, t });
+              continue;
+            }
+            emptyFrames.delete(item.slot);
+            cache.delete(item.id);
+            store.remove(item.id);
           }
           if (!store.state.enabled) return;
           let unreadable = false;
