@@ -249,7 +249,7 @@
   }
   function createMesoReference(image) {
     if (!image?.data || image.width < 180 || image.height < 28) return null;
-    // Include the complete white balance box and its thin border in the OCR crop.
+    // Keep the complete balance box for template matching; OCR trims to its glyphs later.
     const amount = { x: 22, y: 0, w: 148, h: 19 }, gray = new Uint8Array(image.width * image.height), features = [];
     const grayAt = (x, y) => {
       const i = (y * image.width + x) * 4;
@@ -402,7 +402,7 @@
       w = best.amount.w, h = best.amount.h,
       amountImage = cropPixels(image, { x, y, w, h });
     if (!amountImage) return null;
-    try { onPreview(amountImage); } catch {}
+    try { onPreview(amountImage, reference.border); } catch {}
     if (!isMesoField(amountImage)) return null;
     return {
       region: { x: x / image.width, y: y / image.height, w: w / image.width, h: h / image.height },
@@ -478,6 +478,35 @@
           }
       }
     return { width, height, data };
+  }
+  function cropMesoText(image, border = null) {
+    if (!image?.data || !image.width || !image.height) return null;
+    let source = image;
+    if (border) {
+      const x = Math.round(border.x * image.width) + 1,
+        y = Math.round(border.y * image.height) + 1,
+        w = Math.round(border.w * image.width) - 2,
+        h = Math.round(border.h * image.height) - 2;
+      source = cropPixels(image, { x, y, w, h });
+      if (!source) return null;
+    }
+    const insetX = border ? 0 : Math.min(4, Math.max(2, Math.floor(source.width * 0.025))),
+      insetY = border ? 0 : Math.min(3, Math.max(2, Math.floor(source.height * 0.16)));
+    let minX = source.width, minY = source.height, maxX = -1, maxY = -1, ink = 0;
+    for (let y = insetY; y < source.height - insetY; y++)
+      for (let x = insetX; x < source.width - insetX; x++) {
+        const i = (y * source.width + x) * 4,
+          gray = source.data[i] * 0.299 + source.data[i + 1] * 0.587 + source.data[i + 2] * 0.114;
+        if (gray >= 170) continue;
+        ink++;
+        minX = Math.min(minX, x); minY = Math.min(minY, y);
+        maxX = Math.max(maxX, x); maxY = Math.max(maxY, y);
+      }
+    if (ink < 8 || maxX - minX < 3 || maxY - minY < 3) return null;
+    return cropPixels(source, {
+      x: minX - 1, y: minY - 1,
+      w: maxX - minX + 3, h: maxY - minY + 3,
+    });
   }
   function isMesoField(image) {
     let light = 0,
@@ -643,10 +672,10 @@
       }
     }
     if (full.features.length < 30) return null;
-    return { version: 3, width, height, amount, features, full };
+    return { version: 4, width, height, amount, features, full, border };
   }
   function locateMesoAnchor(image, anchor, previousRegion = null) {
-    if (!image?.data || anchor?.version !== 3 || !anchor?.features?.length) return null;
+    if (!image?.data || anchor?.version !== 4 || !anchor?.features?.length) return null;
     const full = anchor.full;
     if (previousRegion && full?.features?.length) {
       const scale = (previousRegion.w * image.width) / full.amount.w,
@@ -823,11 +852,12 @@
       scale: best.scale,
     };
   }
-  async function readMesoAmount(image, recognize) {
+  async function readMesoAmount(image, recognize, textImage = cropMesoText(image)) {
     if (!isMesoField(image)) return null;
+    if (!textImage) return null;
     const results = [];
     for (const [threshold, kind] of [[null, "meso-value"], [155, "meso-value-binary"]]) {
-      const pixels = prepareMeso(image, threshold),
+      const pixels = prepareMeso(textImage, threshold),
         reading = await recognize(pixels, kind),
         amount = parseMeso(reading.text);
       if (amount !== null && reading.confidence >= 40)
@@ -1024,9 +1054,11 @@
             };
         }
         if (input.mesoImage) {
-          result.mesoPreview = input.mesoImage;
+          const textImage = cropMesoText(input.mesoImage, input.mesoBorder || null);
+          result.mesoPreview = textImage || input.mesoImage;
+          try { input.onMesoPreview?.(result.mesoPreview); } catch {}
           try {
-            result.meso = await readMesoAmount(input.mesoImage, recognize);
+            result.meso = await readMesoAmount(input.mesoImage, recognize, textImage);
           } catch {
             // Meso reading is independent of level and EXP recognition.
             result.meso = null;
@@ -1035,15 +1067,16 @@
         if (input.mesoScanImage) {
           try {
             let candidatePreview = null;
-            const onPreview = (image) => {
-              candidatePreview = image;
-              try { input.onMesoPreview?.(image); } catch {}
+            const onPreview = (image, border) => {
+              candidatePreview = cropMesoText(image, border) || image;
+              try { input.onMesoPreview?.(candidatePreview); } catch {}
             };
             const field = (input.mesoReference && locateMesoReference(input.mesoScanImage, input.mesoReference, onPreview)) ||
               await locateMesoField(input.mesoScanImage, recognize, onPreview);
-            result.mesoPreview = field?.amountImage || candidatePreview;
+            const textImage = field && cropMesoText(field.amountImage, field.border);
+            result.mesoPreview = textImage || candidatePreview || field?.amountImage || null;
             if (field) {
-              const meso = await readMesoAmount(field.amountImage, recognize);
+              const meso = await readMesoAmount(field.amountImage, recognize, textImage);
               result.meso = meso ? { ...meso, region: field.region, border: field.border } : null;
             } else result.meso = null;
           } catch {

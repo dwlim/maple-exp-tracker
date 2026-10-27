@@ -59,7 +59,7 @@
           const sessionStartAt = session.state.startAt;
           // Migrate old saved anchors: the amount crop now includes the full
           // white balance box, so its previous coordinates must be rediscovered.
-          if (session.state.mesoAnchor && session.state.mesoAnchor.version !== 3) {
+          if (session.state.mesoAnchor && session.state.mesoAnchor.version !== 4) {
             session.state.mesoAnchor = null;
             session.state.mesoRegion = null;
             session.save();
@@ -78,11 +78,12 @@
           }
           {
             const input = mesoRegion
-              ? { mesoImage: cropNormalized(frame._pixels, mesoRegion) }
+              ? {
+                  mesoImage: cropNormalized(frame._pixels, mesoRegion),
+                  mesoBorder: session.state.mesoAnchor?.border || null,
+                }
               : { mesoScanImage: frame._pixels };
-            if (debug && input.mesoImage) onMesoPreview(input.mesoImage);
-            if (debug && input.mesoScanImage)
-              input.onMesoPreview = onMesoPreview;
+            if (debug) input.onMesoPreview = onMesoPreview;
             const mesoRead = input.mesoScanImage && getMesoReference
               ? getMesoReference().then((mesoReference) => localOcr.read({ ...input, mesoReference }))
               : localOcr.read(input);
