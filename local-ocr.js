@@ -249,7 +249,8 @@
   }
   function createMesoReference(image) {
     if (!image?.data || image.width < 180 || image.height < 28) return null;
-    const amount = { x: 24, y: 6, w: 145, h: 11 }, gray = new Uint8Array(image.width * image.height), features = [];
+    // Include the complete white balance box and its thin border in the OCR crop.
+    const amount = { x: 22, y: 4, w: 148, h: 15 }, gray = new Uint8Array(image.width * image.height), features = [];
     const grayAt = (x, y) => {
       const i = (y * image.width + x) * 4;
       return Math.round(image.data[i] * 0.299 + image.data[i + 1] * 0.587 + image.data[i + 2] * 0.114);
@@ -606,10 +607,10 @@
       fullAdd(x, full.amount.y + full.amount.h);
     }
     if (full.features.length < 30) return null;
-    return { width, height, amount, features, full };
+    return { version: 2, width, height, amount, features, full };
   }
   function locateMesoAnchor(image, anchor, previousRegion = null) {
-    if (!image?.data || !anchor?.features?.length) return null;
+    if (!image?.data || anchor?.version !== 2 || !anchor?.features?.length) return null;
     const full = anchor.full;
     if (previousRegion && full?.features?.length) {
       const scale = (previousRegion.w * image.width) / full.amount.w,

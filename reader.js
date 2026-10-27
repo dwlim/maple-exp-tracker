@@ -57,6 +57,13 @@
           lastMesoReadAt = readAt;
           mesoReading = true;
           const sessionStartAt = session.state.startAt;
+          // Migrate old saved anchors: the amount crop now includes the full
+          // white balance box, so its previous coordinates must be rediscovered.
+          if (session.state.mesoAnchor && session.state.mesoAnchor.version !== 2) {
+            session.state.mesoAnchor = null;
+            session.state.mesoRegion = null;
+            session.save();
+          }
           let mesoRegion = session.state.mesoRegion;
           if (session.state.mesoAnchor && mesoRegion) {
             const match = localOcr.locateMesoAnchor(
