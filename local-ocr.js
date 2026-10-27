@@ -292,7 +292,7 @@
       }
     return { width, height, amount, features };
   }
-  function locateMesoReference(image, reference) {
+  function locateMesoReference(image, reference, onPreview = () => {}) {
     if (!image?.data || !reference?.features?.length) return null;
     const gray = new Uint8Array(image.width * image.height);
     for (let i = 0, p = 0; i < image.data.length; i += 4, p++)
@@ -395,7 +395,9 @@
     const x = best.x + best.amount.x, y = best.y + best.amount.y,
       w = best.amount.w, h = best.amount.h,
       amountImage = cropPixels(image, { x, y, w, h });
-    if (!amountImage || !isMesoField(amountImage)) return null;
+    if (!amountImage) return null;
+    try { onPreview(amountImage); } catch {}
+    if (!isMesoField(amountImage)) return null;
     return { region: { x: x / image.width, y: y / image.height, w: w / image.width, h: h / image.height }, amountImage, score: best.score };
   }
   function loadMesoReference(document, url) {
@@ -416,7 +418,7 @@
       image.src = url;
     });
   }
-  async function locateMesoField(image, recognize) {
+  async function locateMesoField(image, recognize, onPreview = () => {}) {
     const scaled = scaleMesoScan(image);
     if (!scaled) return null;
     const scan = await recognize(scaled.image, "meso-scan"), words = scan.words || [],
@@ -445,7 +447,9 @@
       y = Math.max(0, Math.min(image.height - fieldHeight, (lb.y0 + lb.y1) * sy / 2 - fieldHeight / 2)),
       region = { x: x / image.width, y: y / image.height, w: (right - x) / image.width, h: fieldHeight / image.height },
       amountImage = cropPixels(image, { x, y, w: right - x, h: fieldHeight });
-    if (!amountImage || !isMesoField(amountImage)) return null;
+    if (!amountImage) return null;
+    try { onPreview(amountImage); } catch {}
+    if (!isMesoField(amountImage)) return null;
     return { region, amountImage };
   }
   function prepareMeso(image, threshold = null) {
@@ -983,6 +987,7 @@
             };
         }
         if (input.mesoImage) {
+          result.mesoPreview = input.mesoImage;
           try {
             result.meso = await readMesoAmount(input.mesoImage, recognize);
           } catch {
@@ -992,8 +997,14 @@
         }
         if (input.mesoScanImage) {
           try {
-            const field = (input.mesoReference && locateMesoReference(input.mesoScanImage, input.mesoReference)) ||
-              await locateMesoField(input.mesoScanImage, recognize);
+            let candidatePreview = null;
+            const onPreview = (image) => {
+              candidatePreview = image;
+              try { input.onMesoPreview?.(image); } catch {}
+            };
+            const field = (input.mesoReference && locateMesoReference(input.mesoScanImage, input.mesoReference, onPreview)) ||
+              await locateMesoField(input.mesoScanImage, recognize, onPreview);
+            result.mesoPreview = field?.amountImage || candidatePreview;
             if (field) {
               const meso = await readMesoAmount(field.amountImage, recognize);
               result.meso = meso ? { ...meso, region: field.region } : null;

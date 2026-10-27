@@ -29,6 +29,7 @@
     localOcr,
     getMesoReference,
     debug = false,
+    onMesoPreview = () => {},
   }) {
     let busy = false,
       mesoReading = false,
@@ -72,6 +73,9 @@
             const input = mesoRegion
               ? { mesoImage: cropNormalized(frame._pixels, mesoRegion) }
               : { mesoScanImage: frame._pixels };
+            if (debug && input.mesoImage) onMesoPreview(input.mesoImage);
+            if (debug && input.mesoScanImage)
+              input.onMesoPreview = onMesoPreview;
             const mesoRead = input.mesoScanImage && getMesoReference
               ? getMesoReference().then((mesoReference) => localOcr.read({ ...input, mesoReference }))
               : localOcr.read(input);
@@ -82,6 +86,8 @@
                 generation !== getCapture().generation ||
                 sessionStartAt !== session.state.startAt
               ) return;
+              if (debug)
+                onMesoPreview(mesoResult?.mesoPreview || input.mesoImage || null);
               if (mesoResult?.meso?.region && !session.state.mesoAnchor) {
                 const anchor = localOcr.createMesoAnchor?.(frame._pixels, mesoResult.meso.region) || null;
                 session.setMesoAnchor?.(mesoResult.meso.region, anchor);

@@ -14,6 +14,7 @@
     getImage,
     debug = false,
     onExpPreview = () => {},
+    onLevelPreview = () => {},
   }) {
     function readExpGlyphs(region, frame, level) {
       const pixels = cropLevelDigits(region, frame),
@@ -169,10 +170,14 @@
         width: frame.width,
         height: frame.height,
       };
-      if (!regions?.exp) return;
       const crop = regions.level
         ? cropLevelDigits(regions.level, frame)
         : { width: 1, height: 1, data: new Uint8ClampedArray(4) };
+      if (debug) onLevelPreview(regions.level ? crop : null);
+      if (!regions?.exp) {
+        if (debug) onExpPreview(null);
+        return;
+      }
       const levelResult = levelOcr.recognize(crop),
         expResult = readExpGlyphs(
           regions.exp,

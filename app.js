@@ -83,6 +83,7 @@
         getImage: () => q("#latestFrame"),
         debug,
         onExpPreview: (pixels) => view.showExpPreview(pixels),
+        onLevelPreview: (pixels) => view.showLevelPreview(pixels),
       });
       view = Dashboard.create({
         document,
@@ -114,6 +115,7 @@
         localOcr,
         getMesoReference: () => mesoReference,
         debug,
+        onMesoPreview: (pixels) => view.showMesoPreview(pixels),
       });
       const items = Quickslots.mount({
         document,

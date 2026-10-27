@@ -428,26 +428,24 @@
       );
     }
     function showExpPreview(pixels) {
+      showCropPreview("expCropPreview", pixels);
+    }
+    function showCropPreview(id, pixels) {
+      const img = q("#" + id), status = q("#" + id + "Status");
+      if (!img || !status) return;
+      if (!pixels?.data || !pixels.width || !pixels.height) {
+        img.removeAttribute("src");
+        status.textContent = "No crop found";
+        return;
+      }
       const canvas = document.createElement("canvas");
       canvas.width = pixels.width;
       canvas.height = pixels.height;
-      canvas
-        .getContext("2d")
-        .putImageData(
-          new window.ImageData(pixels.data, pixels.width, pixels.height),
-          0,
-          0,
-        );
-      let preview = q("#expGlyphPreview");
-      if (!preview) {
-        preview = document.createElement("img");
-        preview.id = "expGlyphPreview";
-        preview.alt = "Exact EXP crop used by the digit matcher";
-        preview.style.cssText =
-          "display:block;max-width:100%;height:56px;object-fit:contain;object-position:left;image-rendering:pixelated;margin:10px 4px";
-        q("#ocrOutput").after(preview);
-      }
-      preview.src = canvas.toDataURL();
+      canvas.getContext("2d").putImageData(
+        new window.ImageData(pixels.data, pixels.width, pixels.height), 0, 0,
+      );
+      img.src = canvas.toDataURL();
+      status.textContent = pixels.width + " × " + pixels.height + " px";
       canvas.width = 0;
       canvas.height = 0;
     }
@@ -598,6 +596,8 @@
       captureError,
       timing,
       showExpPreview,
+      showLevelPreview: (pixels) => showCropPreview("levelCropPreview", pixels),
+      showMesoPreview: (pixels) => showCropPreview("mesoCropPreview", pixels),
       previewFrame,
       notice,
       bindCalibration,
