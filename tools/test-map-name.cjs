@@ -60,6 +60,31 @@ const LocalOcr = require("../local-ocr");
       "Victoria Road · Henesys",
       "bundled OCR reads both lines of the minimap label",
     );
+
+    // Regression for the compact, dimmed window capture: ensure the detector
+    // finds its header and the OCR crop preserves the first map-name glyph.
+    const darkHeader = PNG.sync.read(
+        fs.readFileSync(path.join(__dirname, "fixtures/map-header-windowed-dark.png")),
+      ),
+      darkFrame = {
+        width: 1924,
+        height: 1126,
+        data: new Uint8ClampedArray(1924 * 1126 * 4),
+      };
+    for (let i = 0; i < darkFrame.data.length; i += 4) darkFrame.data[i + 3] = 255;
+    for (let y = 0; y < darkHeader.height; y++)
+      darkFrame.data.set(
+        darkHeader.data.subarray(y * darkHeader.width * 4, (y + 1) * darkHeader.width * 4),
+        (48 + y) * darkFrame.width * 4 + 4 * 4,
+      );
+    const darkMapCrop = MapName.cropHeaderText(darkFrame);
+    assert.ok(darkMapCrop, "find the compact minimap header in a dimmed game frame");
+    const darkResult = await reader.read({ mapImage: darkMapCrop });
+    assert.equal(
+      darkResult.map?.text,
+      "Kerning City Subway · Line 1 Area 1",
+      "contrast recovery and crop alignment preserve the first glyph on compact HUDs",
+    );
   } finally {
     await worker.terminate();
   }

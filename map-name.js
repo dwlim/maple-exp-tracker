@@ -19,12 +19,12 @@
       const i = (y * width + x) * 4,
         r = image.data[i],
         g = image.data[i + 1],
-        b = image.data[i + 2];
+        b = image.data[i + 2],
+        total = r + g + b;
       return (
-        r >= 125 && r <= 180 &&
-        g >= 160 && g <= 215 &&
-        b >= 180 && b <= 225 &&
-        g - r >= 20 && b >= g && b - g <= 35
+        total > 35 &&
+        (g - r) / total >= 0.05 &&
+        (b - g) / total >= 0.015
       );
     };
     for (let sy = 0; sy < scanHeight; sy++) {
@@ -91,7 +91,10 @@
     if (!box) return null;
     // The icon sits at the left of the minimap header. Keep both lines of
     // text and a small margin while excluding the icon and frame border.
-    const x0 = Math.max(0, Math.floor(box.x + box.w * 0.2)),
+    // Compact/windowed captures devote a smaller fraction of the title bar to
+    // the icon. A fixed 20% offset clips the first glyph on those layouts.
+    const compactHeader = box.w / image.width < 0.155,
+      x0 = Math.max(0, Math.floor(box.x + box.w * (compactHeader ? 0.16 : 0.2))),
       y0 = Math.max(0, Math.floor(box.y + box.h * 0.35)),
       x1 = Math.min(image.width, Math.ceil(box.x + box.w * 0.97)),
       y1 = Math.min(image.height, Math.ceil(box.y + box.h * 0.92)),
@@ -110,6 +113,28 @@
           );
         data[target] = data[target + 1] = data[target + 2] = gray;
         data[target + 3] = 255;
+      }
+    // Captures can be dimmed by overlays or Windows capture composition. Use
+    // a robust percentile stretch so the pale lettering remains legible while
+    // ignoring a few extreme pixels from the frame and text edges.
+    const histogram = new Uint32Array(256);
+    for (let i = 0; i < data.length; i += 4) histogram[data[i]]++;
+    const pixelCount = w * h;
+    function percentile(target) {
+      let total = 0;
+      for (let value = 0; value < histogram.length; value++) {
+        total += histogram[value];
+        if (total >= target) return value;
+      }
+      return 255;
+    }
+    const low = percentile(pixelCount * 0.05),
+      high = percentile(pixelCount * 0.95),
+      range = high - low;
+    if (compactHeader && range >= 24)
+      for (let i = 0; i < data.length; i += 4) {
+        const value = Math.max(0, Math.min(255, Math.round(((data[i] - low) * 255) / range)));
+        data[i] = data[i + 1] = data[i + 2] = value;
       }
     return { width: w, height: h, data };
   }
