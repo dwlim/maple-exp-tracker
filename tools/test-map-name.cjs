@@ -32,6 +32,19 @@ const Reader = require("../reader");
     MapName.parse("Victoria Road\nHenesys", 70).text,
     "Victoria Road · Henesys",
   );
+  const corrected = MapName.parse("Dungeon\nCamp Forest", 51);
+  assert.equal(
+    corrected.text,
+    "Dungeon · Damp Forest",
+    "the map lexicon corrects a one-character OCR error when the street line anchors the match",
+  );
+  assert.equal(corrected.canonicalized, true);
+  const ambiguous = MapName.parse("Dungeon\nCamp Frest", 51);
+  assert.equal(
+    ambiguous.text,
+    "Dungeon · Camp Frest",
+    "uncertain OCR remains raw instead of being guessed from the map list",
+  );
 
   const worker = await createWorker("eng", 1, {
     langPath: path.resolve("assets/ocr"),
@@ -83,7 +96,7 @@ const Reader = require("../reader");
     const darkResult = await reader.read({ mapImage: darkMapCrop });
     assert.equal(
       darkResult.map?.text,
-      "Kerning City Subway · Line 1 Area 1",
+      "Kerning City Subway · Line 1 <Area 1>",
       "contrast recovery and crop alignment preserve the first glyph on compact HUDs",
     );
 

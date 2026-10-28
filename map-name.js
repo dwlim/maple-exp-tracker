@@ -1,7 +1,8 @@
 (function (root, factory) {
-  if (typeof module === "object" && module.exports) module.exports = factory();
-  else root.MapleMapName = factory();
-})(typeof window === "undefined" ? globalThis : window, function () {
+  if (typeof module === "object" && module.exports)
+    module.exports = factory(require("./map-name-data"));
+  else root.MapleMapName = factory(root.MapleMapNames || []);
+})(typeof window === "undefined" ? globalThis : window, function (mapNames) {
   "use strict";
 
   // The minimap's title field is a distinctive pale blue. Search only the
@@ -179,6 +180,53 @@
     return { width, height, data };
   }
 
+  function normalizeName(text) {
+    return String(text || "")
+      .toLowerCase()
+      .replace(/[^a-z0-9]/g, "");
+  }
+
+  function editDistance(left, right) {
+    const a = normalizeName(left),
+      b = normalizeName(right);
+    if (!a || !b) return Infinity;
+    let previous = Array.from({ length: b.length + 1 }, (_, i) => i),
+      current = new Array(b.length + 1);
+    for (let i = 1; i <= a.length; i++) {
+      current[0] = i;
+      for (let j = 1; j <= b.length; j++)
+        current[j] = Math.min(
+          previous[j] + 1,
+          current[j - 1] + 1,
+          previous[j - 1] + (a[i - 1] === b[j - 1] ? 0 : 1),
+        );
+      [previous, current] = [current, previous];
+    }
+    return previous[b.length];
+  }
+
+  function canonicalMap(lines) {
+    if (lines.length !== 2 || !Array.isArray(mapNames)) return null;
+    const matches = [];
+    for (const [street, name] of mapNames) {
+      const streetDistance = editDistance(lines[0], street),
+        nameDistance = editDistance(lines[1], name),
+        maxNameDistance = Math.min(2, Math.max(1, Math.floor(normalizeName(name).length * 0.08)));
+      // Require at least one exact line as a strong anchor. This lets the
+      // known street disambiguate a small typo in the map name, without
+      // turning unrelated or ambiguous OCR into a guessed map.
+      if (
+        streetDistance <= 1 &&
+        nameDistance <= maxNameDistance &&
+        (streetDistance === 0 || nameDistance === 0)
+      )
+        matches.push({ street, name, score: streetDistance + nameDistance });
+    }
+    matches.sort((a, b) => a.score - b.score);
+    if (!matches.length || (matches[1] && matches[1].score === matches[0].score)) return null;
+    return matches[0];
+  }
+
   function parse(text, confidence) {
     if (!Number.isFinite(confidence) || confidence < 40) return null;
     const lines = String(text || "")
@@ -188,7 +236,12 @@
       .filter((line) => line.length >= 3 && /[A-Za-z]{3}/.test(line))
       .slice(0, 2);
     if (!lines.length || lines.some((line) => line.length > 38)) return null;
-    return { text: lines.join(" · "), confidence };
+    const canonical = canonicalMap(lines);
+    return {
+      text: canonical ? `${canonical.street} · ${canonical.name}` : lines.join(" · "),
+      confidence,
+      canonicalized: !!canonical,
+    };
   }
 
   function hash(image) {
@@ -198,5 +251,5 @@
     return value >>> 0;
   }
 
-  return { findHeader, cropHeaderText, prepare, parse, hash };
+  return { findHeader, cropHeaderText, prepare, parse, hash, canonicalMap };
 });

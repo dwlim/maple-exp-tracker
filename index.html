@@ -2053,11 +2053,25 @@ return {detect,crop,anchors,percentageRegion};
 });
 </script>
 <!-- HUD REGIONS END -->
+<!-- MAP NAMES START -->
+<script>// Canonical street/map pairs used as a local OCR correction vocabulary.
+// Adapted from OSMS Data Explorer public dataset (CC BY 4.0):
+// https://osmsdataexplorer.com/ · https://creativecommons.org/licenses/by/4.0/
+// Changes: reduced to unique street/map-name pairs. The dataset is unofficial;
+// MapleStory names and other game content are © Nexon and are not covered by CC BY.
+(function (root) {
+  const pairs = [["Maple Road","Mushroom Town - West Entrance"],["Maple Road","Mushroom Town"],["Maple Road","Mushroom Town Townstreet"],["Maple Road","East Entrance to Mushroom Town"],["Maple Road","Snail Hunting Ground I"],["Maple Road","Snail Hunting Ground II"],["Maple Road","Snail Hunting Ground III"],["Maple Road","A Split Road"],["Maple Road","Southperry"],["Maple Road","Southperry Armor Store"],["Rainbow Street","The Field West of Amherst"],["Rainbow Street","In a Small Forest"],["Rainbow Street","Dangerous Forest"],["Rainbow Street","Mushroom Garden"],["Rainbow Street","Snail Garden"],["Rainbow Street","Hunting Ground Middle of the Forest I"],["Rainbow Street","Hunting Ground Middle of the Forest II"],["Rainbow Street","Amherst"],["Rainbow Street","Amherst Weapon Store"],["Rainbow Street","Amherst Townstreet"],["Rainbow Street","Amherst Department Store"],["Rainbow Street","Snail Field of Flowers"],["Rainbow Street","The Field East of Amherst"],["Rainbow Street","Tomato Field"],["Victoria Road","Lith Harbor"],["Victoria Road","Lith Harbor Armor Shop"],["Victoria Road","Lith Harbor Department Store"],["Victoria Road","Lith Harbor Weapon Shop"],["Victoria Road","Right Around Lith Harbor"],["Victoria Road","Thicket Around the Beach I"],["Victoria Road","Thicket Around the Beach II"],["Victoria Road","Thicket Around the Beach III"],["Victoria Road","3-Way Road-Split"],["Hidden Street","The Pig Beach"],["Hidden Street","Beach Hunting Ground"],["Victoria Road","Henesys"],["Victoria Road","Henesys Townstreet"],["Hidden Street","An Empty House"],["Hidden Street","Pig Park"],["Hidden Street","Pig Park II"],["Hidden Street","Someone Else's House"],["Hidden Street","The Resting Spot, Pig Park"],["Victoria Road","Henesys Town Hall"],["Yellow Mushroom House","Victoria Road"],["Victoria Road","Henesys Hunting Ground I"],["Victoria Road","Henesys Hunting Ground II"],["Victoria Road","Henesys Hunting Ground III"],["Victoria Road","A Hill West of Henesys "],["Hidden Street","Mushroom Garden"],["Victoria Road","Forest West of Henesys"],["Victoria Road","Henesys Market"],["Victoria Road","Henesys Weapon Store"],["Victoria Road","Henesys Department Store"],["Victoria Road","Henesys Plastic Surgery"],["Victoria Road","Henesys Hair Salon"],["Victoria Road","Henesys Skin-Care"],["Victoria Road","Henesys Park"],["Victoria Road","Bowman Instructional School"],["Victoria Road","Pet-Walking Road"],["Victoria Road","The Hill East of Henesys"],["Victoria Road","The Rain-Forest East of Henesys"],["Victoria Road","The Forest East of Henesys"],["Hidden Street","The Blue Mushroom Forest"],["Hidden Street","Utah's Pig Farm"],["Warning Street","The Road to the Dungeon"],["Warning Street","Henesys Dungeon Entrance"],["Hidden Street","The Breathing Rock"],["Victoria Road","The Entrance of Golem's Temple"],["Victoria Road","Golem's Temple I"],["Victoria Road","Golem's Temple II"],["Victoria Road","Golem's Temple III"],["Victoria Road","Golem's Temple IV"],["Victoria Road","Ellinia"],["Victoria Road","Ellinia Weapon Store"],["Victoria Road","Ellinia Department Store"],["Victoria Road","Magic Library"],["Hidden Street","Marr's Forest"],["Hidden Street","The Circulation Desk"],["Victoria Road","The Field South of Ellinia"],["Victoria Road","The Forest of Wisdom"],["Hidden Street","Monkey Forest I"],["Victoria Road","Tree Dungeon, Monkey Forest I"],["Victoria Road","Monkey Forest II"],["Hidden Street","Tree Dungeon, Monkey Forest II"],["Hidden Street","The Forest of Evil I"],["Hidden Street","The Forest of Evil II"],["Hidden Street","Downstairs at the Forest"],["Victoria Road","The Forest South of Ellinia"],["Victoria Road","Dungeon, Southern Forest I"],["Victoria Road","Dungeon, Southern Forest II"],["Victoria Road","Dungeon, Southern Forest III"],["Victoria Road","Dungeon, Southern Forest IV"],["Hidden Street","The Forest of Patience <Step 1>"],["Hidden Street","The Forest of Patience <Step 2>"],["Hidden Street","The Forest of Patience <Step 3>"],["Hidden Street","The Forest of Patience <Step 4>"],["Hidden Street","The Forest of Patience <Step 5>"],["Victoria Road","The Field Up North of Ellinia"],["Victoria Road","The Tree That Grew I"],["Victoria Road","The Tree That Grew II"],["Victoria Road","The Tree That Grew III"],["Victoria Road","The Forest North of Ellinia"],["Victoria Road","The Tree Tunnel At the Forest Up North"],["Victoria Road","Tree Dungeon, Forest Up North I"],["Victoria Road","Tree Dungeon, Forest Up North II"],["Victoria Road","Tree Dungeon, Forest Up North III"],["Victoria Road","Tree Dungeon, Forest Up North IV"],["Victoria Road","Tree Dungeon, Forest Up North V"],["Victoria Road","Tree Dungeon, Forest Up North VI"],["Victoria Road","Tree Dungeon, Forest Up North VII"],["Victoria Road","Tree Dungeon, Forest Up North VIII"],["Victoria Road","Tree Dungeon, Forest Up North IX"],["Victoria Road","Ellinia Station"],["Victoria Road","Before Takeoff <To Orbis>"],["Victoria Road","Kerning City"],["Victoria Road","Kerning City Self-Defence Item Store"],["Victoria Road","Kerning City Pharmacy"],["Victoria Road","Thieves' Hideout"],["Victoria Road","Niora Hospital"],["Victoria Road","Kerning City Hair Salon"],["Victoria Road","Kerning City Repair Shop"],["Victoria Road","Kerning City Civic Center"],["Victoria Road","Backalley Semi-Basement"],["Victoria Road","Kerning City Construction Site"],["Hidden Street","Caution Falling Down"],["Victoria Road","L Forest I"],["Victoria Road","L Forest II"],["Victoria Road","L Forest III"],["Victoria Road","Kerning City Middle Forest I"],["Victoria Road","Kerning City Middle Forest II"],["Victoria Road","Kerning City Middle Forest III"],["Victoria Road","Subway Ticketing Booth"],["Kerning City Subway","Line 1 <Area 1>"],["Kerning City Subway","Transfer Area"],["Kerning City Subway","Line 1 <Area 2>"],["Kerning City Subway","Line 1 <Area 3>"],["Kerning City Subway","Line 1 <Area 4>"],["Kerning City Subway","Line 2 <Area 1>"],["Kerning City Subway","Line 2 <Area 2>"],["Kerning City Subway","Line 2 <Area 3>"],["Victoria Road","Sunset Sky"],["Victoria Road","Construction Site North of Kerning City"],["Hidden Street","Northern Top of Construction Site"],["Warning Street","The Swamp of Despair I"],["Warning Street","The Swamp of Despair II"],["Warning Street","The Swamp of Despair III"],["Warning Street","Dangerous Croko I"],["Warning Street","Dangerous Croko II"],["Hidden Street","Monkey Swamp I"],["Hidden Street","Monkey Swamp II"],["Hidden Street","Monkey Swamp III"],["Hidden Street","The Hermit's Cabin"],["Line 3 Construction Site","B1 <Area 1>"],["Line 3 Construction Site","B1 <Area 2>"],["Line 3 Construction Site","B1 <Subway Depot>"],["Line 3 Construction Site","B2 <Area 1>"],["Line 3 Construction Site","B2 <Area 2>"],["Line 3 Construction Site","B2 <Subway Depot>"],["Line 3 Construction Site","B3 <Area 1>"],["Line 3 Construction Site","B3 <Area 2>"],["Line 3 Construction Site","B3 <Area 3>"],["Line 3 Construction Site","B3 <Subway Depot>"],["Hidden Street","The Murky Swamp I"],["Hidden Street","The Murky Swamp II"],["Hidden Street","Cabin of the Forsaken"],["Victoria Road","Perion"],["Victoria Road","Perion Weapon Store"],["Victoria Road","Perion Department Store"],["Victoria Road","Warriors' Sanctuary"],["Victoria Road","West Street Corner of Perion"],["Victoria Road","West Rocky Mountain I"],["Victoria Road","West Rocky Mountain II"],["Victoria Road","West Rocky Mountain III"],["Victoria Road","West Rocky Mountain IV"],["Victoria Road","West Domain of Perion"],["Victoria Road","Perion Street Corner"],["Hidden Street","Land of Wild Boar"],["Hidden Street","Over the Wall"],["Victoria Road","East Rocky Mountain I"],["Victoria Road","East Rocky Mountain II"],["Victoria Road","East Rocky Mountain III"],["Victoria Road","East Rocky Mountain IV"],["Victoria Road","East Rocky Mountain V"],["Victoria Road","East Rocky Mountain VI"],["Victoria Road","East Rocky Mountain VII"],["Victoria Road","Parched Land"],["Victoria Road","Rocky Road I"],["Victoria Road","Rocky Road II"],["Victoria Road","Rocky Road III"],["Victoria Road","East Domain of Perion"],["Hidden Street","The Land of Wild Boar II"],["Warning Street","Deep Valley I"],["Hidden Street","Dangerous Valley"],["Hidden Street","Dangerous Valley II"],["Warning Street","Deep Valley II"],["Warning Street","The Burnt Land I"],["Warning Street","The Burnt Land II"],["Warning Street","The Burnt Land III"],["Warning Street","The Burnt Land IV"],["Warning Street","The Burnt Land V"],["Warning Street","Deep Valley III"],["Warning Street","Perion Dungeon Entrance"],["Victoria Road","Excavation Site I"],["Victoria Road","Excavation Site II"],["Victoria Road","Excavation Site III"],["Victoria Road","Excavation Site <Camp>"],["Victoria Road","Remains <Tomb> I"],["Victoria Road","Remains <Tomb> II"],["Victoria Road","Remains <Tomb> III"],["Victoria Road","Remains <Tomb> IV"],["Victoria Road","Remains <Cliff>"],["Victoria Road","Camp 1"],["Victoria Road","Camp 2"],["Victoria Road","Camp 3"],["Dungeon","Sleepywood"],["Dungeon","Sleepywood Hotel"],["Dungeon","Regular Sauna"],["Dungeon","VIP Sauna"],["Dungeon","Swampy Land in a Deep Forest"],["Dungeon","Hunting Ground in the Deep Forest I"],["Dungeon","Hunting Ground in the Deep Forest II"],["Dungeon","Deep Forest"],["Dungeon","Damp Tree-Forest"],["Dungeon","Damp Forest"],["Hidden Street","The Deep Forest of Patience <Step 1>"],["Hidden Street","The Deep Forest of Patience <Step 2>"],["Hidden Street","The Deep Forest of Patience <Step 3>"],["Hidden Street","The Deep Forest of Patience <Step 4>"],["Hidden Street","The Deep Forest of Patience <Step 5>"],["Hidden Street","The Deep Forest of Patience <Step 6>"],["Hidden Street","The Deep Forest of Patience <Step 7>"],["Dungeon","Sleepy Dungeon I"],["Dungeon","Sleepy Dungeon II"],["Dungeon","Sleepy Dungeon III"],["Dungeon","Sleepy Dungeon IV"],["Dungeon","Sleepy Dungeon V"],["Dungeon","Ant Tunnel I"],["Dungeon","Ant Tunnel II"],["Dungeon","Ant Tunnel III"],["Dungeon","Ant Tunnel IV"],["Dungeon","Dark Cave"],["Dungeon","Dangerous Steam"],["Dungeon","Deep Ant Tunnel I"],["Dungeon","Deep Ant Tunnel II"],["Dungeon","Ant Tunnel Park"],["Dungeon","The Cave of Evil Eye I"],["Dungeon","The Cave of Evil Eye II"],["Dungeon","The Cave of Evil Eye III"],["Dungeon","The Cave of Evil Eye IV"],["Dungeon","Drake Hunting Ground"],["Dungeon","The Tunnel That Lost Light I"],["Dungeon","The Tunnel That Lost Light II"],["Dungeon","The Grave of Mushmom"],["Dungeon","Another Entrance"],["Dungeon","Drake's Meal Table"],["Dungeon","Wild Kargo's Area"],["Dungeon","Another Path"],["Dungeon","Sanctuary Entrance I"],["Dungeon","Sanctuary Entrance II"],["Dungeon","Sanctuary Entrance III"],["Dungeon","Sanctuary Entrance IV"],["Dungeon","The Cursed Sanctuary"],["Florina Road","Florina Beach"],["Florina Road","A Look-Out Shed Around the Beach"],["Florina Road","Lorang Lorang"],["Hidden Street","Lorang Lorang Lorang"],["Florina Road","Lorang and Clang"],["Florina Road","Clang and Lorang"],["Florina Road","Hot Sand"],["Hidden Street","1st Accompaniment <1st Stage>"],["Hidden Street","1st Accompaniment <2nd Stage>"],["Hidden Street","1st Accompaniment <3rd Stage>"],["Hidden Street","1st Accompaniment <4th stage>"],["Hidden Street","1st Accompaniment <Last Stage>"],["Hidden Street","1st Accompaniment <Bonus>"],["Hidden Street","1st Accompaniment <Exit>"],["Hidden Street","Ant Tunnel For Bowman"],["Hidden Street","Magician's Tree Dungeon"],["Hidden Street","Thief's Construction Site"],["Hidden Street","Warrior's Rocky Mountain"],["Hidden Street","Free Market Entrance"],["Hidden Street","Free Market <1>"],["Hidden Street","Free Market <2>"],["Hidden Street","Free Market <3>"],["Hidden Street","Free Market <4>"],["Hidden Street","Free Market <5>"],["Hidden Street","Free Market <6>"],["Hidden Street","Free Market <7>"],["Hidden Street","Free Market <8>"],["Hidden Street","Free Market <9>"],["Hidden Street","Free Market <10>"],["Hidden Street","Free Market <11>"],["Hidden Street","Free Market <12>"],["Hidden Street","Free Market <13>"],["Hidden Street","Free Market <14>"],["Hidden Street","Free Market <15>"],["Hidden Street","Free Market <16>"],["Hidden Street","Free Market <17>"],["Hidden Street","Free Market <18>"],["Hidden Street","Free Market <19>"],["Hidden Street","Free Market <20>"],["Hidden Street","Primrose Hill"],["Hidden Street","Shortcut"],["Hidden Street","Pig Town"],["Hidden Street","Back to Town"],["Victoria Road","Yellow Mushroom House"],["Truth Booth","Truth Booth"],["Hidden Street","Maple Hill"],["Hidden Street","Physical Fitness Test <Waiting Room>"],["Hidden Street","Physical Fitness Test <Level 1>"],["Hidden Street","Physical Fitness Test <Level 2>"],["Hidden Street","Physical Fitness Test <Level 3>"],["Hidden Street","Physical Fitness Test <Level 4>"],["Hidden Street","Physical Fitness Test <Easy Waiting Room>"],["Hidden Street","Physical Fitness Test <Easy Level 1>"],["Hidden Street","Physical Fitness Test <Easy Level 2>"],["Hidden Street","Physical Fitness Test <Easy Level 3>"],["Hidden Street","Physical Fitness Test <Normal Waiting Room>"],["Hidden Street","Physical Fitness Test <Normal Level 1>"],["Hidden Street","Physical Fitness Test <Normal Level 2>"],["Hidden Street","Physical Fitness Test <Normal Level 3>"],["Hidden Street","Up and Up <Level 1>"],["Hidden Street","Up and Up <Level 2>"],["Hidden Street","Up and Up <Level 3>"],["Hidden Street","Coconut Harvest"],["Hidden Street","G* Coconut Season"],["Hidden Street","Leaving the Event"],["Hidden Street","Receiving the Reward For the Event"],["Hidden Street","The Manager's Room"],["Hidden Street","White Room"]];
+  if (typeof module === "object" && module.exports) module.exports = pairs;
+  else root.MapleMapNames = pairs;
+})(typeof window === "undefined" ? globalThis : window);
+</script>
+<!-- MAP NAMES END -->
 <!-- MAP NAME START -->
 <script>(function (root, factory) {
-  if (typeof module === "object" && module.exports) module.exports = factory();
-  else root.MapleMapName = factory();
-})(typeof window === "undefined" ? globalThis : window, function () {
+  if (typeof module === "object" && module.exports)
+    module.exports = factory(require("./map-name-data"));
+  else root.MapleMapName = factory(root.MapleMapNames || []);
+})(typeof window === "undefined" ? globalThis : window, function (mapNames) {
   "use strict";
 
   // The minimap's title field is a distinctive pale blue. Search only the
@@ -2235,6 +2249,53 @@ return {detect,crop,anchors,percentageRegion};
     return { width, height, data };
   }
 
+  function normalizeName(text) {
+    return String(text || "")
+      .toLowerCase()
+      .replace(/[^a-z0-9]/g, "");
+  }
+
+  function editDistance(left, right) {
+    const a = normalizeName(left),
+      b = normalizeName(right);
+    if (!a || !b) return Infinity;
+    let previous = Array.from({ length: b.length + 1 }, (_, i) => i),
+      current = new Array(b.length + 1);
+    for (let i = 1; i <= a.length; i++) {
+      current[0] = i;
+      for (let j = 1; j <= b.length; j++)
+        current[j] = Math.min(
+          previous[j] + 1,
+          current[j - 1] + 1,
+          previous[j - 1] + (a[i - 1] === b[j - 1] ? 0 : 1),
+        );
+      [previous, current] = [current, previous];
+    }
+    return previous[b.length];
+  }
+
+  function canonicalMap(lines) {
+    if (lines.length !== 2 || !Array.isArray(mapNames)) return null;
+    const matches = [];
+    for (const [street, name] of mapNames) {
+      const streetDistance = editDistance(lines[0], street),
+        nameDistance = editDistance(lines[1], name),
+        maxNameDistance = Math.min(2, Math.max(1, Math.floor(normalizeName(name).length * 0.08)));
+      // Require at least one exact line as a strong anchor. This lets the
+      // known street disambiguate a small typo in the map name, without
+      // turning unrelated or ambiguous OCR into a guessed map.
+      if (
+        streetDistance <= 1 &&
+        nameDistance <= maxNameDistance &&
+        (streetDistance === 0 || nameDistance === 0)
+      )
+        matches.push({ street, name, score: streetDistance + nameDistance });
+    }
+    matches.sort((a, b) => a.score - b.score);
+    if (!matches.length || (matches[1] && matches[1].score === matches[0].score)) return null;
+    return matches[0];
+  }
+
   function parse(text, confidence) {
     if (!Number.isFinite(confidence) || confidence < 40) return null;
     const lines = String(text || "")
@@ -2244,7 +2305,12 @@ return {detect,crop,anchors,percentageRegion};
       .filter((line) => line.length >= 3 && /[A-Za-z]{3}/.test(line))
       .slice(0, 2);
     if (!lines.length || lines.some((line) => line.length > 38)) return null;
-    return { text: lines.join(" · "), confidence };
+    const canonical = canonicalMap(lines);
+    return {
+      text: canonical ? `${canonical.street} · ${canonical.name}` : lines.join(" · "),
+      confidence,
+      canonicalized: !!canonical,
+    };
   }
 
   function hash(image) {
@@ -2254,7 +2320,7 @@ return {detect,crop,anchors,percentageRegion};
     return value >>> 0;
   }
 
-  return { findHeader, cropHeaderText, prepare, parse, hash };
+  return { findHeader, cropHeaderText, prepare, parse, hash, canonicalMap };
 });
 </script>
 <!-- MAP NAME END -->
