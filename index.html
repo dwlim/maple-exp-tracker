@@ -2153,8 +2153,12 @@ return {detect,crop,anchors,percentageRegion};
     // part of it in the OCR input. Use the detected header height as a floor
     // for the icon exclusion while retaining the width-based offset on larger
     // layouts; this keeps the first map-name glyph intact.
-    const compactHeader = box.w / image.width < 0.155,
-      iconClearance = Math.ceil(box.h * 1.08),
+    const headerWidthRatio = box.w / image.width,
+      compactHeader = headerWidthRatio < 0.155,
+      // Only the very narrow headers need this height-based floor. The wider
+      // compact layout already has enough horizontal space after the logo;
+      // applying the floor there can clip the first letter of the title.
+      iconClearance = headerWidthRatio < 0.12 ? Math.ceil(box.h * 1.08) : 0,
       xOffset = Math.max(
         box.w * (compactHeader ? 0.16 : 0.2),
         iconClearance,
