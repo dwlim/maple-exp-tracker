@@ -60,6 +60,25 @@ const Reader = require("../reader");
   assert.ok(anchoredHeader.x < 10 && anchoredHeader.y < 60, "anchor to the top-left minimap logo");
   assert.ok(anchoredCrop.width > 80, "keep the full label after cropping past the logo");
   assert.equal(MapName.splitLabelLines(anchoredCrop).length, 2, "separate the street and map-name rows");
+  const dampReference = PNG.sync.read(
+      fs.readFileSync(path.join(__dirname, "fixtures/map-header-damp-forest.png")),
+    ),
+    dampFrame = {
+      width: 1924,
+      height: 1126,
+      data: new Uint8ClampedArray(1924 * 1126 * 4),
+    };
+  for (let i = 0; i < dampFrame.data.length; i += 4) {
+    dampFrame.data[i] = dampFrame.data[i + 1] = dampFrame.data[i + 2] = 70;
+    dampFrame.data[i + 3] = 255;
+  }
+  for (let y = 0; y < dampReference.height; y++)
+    dampFrame.data.set(
+      dampReference.data.subarray(y * dampReference.width * 4, (y + 1) * dampReference.width * 4),
+      (44 + y) * dampFrame.width * 4,
+    );
+  const dampCrop = MapName.cropHeaderText(dampFrame);
+  assert.ok(dampCrop, "find the minimap header in the failed Damp Forest capture");
   assert.equal(MapName.parse("Victoria Road\nHenesys", 39), null);
   assert.equal(
     MapName.parse("Victoria Road\nHenesys", 70).text,
@@ -72,6 +91,11 @@ const Reader = require("../reader");
     "the map lexicon corrects a one-character OCR error when the street line anchors the match",
   );
   assert.equal(corrected.canonicalized, true);
+  assert.equal(
+    MapName.parse("Hidden Street\nFee Marker i14", 41)?.text,
+    "Hidden Street · Free Market <14>",
+    "the exact street and numeric suffix disambiguate a three-character OCR error",
+  );
   const ambiguous = MapName.parse("Dungeon\nCamp Frest", 51);
   assert.equal(
     ambiguous.text,
@@ -113,6 +137,13 @@ const Reader = require("../reader");
       anchoredResult.map?.text,
       "Hidden Street · Free Market <14>",
       "line-by-line OCR and exact numeric suffix recover a noisy map-name read",
+    );
+
+    const dampResult = await reader.read({ mapImage: dampCrop });
+    assert.equal(
+      dampResult.map?.text,
+      "Dungeon · Damp Forest",
+      "the failed Damp Forest HUD crop reads after restoring left padding past the emblem",
     );
 
     // Regression for the compact, dimmed window capture: ensure the detector

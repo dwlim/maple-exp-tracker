@@ -95,15 +95,11 @@
 
   function cropHeaderText(image, box = findHeader(image)) {
     if (!box) return null;
-    // Keep the width-based text-safe start. Moving farther right to hide the
-    // logo can clip the first map-name letters on narrow captures; any logo
-    // sliver left at this edge is masked below instead.
     const headerWidthRatio = box.w / image.width,
       compactHeader = headerWidthRatio < 0.155,
-      // The square minimap emblem has a stable size relative to the blue
-      // title band. Start OCR just beyond its right edge, rather than using a
-      // fraction of the panel width that can clip text on narrow captures.
-      xOffset = box.h * (compactHeader ? 0.78 : 0.62),
+      // Use the square emblem to locate the text, but leave some left padding:
+      // at small HUD sizes the first glyph can start immediately after it.
+      xOffset = box.h * 0.35,
       x0 = Math.max(0, Math.floor(box.x + xOffset)),
       y0 = Math.max(0, Math.floor(box.y + box.h * 0.35)),
       x1 = Math.min(image.width, Math.ceil(box.x + box.w * 0.97)),
@@ -124,6 +120,27 @@
         data[target] = data[target + 1] = data[target + 2] = gray;
         data[target + 3] = 255;
       }
+    // Mask the emblem through its expected right edge while retaining the
+    // original x position of the first text glyph.
+    const logoSliver = Math.max(
+      0,
+      Math.min(Math.floor(w * 0.48), Math.ceil(box.h * 0.65 - xOffset)),
+    );
+    if (logoSliver > 0 && w > logoSliver + 1) {
+      const background = [];
+      for (let x = logoSliver; x < Math.min(w, logoSliver + 7); x++)
+        for (let y = 0; y < h; y++) {
+          const value = data[(y * w + x) * 4];
+          if (value >= 85 && value <= 230) background.push(value);
+        }
+      background.sort((a, b) => a - b);
+      const fill = background.length ? background[Math.floor(background.length / 2)] : 160;
+      for (let y = 0; y < h; y++)
+        for (let x = 0; x < logoSliver; x++) {
+          const i = (y * w + x) * 4;
+          data[i] = data[i + 1] = data[i + 2] = fill;
+        }
+    }
     // Captures can be dimmed by overlays or Windows capture composition. Use
     // a robust percentile stretch so the pale lettering remains legible while
     // ignoring a few extreme pixels from the frame and text edges.
@@ -234,7 +251,7 @@
           !!numericSuffix && observedName.endsWith(numericSuffix),
         maxNameDistance =
           streetDistance === 0 && hasExactNumericSuffix
-            ? 2
+            ? 3
             : Math.min(2, Math.max(1, Math.floor(normalizedName.length * 0.08)));
       // Require at least one exact line as a strong anchor. This lets the
       // known street disambiguate a small typo in the map name, without

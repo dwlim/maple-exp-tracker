@@ -1081,11 +1081,26 @@
                   street?.confidence ?? 0,
                   name?.confidence ?? 0,
                 );
-                const corrected = MapName.parse(
-                  `${street?.text || ""}\n${name?.text || ""}`,
-                  confidence,
-                );
-                if (corrected?.canonicalized) result.map = corrected;
+                const fullStreet = String(reading?.text || "")
+                    .replace(/\r/g, "")
+                    .split("\n")
+                    .map((line) => line.trim())
+                    .find((line) => line.length >= 3),
+                  corrected = [
+                    MapName.parse(
+                      `${street?.text || ""}\n${name?.text || ""}`,
+                      confidence,
+                    ),
+                    // Sometimes block segmentation reads the street cleanly
+                    // while the isolated second line reads the map name more
+                    // clearly. Combining those independent OCR readings helps
+                    // without relaxing the parser's canonical-match checks.
+                    MapName.parse(
+                      `${fullStreet || ""}\n${name?.text || ""}`,
+                      Math.min(reading?.confidence ?? 0, name?.confidence ?? 0),
+                    ),
+                  ].find((candidate) => candidate?.canonicalized);
+                if (corrected) result.map = corrected;
               }
             }
           } catch {
