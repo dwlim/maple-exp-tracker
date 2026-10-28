@@ -2,7 +2,7 @@ const fs = require("node:fs"),
   z = require("node:zlib");
 const fixtures = require("./quickslot-font-fixtures.json");
 const small = fixtures
-  .filter((f) => f.height === 12)
+  .filter((f) => f.height === 12 && !f.adaptive)
   .map((f) => ({ ...f, data: z.inflateSync(Buffer.from(f.rgba, "base64")) }));
 const palette = Array.from({ length: 20 }, (_, v) => {
   const y = Math.floor(((v + 0.5) / 20) * 12),
@@ -73,6 +73,7 @@ for (const f of fixtures) {
         palette,
         smallMask: masks[f.text[k]],
         smallCell: cell.map((v) => Math.round(v * 15).toString(16)).join(""),
+        ...(f.adaptive ? { adaptive: true } : {}),
       });
       cursor += f.text[k] === "1" ? 5 : 8;
       continue;

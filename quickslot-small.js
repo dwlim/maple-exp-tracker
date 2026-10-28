@@ -7,13 +7,15 @@
   function model(font) {
     if (models.has(font)) return models.get(font);
     const native = font.filter((t) => t.smallCell),
+      makeTemplates = (items) => items.map((t) => ({
+        ...t,
+        mask: t.smallMask,
+        shape: Float32Array.from(t.smallCell, (c) => parseInt(c, 16) / 15),
+      })),
       m = {
         palette: native[0]?.palette,
-        templates: native.map((t) => ({
-          ...t,
-          mask: t.smallMask,
-          shape: Float32Array.from(t.smallCell, (c) => parseInt(c, 16) / 15),
-        })),
+        templates: makeTemplates(native.filter((t) => !t.adaptive)),
+        adaptiveTemplates: makeTemplates(native.filter((t) => t.adaptive)),
       };
     models.set(font, m);
     return m;
@@ -80,8 +82,7 @@
     }
     return first && last && ink >= 6 && rows >= 6;
   }
-  function recognize(image, font) {
-    const { palette, templates } = model(font);
+  function recognizeWithTemplates(image, palette, templates) {
     if (
       !palette ||
       image.height < 12 ||
@@ -202,6 +203,20 @@
     )
       return null;
     return sorted[0];
+  }
+  function recognize(image, font) {
+    const { palette, templates, adaptiveTemplates } = model(font),
+      reading = recognizeWithTemplates(image, palette, templates);
+    // First use the broadly calibrated font. Real-HUD supplemental glyphs are
+    // only a fallback for crops the base model cannot read, so they cannot
+    // change previously accepted counts or create new false positives there.
+    return reading || !adaptiveTemplates.length
+      ? reading
+      : recognizeWithTemplates(
+          image,
+          palette,
+          templates.concat(adaptiveTemplates),
+        );
   }
   return { value, cell, recognize };
 });
