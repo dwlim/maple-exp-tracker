@@ -72,8 +72,11 @@
             box.w / box.h > 2.5;
         if (imageCropLike) return box;
         if (
-          box.x <= width * 0.22 &&
-          box.y <= height * 0.25 &&
+          // The minimap is pinned to the top-left. Pale-blue shop dialogs
+          // elsewhere in the frame can be larger, so color/area alone must
+          // not outrank this stable screen anchor.
+          box.x <= width * 0.08 &&
+          box.y <= height * 0.12 &&
           box.w >= width * 0.045 &&
           box.w <= width * 0.3 &&
           box.h >= height * 0.025 &&
@@ -84,7 +87,9 @@
           components.push(box);
       }
     }
-    components.sort((a, b) => b.count - a.count);
+    components.sort((a, b) =>
+      a.x + a.y * 0.5 - (b.x + b.y * 0.5) || b.count - a.count,
+    );
     return components[0] || null;
   }
 
@@ -95,7 +100,10 @@
     // sliver left at this edge is masked below instead.
     const headerWidthRatio = box.w / image.width,
       compactHeader = headerWidthRatio < 0.155,
-      xOffset = box.w * (compactHeader ? 0.16 : 0.2),
+      // The square minimap emblem has a stable size relative to the blue
+      // title band. Start OCR just beyond its right edge, rather than using a
+      // fraction of the panel width that can clip text on narrow captures.
+      xOffset = box.h * (compactHeader ? 0.78 : 0.62),
       x0 = Math.max(0, Math.floor(box.x + xOffset)),
       y0 = Math.max(0, Math.floor(box.y + box.h * 0.35)),
       x1 = Math.min(image.width, Math.ceil(box.x + box.w * 0.97)),
@@ -116,27 +124,6 @@
         data[target] = data[target + 1] = data[target + 2] = gray;
         data[target + 3] = 255;
       }
-    // On very narrow headers the blue component may begin inside the square
-    // logo. Mask only its remaining sliver, using the nearby blue-field gray
-    // as fill, while preserving the first glyph's original x position.
-    const logoSliver = compactHeader
-      ? Math.max(0, Math.min(Math.floor(w * 0.2), Math.ceil(box.h * 0.78 - xOffset)))
-      : 0;
-    if (logoSliver > 0 && w > logoSliver + 1) {
-      const background = [];
-      for (let x = logoSliver; x < Math.min(w, logoSliver + 7); x++)
-        for (let y = 0; y < h; y++) {
-          const value = data[(y * w + x) * 4];
-          if (value >= 85 && value <= 230) background.push(value);
-        }
-      background.sort((a, b) => a - b);
-      const fill = background.length ? background[Math.floor(background.length / 2)] : 160;
-      for (let y = 0; y < h; y++)
-        for (let x = 0; x < logoSliver; x++) {
-          const i = (y * w + x) * 4;
-          data[i] = data[i + 1] = data[i + 2] = fill;
-        }
-    }
     // Captures can be dimmed by overlays or Windows capture composition. Use
     // a robust percentile stretch so the pale lettering remains legible while
     // ignoring a few extreme pixels from the frame and text edges.
@@ -180,6 +167,35 @@
     return { width, height, data };
   }
 
+  function splitLabelLines(image) {
+    if (!image?.data || image.width < 20 || image.height < 12) return [];
+    const activeRows = [];
+    for (let y = 0; y < image.height; y++) {
+      const values = [];
+      for (let x = 0; x < image.width; x++)
+        values.push(image.data[(y * image.width + x) * 4]);
+      values.sort((a, b) => a - b);
+      const median = values[Math.floor(values.length / 2)],
+        ink = values.filter((value) => Math.abs(value - median) >= 24).length;
+      activeRows.push(ink >= Math.max(3, Math.floor(image.width * 0.035)));
+    }
+    const runs = [];
+    for (let y = 0; y < activeRows.length; y++) {
+      if (!activeRows[y]) continue;
+      let end = y + 1;
+      while (end < activeRows.length && activeRows[end]) end++;
+      if (end - y >= 3) runs.push([Math.max(0, y - 1), Math.min(image.height, end + 1)]);
+      y = end - 1;
+    }
+    if (runs.length < 2) return [];
+    const rows = runs.slice(0, 2);
+    return rows.map(([top, bottom]) => {
+      const data = new Uint8ClampedArray(image.width * (bottom - top) * 4);
+      data.set(image.data.subarray(top * image.width * 4, bottom * image.width * 4));
+      return { width: image.width, height: bottom - top, data };
+    });
+  }
+
   function normalizeName(text) {
     return String(text || "")
       .toLowerCase()
@@ -211,7 +227,15 @@
     for (const [street, name] of mapNames) {
       const streetDistance = editDistance(lines[0], street),
         nameDistance = editDistance(lines[1], name),
-        maxNameDistance = Math.min(2, Math.max(1, Math.floor(normalizeName(name).length * 0.08)));
+        normalizedName = normalizeName(name),
+        observedName = normalizeName(lines[1]),
+        numericSuffix = normalizedName.match(/\d+$/)?.[0],
+        hasExactNumericSuffix =
+          !!numericSuffix && observedName.endsWith(numericSuffix),
+        maxNameDistance =
+          streetDistance === 0 && hasExactNumericSuffix
+            ? 2
+            : Math.min(2, Math.max(1, Math.floor(normalizedName.length * 0.08)));
       // Require at least one exact line as a strong anchor. This lets the
       // known street disambiguate a small typo in the map name, without
       // turning unrelated or ambiguous OCR into a guessed map.
@@ -251,5 +275,5 @@
     return value >>> 0;
   }
 
-  return { findHeader, cropHeaderText, prepare, parse, hash, canonicalMap };
+  return { findHeader, cropHeaderText, splitLabelLines, prepare, parse, hash, canonicalMap };
 });

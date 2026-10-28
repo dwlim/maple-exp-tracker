@@ -1061,6 +1061,33 @@
             const mapPixels = MapName.prepare(input.mapImage),
               reading = await recognize(mapPixels, "map");
             result.map = MapName.parse(reading?.text, reading?.confidence);
+            // Full-block OCR can merge the two tiny pixel-font lines. When it
+            // cannot canonicalize a result, OCR each detected line separately
+            // with single-line segmentation before falling back to raw text.
+            if (!result.map?.canonicalized) {
+              const lines = MapName.splitLabelLines(input.mapImage);
+              if (lines.length === 2) {
+                // The Tesseract worker is shared and its parameters change per
+                // request, so keep these reads sequential to avoid PSM races.
+                const street = await recognize(
+                    MapName.prepare(lines[0], 6),
+                    "map-line",
+                  ),
+                  name = await recognize(
+                    MapName.prepare(lines[1], 6),
+                    "map-line",
+                  );
+                const confidence = Math.min(
+                  street?.confidence ?? 0,
+                  name?.confidence ?? 0,
+                );
+                const corrected = MapName.parse(
+                  `${street?.text || ""}\n${name?.text || ""}`,
+                  confidence,
+                );
+                if (corrected?.canonicalized) result.map = corrected;
+              }
+            }
           } catch {
             // Map-name OCR is optional and independent of progression OCR.
             result.map = null;
@@ -1246,7 +1273,7 @@
             tessedit_char_whitelist:
               kind === "meso-scan"
                 ? "0123456789,.MESOS"
-                : kind === "map"
+                : kind === "map" || kind === "map-line"
                 ? "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz-'(),.0123456789 "
                 : kind === "level"
                 ? "LV.0123456789"

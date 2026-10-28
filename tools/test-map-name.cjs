@@ -27,6 +27,39 @@ const Reader = require("../reader");
     mapCrop = MapName.cropHeaderText(frame, header);
   assert.ok(header, "find the blue minimap header in a full game frame");
   assert.ok(mapCrop, "crop the map-name text area, excluding the icon");
+
+  // The minimap logo anchors the two-line label. A larger pale-blue panel
+  // farther right must not steal detection from the top-left minimap.
+  const compactReference = PNG.sync.read(
+      fs.readFileSync(path.join(__dirname, "fixtures/map-header-free-market-14.png")),
+    ),
+    compactFrame = {
+      width: 1924,
+      height: 1126,
+      data: new Uint8ClampedArray(1924 * 1126 * 4),
+    };
+  for (let i = 0; i < compactFrame.data.length; i += 4) {
+    compactFrame.data[i] = compactFrame.data[i + 1] = compactFrame.data[i + 2] = 70;
+    compactFrame.data[i + 3] = 255;
+  }
+  for (let y = 0; y < compactReference.height; y++)
+    compactFrame.data.set(
+      compactReference.data.subarray(y * compactReference.width * 4, (y + 1) * compactReference.width * 4),
+      (45 + y) * compactFrame.width * 4,
+    );
+  for (let y = 270; y < 335; y++)
+    for (let x = 300; x < 640; x++) {
+      const i = (y * compactFrame.width + x) * 4;
+      compactFrame.data[i] = 152;
+      compactFrame.data[i + 1] = 188;
+      compactFrame.data[i + 2] = 204;
+    }
+  const anchoredHeader = MapName.findHeader(compactFrame),
+    anchoredCrop = MapName.cropHeaderText(compactFrame, anchoredHeader);
+  assert.ok(anchoredHeader, "find the minimap header when another blue panel is present");
+  assert.ok(anchoredHeader.x < 10 && anchoredHeader.y < 60, "anchor to the top-left minimap logo");
+  assert.ok(anchoredCrop.width > 80, "keep the full label after cropping past the logo");
+  assert.equal(MapName.splitLabelLines(anchoredCrop).length, 2, "separate the street and map-name rows");
   assert.equal(MapName.parse("Victoria Road\nHenesys", 39), null);
   assert.equal(
     MapName.parse("Victoria Road\nHenesys", 70).text,
@@ -52,9 +85,9 @@ const Reader = require("../reader");
     cacheMethod: "none",
   });
   const reader = LocalOcr.createReader(async (pixels, kind) => {
-    assert.equal(kind, "map");
+    assert.ok(kind === "map" || kind === "map-line");
     await worker.setParameters({
-      tessedit_pageseg_mode: 6,
+      tessedit_pageseg_mode: kind === "map" ? 6 : 7,
       tessedit_char_whitelist:
         "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz-'(),.0123456789 ",
     });
@@ -73,6 +106,13 @@ const Reader = require("../reader");
       result.map?.text,
       "Victoria Road · Henesys",
       "bundled OCR reads both lines of the minimap label",
+    );
+
+    const anchoredResult = await reader.read({ mapImage: anchoredCrop });
+    assert.equal(
+      anchoredResult.map?.text,
+      "Hidden Street · Free Market <14>",
+      "line-by-line OCR and exact numeric suffix recover a noisy map-name read",
     );
 
     // Regression for the compact, dimmed window capture: ensure the detector
