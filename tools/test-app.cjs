@@ -16,6 +16,7 @@ const checks = [
   ["tools/test-percentage-only.cjs"],
   ["tools/test-meso-ocr.cjs"],
   ["tools/test-local-ocr.cjs"],
+  ["tools/test-map-name.cjs"],
   ["tools/test-hud-font.cjs"],
   ["tools/stress-hud-font.cjs", "--strict"],
 ];

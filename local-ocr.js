@@ -1,8 +1,10 @@
 (function (root, factory) {
-  const api = factory();
+  const api = factory(
+    typeof module === "object" && module.exports ? require("./map-name") : root.MapleMapName,
+  );
   if (typeof module === "object" && module.exports) module.exports = api;
   else root.MapleLocalOcr = api;
-})(typeof window === "undefined" ? globalThis : window, function () {
+})(typeof window === "undefined" ? globalThis : window, function (MapName) {
   function prepare(image, kind, mode) {
     let { width: w, height: h, data } = image,
       l = 0,
@@ -1054,6 +1056,16 @@
     function read(input) {
       const task = queue.then(async () => {
         const result = {};
+        if (input.mapImage) {
+          try {
+            const mapPixels = MapName.prepare(input.mapImage),
+              reading = await recognize(mapPixels, "map");
+            result.map = MapName.parse(reading?.text, reading?.confidence);
+          } catch {
+            // Map-name OCR is optional and independent of progression OCR.
+            result.map = null;
+          }
+        }
         for (const kind of ["level", "exp"]) {
           const native = kind === "level" ? input.nativeLevel : input.nativeExp;
           const prefix =
@@ -1229,10 +1241,13 @@
         const w = await worker();
         if (configuredWorker !== w || configuredKind !== kind) {
           await w.setParameters({
-            tessedit_pageseg_mode: kind === "meso-scan" ? 11 : 7,
+            tessedit_pageseg_mode:
+              kind === "meso-scan" ? 11 : kind === "map" ? 6 : 7,
             tessedit_char_whitelist:
               kind === "meso-scan"
                 ? "0123456789,.MESOS"
+                : kind === "map"
+                ? "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz-'(),.0123456789 "
                 : kind === "level"
                 ? "LV.0123456789"
                 : kind.startsWith("meso-value")

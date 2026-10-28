@@ -1,7 +1,10 @@
 (function (root, factory) {
-  if (typeof module === "object" && module.exports) module.exports = factory();
-  else root.MapleReader = factory();
-})(typeof window === "undefined" ? globalThis : window, function () {
+  const api = factory(
+    typeof module === "object" && module.exports ? require("./map-name") : root.MapleMapName,
+  );
+  if (typeof module === "object" && module.exports) module.exports = api;
+  else root.MapleReader = api;
+})(typeof window === "undefined" ? globalThis : window, function (MapName) {
   "use strict";
   function cropNormalized(image, region) {
     if (!image?.data || !region) return null;
@@ -33,7 +36,39 @@
   }) {
     let busy = false,
       mesoReading = false,
-      lastMesoReadAt = 0;
+      lastMesoReadAt = 0,
+      lastMapDetectAt = 0,
+      lastMapAttemptAt = 0,
+      lastMapCropHash = null;
+    function readMapName(frame, readAt, generation) {
+      if (!localOcr || !MapName || !frame?._pixels || readAt - lastMapDetectAt < 9000)
+        return;
+      lastMapDetectAt = readAt;
+      let mapImage;
+      try {
+        mapImage = MapName.cropHeaderText(frame._pixels);
+      } catch {
+        return;
+      }
+      if (!mapImage) return;
+      const hash = MapName.hash(mapImage);
+      if (hash === lastMapCropHash && readAt - lastMapAttemptAt < 60000) return;
+      lastMapCropHash = hash;
+      lastMapAttemptAt = readAt;
+      const sessionStartAt = session.state.startAt;
+      void localOcr
+        .read({ mapImage })
+        .then((result) => {
+          if (
+            session.state.paused ||
+            generation !== getCapture().generation ||
+            !getCapture().stream ||
+            sessionStartAt !== session.state.startAt
+          ) return;
+          if (result?.map?.text) session.setMapName?.(result.map.text, readAt);
+        })
+        .catch(() => {});
+    }
     async function read(frame, timestamp, { report = true } = {}) {
       if (session.state.paused || busy) return;
       const generation = getCapture().generation;
@@ -133,6 +168,9 @@
             });
           }
         }
+        // Map recognition is optional and runs asynchronously after scheduling
+        // the independent meso read; it never changes EXP acceptance.
+        readMapName(frame, readAt, generation);
         if (!frame._hudRegions?.exp) {
           session.clearPending();
           view.status("waiting", "Looking for the EXP readout");

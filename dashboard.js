@@ -44,6 +44,8 @@
         q("#level").textContent = state.level;
         q("#classLabel").textContent = "CHARACTER TRACKING";
       } else q("#level").textContent = "—";
+      if (q("#mapName"))
+        q("#mapName").textContent = state.mapName || "Waiting for capture";
       const gained =
         old && latest ? Math.max(0, totalExp(latest) - totalExp(old)) : 0;
       q("#gained").textContent = fmt(gained);

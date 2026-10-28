@@ -51,6 +51,8 @@
       samples: [],
       mesoSamples: [],
       mesoStatus: "Searching for the inventory balance automatically",
+      mapName: "",
+      mapUpdatedAt: null,
       level: null,
       source: null,
       running: false,
@@ -142,6 +144,15 @@
     function setMesoStatus(status) {
       state.mesoStatus = status;
       onChange();
+    }
+    function setMapName(name, t = now()) {
+      const value = String(name || "").trim();
+      if (!value || value === state.mapName) return false;
+      state.mapName = value;
+      state.mapUpdatedAt = Number.isFinite(t) ? t : now();
+      save();
+      onChange();
+      return true;
     }
     function setMesoRegion(region) {
       if (!region) return false;
@@ -263,6 +274,7 @@
       setMesoStatus,
       setMesoRegion,
       setMesoAnchor,
+      setMapName,
       save,
       addSample,
       reset,
