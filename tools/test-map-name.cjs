@@ -101,6 +101,7 @@ const Reader = require("../reader");
     );
 
     let attempts = 0;
+    const mapFailures = [];
     const mapPreviews = [];
     const retrySession = {
         state: { paused: false, startAt: 1, mapName: "" },
@@ -128,7 +129,12 @@ const Reader = require("../reader");
           status() {},
           output() {},
         },
-        debugTools: {},
+        debugTools: {
+          async rejectFrame(frame, timestamp, reason) {
+            mapFailures.push({ frame, timestamp, reason });
+            return true;
+          },
+        },
         getCapture: () => capture,
         debug: true,
         onMapPreview: (pixels) => mapPreviews.push(pixels),
@@ -136,7 +142,7 @@ const Reader = require("../reader");
           async read(input) {
             if (!input.mapImage) return {};
             attempts++;
-            return attempts === 1
+            return attempts <= 2
               ? { map: null }
               : { map: { text: "Kerning City Subway · Line 1 Area 1" } };
           },
@@ -151,6 +157,8 @@ const Reader = require("../reader");
     await retryReader.read(sameFrame, 1700000000000, { report: false });
     await flush();
     assert.equal(retrySession.state.mapName, "", "a failed OCR attempt leaves the map unset");
+    assert.equal(mapFailures.length, 1, "a failed map OCR reading requests a debug screenshot");
+    assert.equal(mapFailures[0].reason, "map-name-not-found");
     assert.deepEqual(
       mapPreviews[0],
       MapName.prepare(darkMapCrop),
@@ -159,6 +167,10 @@ const Reader = require("../reader");
     await retryReader.read(sameFrame, 1700000010000, { report: false });
     await flush();
     assert.equal(attempts, 2, "an unchanged header is retried after a transient OCR miss");
+    assert.equal(mapFailures.length, 1, "the same failed crop does not download repeatedly");
+    await retryReader.read(sameFrame, 1700000020000, { report: false });
+    await flush();
+    assert.equal(attempts, 3, "map OCR keeps retrying after its one diagnostic download");
     assert.equal(
       retrySession.state.mapName,
       "Kerning City Subway · Line 1 Area 1",

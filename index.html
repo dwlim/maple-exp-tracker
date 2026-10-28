@@ -2880,7 +2880,7 @@ return {detect,crop,anchors,percentageRegion};
         !isDownloadEnabled() ||
         downloadDebugFrame.lastFrame === timestamp
       )
-        return;
+        return false;
       downloadDebugFrame.lastFrame = timestamp;
       saveBlob(blob, timestamp, "maple-track-", (date) =>
         "Rejected-frame download requested · " +
@@ -2888,6 +2888,7 @@ return {detect,crop,anchors,percentageRegion};
         " · " + reasonSlug(reason) + " · allow multiple downloads if prompted",
         reasonSlug(reason),
       );
+      return true;
     }
 
     function downloadManualFrame(blob, timestamp) {
@@ -2900,11 +2901,12 @@ return {detect,crop,anchors,percentageRegion};
     }
 
     async function rejectFrame(frame, timestamp, reason = "reading-rejected", cancelled = () => false) {
-      if (!enabled || !frame || !isDownloadEnabled() || cancelled()) return;
+      if (!enabled || !frame || !isDownloadEnabled() || cancelled()) return false;
       const blob =
         frame._pngBlob ||
         (await new Promise((resolve) => frame.toBlob(resolve, "image/png")));
-      if (blob && !cancelled()) downloadDebugFrame(blob, timestamp, false, reason);
+      if (blob && !cancelled()) return downloadDebugFrame(blob, timestamp, false, reason);
+      return false;
     }
     return { downloadFrame: downloadDebugFrame, downloadManualFrame, rejectFrame };
   }
@@ -3572,7 +3574,21 @@ return {detect,crop,anchors,percentageRegion};
       lastMesoReadAt = 0,
       lastMapDetectAt = 0,
       lastMapAttemptAt = 0,
-      lastMapCropHash = null;
+      lastMapCropHash = null,
+      lastMapFailureHash = null;
+    function reportMapFailure(frame, readAt, failureHash, reason) {
+      if (!debug || !debugTools?.rejectFrame || failureHash === lastMapFailureHash)
+        return;
+      try {
+        void Promise.resolve(debugTools.rejectFrame(frame, readAt, reason))
+          .then((saved) => {
+            // Remember only a submitted download. If downloads are disabled or
+            // the frame cannot be encoded, try again on the next capture.
+            if (saved) lastMapFailureHash = failureHash;
+          })
+          .catch(() => {});
+      } catch {}
+    }
     function readMapName(frame, readAt, generation) {
       if (!localOcr || !MapName || !frame?._pixels || readAt - lastMapDetectAt < 9000)
         return;
@@ -3584,6 +3600,7 @@ return {detect,crop,anchors,percentageRegion};
         return;
       }
       if (!mapImage) {
+        reportMapFailure(frame, readAt, "no-map-header", "map-header-not-found");
         if (debug)
           try { onMapPreview(null); } catch {}
         return;
@@ -3612,9 +3629,14 @@ return {detect,crop,anchors,percentageRegion};
             !getCapture().stream ||
             sessionStartAt !== session.state.startAt
           ) return;
-          if (result?.map?.text) session.setMapName?.(result.map.text, readAt);
+          if (result?.map?.text) {
+            lastMapFailureHash = null;
+            session.setMapName?.(result.map.text, readAt);
+          } else {
+            reportMapFailure(frame, readAt, hash, "map-name-not-found");
+          }
         })
-        .catch(() => {});
+        .catch(() => reportMapFailure(frame, readAt, hash, "map-name-ocr-error"));
     }
     async function read(frame, timestamp, { report = true } = {}) {
       if (session.state.paused || busy) return;

@@ -48,7 +48,7 @@
         !isDownloadEnabled() ||
         downloadDebugFrame.lastFrame === timestamp
       )
-        return;
+        return false;
       downloadDebugFrame.lastFrame = timestamp;
       saveBlob(blob, timestamp, "maple-track-", (date) =>
         "Rejected-frame download requested · " +
@@ -56,6 +56,7 @@
         " · " + reasonSlug(reason) + " · allow multiple downloads if prompted",
         reasonSlug(reason),
       );
+      return true;
     }
 
     function downloadManualFrame(blob, timestamp) {
@@ -68,11 +69,12 @@
     }
 
     async function rejectFrame(frame, timestamp, reason = "reading-rejected", cancelled = () => false) {
-      if (!enabled || !frame || !isDownloadEnabled() || cancelled()) return;
+      if (!enabled || !frame || !isDownloadEnabled() || cancelled()) return false;
       const blob =
         frame._pngBlob ||
         (await new Promise((resolve) => frame.toBlob(resolve, "image/png")));
-      if (blob && !cancelled()) downloadDebugFrame(blob, timestamp, false, reason);
+      if (blob && !cancelled()) return downloadDebugFrame(blob, timestamp, false, reason);
+      return false;
     }
     return { downloadFrame: downloadDebugFrame, downloadManualFrame, rejectFrame };
   }

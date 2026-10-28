@@ -40,7 +40,21 @@
       lastMesoReadAt = 0,
       lastMapDetectAt = 0,
       lastMapAttemptAt = 0,
-      lastMapCropHash = null;
+      lastMapCropHash = null,
+      lastMapFailureHash = null;
+    function reportMapFailure(frame, readAt, failureHash, reason) {
+      if (!debug || !debugTools?.rejectFrame || failureHash === lastMapFailureHash)
+        return;
+      try {
+        void Promise.resolve(debugTools.rejectFrame(frame, readAt, reason))
+          .then((saved) => {
+            // Remember only a submitted download. If downloads are disabled or
+            // the frame cannot be encoded, try again on the next capture.
+            if (saved) lastMapFailureHash = failureHash;
+          })
+          .catch(() => {});
+      } catch {}
+    }
     function readMapName(frame, readAt, generation) {
       if (!localOcr || !MapName || !frame?._pixels || readAt - lastMapDetectAt < 9000)
         return;
@@ -52,6 +66,7 @@
         return;
       }
       if (!mapImage) {
+        reportMapFailure(frame, readAt, "no-map-header", "map-header-not-found");
         if (debug)
           try { onMapPreview(null); } catch {}
         return;
@@ -80,9 +95,14 @@
             !getCapture().stream ||
             sessionStartAt !== session.state.startAt
           ) return;
-          if (result?.map?.text) session.setMapName?.(result.map.text, readAt);
+          if (result?.map?.text) {
+            lastMapFailureHash = null;
+            session.setMapName?.(result.map.text, readAt);
+          } else {
+            reportMapFailure(frame, readAt, hash, "map-name-not-found");
+          }
         })
-        .catch(() => {});
+        .catch(() => reportMapFailure(frame, readAt, hash, "map-name-ocr-error"));
     }
     async function read(frame, timestamp, { report = true } = {}) {
       if (session.state.paused || busy) return;
