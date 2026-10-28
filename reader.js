@@ -52,7 +52,15 @@
       }
       if (!mapImage) return;
       const hash = MapName.hash(mapImage);
-      if (hash === lastMapCropHash && readAt - lastMapAttemptAt < 60000) return;
+      // Keep retrying an unrecognized header at the normal capture cadence.
+      // A one-minute same-crop throttle can leave the stream card blank after
+      // a single transient OCR miss. Once a name is known, recheck unchanged
+      // headers only once per minute while still detecting map changes fast.
+      if (
+        hash === lastMapCropHash &&
+        session.state.mapName &&
+        readAt - lastMapAttemptAt < 60000
+      ) return;
       lastMapCropHash = hash;
       lastMapAttemptAt = readAt;
       const sessionStartAt = session.state.startAt;

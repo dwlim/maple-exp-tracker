@@ -221,10 +221,18 @@ require("../app").mount({
 assert.equal(writes, 0);
 assert.equal(q("#cardLevel").textContent, "32");
 assert.equal(q("#cardRate").textContent, "60,000");
+assert.equal(q("#cardMapName").textContent, "MAP · SEARCHING FOR MAP");
 assert.match(q(".app").innerHTML, /<div class="stream-metrics-line">/);
 for (const id of ["cardHpCost", "cardMpCost", "cardMesoRate", "cardNetMesoRate"])
   assert.ok(q(".app").innerHTML.includes(`id="${id}"`));
 assert.doesNotMatch(q(".app").innerHTML, /MESO BALANCE|HP COST \/ HOUR|GROSS MESOS \/ HOUR/);
+stored = JSON.stringify({ ...state, mapName: "Kerning City Subway · Line 1 Area 1" });
+events.get("storage")({ key: "maple-track-v1" });
+assert.equal(
+  q("#cardMapName").textContent,
+  "MAP · Kerning City Subway · Line 1 Area 1",
+  "Recognized map names sync from the main dashboard into the stream card",
+);
 assert.equal(intervals[0].ms, 5000);
 stored = JSON.stringify({ ...state, samples: [], level: 56, running: false });
 events.get("storage")({ key: "maple-track-v1" });

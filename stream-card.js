@@ -194,7 +194,9 @@
       q("#cardEta").textContent =
         m.eta === "MAX LEVEL" ? m.eta : "Level up · " + m.eta;
       q("#cardStatus").textContent = m.status;
-      q("#cardMapName").textContent = state.mapName ? "MAP · " + state.mapName : "";
+      q("#cardMapName").textContent = state.mapName
+        ? "MAP · " + state.mapName
+        : "MAP · SEARCHING FOR MAP";
       const g = graph(state, now(), totalExp);
       q("#cardGraph").setAttribute("d", g.path);
       const axis = (n) =>

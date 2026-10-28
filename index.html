@@ -1784,7 +1784,9 @@ root.MapleHudOcr={recognize,resolveReading,percentageReading};
       q("#cardEta").textContent =
         m.eta === "MAX LEVEL" ? m.eta : "Level up · " + m.eta;
       q("#cardStatus").textContent = m.status;
-      q("#cardMapName").textContent = state.mapName ? "MAP · " + state.mapName : "";
+      q("#cardMapName").textContent = state.mapName
+        ? "MAP · " + state.mapName
+        : "MAP · SEARCHING FOR MAP";
       const g = graph(state, now(), totalExp);
       q("#cardGraph").setAttribute("d", g.path);
       const axis = (n) =>
@@ -3493,7 +3495,15 @@ return {detect,crop,anchors,percentageRegion};
       }
       if (!mapImage) return;
       const hash = MapName.hash(mapImage);
-      if (hash === lastMapCropHash && readAt - lastMapAttemptAt < 60000) return;
+      // Keep retrying an unrecognized header at the normal capture cadence.
+      // A one-minute same-crop throttle can leave the stream card blank after
+      // a single transient OCR miss. Once a name is known, recheck unchanged
+      // headers only once per minute while still detecting map changes fast.
+      if (
+        hash === lastMapCropHash &&
+        session.state.mapName &&
+        readAt - lastMapAttemptAt < 60000
+      ) return;
       lastMapCropHash = hash;
       lastMapAttemptAt = readAt;
       const sessionStartAt = session.state.startAt;

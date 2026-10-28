@@ -5,6 +5,7 @@ const { PNG } = require("pngjs");
 const { createWorker } = require("tesseract.js");
 const MapName = require("../map-name");
 const LocalOcr = require("../local-ocr");
+const Reader = require("../reader");
 
 (async () => {
   const reference = PNG.sync.read(
@@ -84,6 +85,63 @@ const LocalOcr = require("../local-ocr");
       darkResult.map?.text,
       "Kerning City Subway · Line 1 Area 1",
       "contrast recovery and crop alignment preserve the first glyph on compact HUDs",
+    );
+
+    let attempts = 0;
+    const retrySession = {
+        state: { paused: false, startAt: 1, mapName: "" },
+        clearPending() {},
+        setMesoStatus() {},
+        validate() {
+          return {
+            valid: false,
+            retry: false,
+            continuity: {},
+            levelResolution: {},
+          };
+        },
+        setMapName(name) {
+          this.state.mapName = name;
+        },
+      },
+      capture = { generation: 1, stream: {} },
+      retryReader = Reader.create({
+        session: retrySession,
+        recognition: { decodeFrame: async () => {} },
+        view: {
+          reading() {},
+          renderReading() {},
+          status() {},
+          output() {},
+        },
+        debugTools: {},
+        getCapture: () => capture,
+        localOcr: {
+          async read(input) {
+            if (!input.mapImage) return {};
+            attempts++;
+            return attempts === 1
+              ? { map: null }
+              : { map: { text: "Kerning City Subway · Line 1 Area 1" } };
+          },
+        },
+      }),
+      sameFrame = {
+        _pixels: darkFrame,
+        _hudRegions: { exp: {} },
+        _reading: { levelResult: {}, expResult: {} },
+      },
+      flush = () => new Promise((resolve) => setTimeout(resolve, 0));
+    await retryReader.read(sameFrame, 1700000000000);
+    await flush();
+    assert.equal(retrySession.state.mapName, "", "a failed OCR attempt leaves the map unset");
+    await retryReader.read(sameFrame, 1700000010000);
+    await flush();
+    assert.equal(attempts, 2, "an unchanged header is retried after a transient OCR miss");
+    assert.equal(
+      retrySession.state.mapName,
+      "Kerning City Subway · Line 1 Area 1",
+      "the next successful map OCR updates the session state",
     );
   } finally {
     await worker.terminate();
