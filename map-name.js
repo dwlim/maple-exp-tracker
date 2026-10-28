@@ -89,24 +89,12 @@
 
   function cropHeaderText(image, box = findHeader(image)) {
     if (!box) return null;
-    // The icon sits at the left of the minimap header. Keep both lines of
-    // text and a small margin while excluding the icon and frame border.
-    // The minimap logo is close to square and keeps roughly the same height
-    // relative to the blue title band. On narrow/windowed captures, the blue
-    // component can start well inside the logo, so a width-only offset leaves
-    // part of it in the OCR input. Use the detected header height as a floor
-    // for the icon exclusion while retaining the width-based offset on larger
-    // layouts; this keeps the first map-name glyph intact.
+    // Keep the width-based text-safe start. Moving farther right to hide the
+    // logo can clip the first map-name letters on narrow captures; any logo
+    // sliver left at this edge is masked below instead.
     const headerWidthRatio = box.w / image.width,
       compactHeader = headerWidthRatio < 0.155,
-      // Only the very narrow headers need this height-based floor. The wider
-      // compact layout already has enough horizontal space after the logo;
-      // applying the floor there can clip the first letter of the title.
-      iconClearance = headerWidthRatio < 0.12 ? Math.ceil(box.h * 0.84) : 0,
-      xOffset = Math.max(
-        box.w * (compactHeader ? 0.16 : 0.2),
-        iconClearance,
-      ),
+      xOffset = box.w * (compactHeader ? 0.16 : 0.2),
       x0 = Math.max(0, Math.floor(box.x + xOffset)),
       y0 = Math.max(0, Math.floor(box.y + box.h * 0.35)),
       x1 = Math.min(image.width, Math.ceil(box.x + box.w * 0.97)),
@@ -127,6 +115,27 @@
         data[target] = data[target + 1] = data[target + 2] = gray;
         data[target + 3] = 255;
       }
+    // On very narrow headers the blue component may begin inside the square
+    // logo. Mask only its remaining sliver, using the nearby blue-field gray
+    // as fill, while preserving the first glyph's original x position.
+    const logoSliver = compactHeader
+      ? Math.max(0, Math.min(Math.floor(w * 0.2), Math.ceil(box.h * 0.78 - xOffset)))
+      : 0;
+    if (logoSliver > 0 && w > logoSliver + 1) {
+      const background = [];
+      for (let x = logoSliver; x < Math.min(w, logoSliver + 7); x++)
+        for (let y = 0; y < h; y++) {
+          const value = data[(y * w + x) * 4];
+          if (value >= 85 && value <= 230) background.push(value);
+        }
+      background.sort((a, b) => a - b);
+      const fill = background.length ? background[Math.floor(background.length / 2)] : 160;
+      for (let y = 0; y < h; y++)
+        for (let x = 0; x < logoSliver; x++) {
+          const i = (y * w + x) * 4;
+          data[i] = data[i + 1] = data[i + 2] = fill;
+        }
+    }
     // Captures can be dimmed by overlays or Windows capture composition. Use
     // a robust percentile stretch so the pale lettering remains legible while
     // ignoring a few extreme pixels from the frame and text edges.
