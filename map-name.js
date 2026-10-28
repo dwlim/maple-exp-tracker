@@ -15,7 +15,8 @@
       scanHeight = Math.max(1, Math.floor(height * 0.3)),
       seen = new Uint8Array(scanWidth * scanHeight),
       queue = new Int32Array(scanWidth * scanHeight),
-      components = [];
+      components = [],
+      mergedPanels = [];
     const isHeaderBlue = (x, y) => {
       const i = (y * width + x) * 4,
         r = image.data[i],
@@ -71,26 +72,45 @@
             box.h > height * 0.65 &&
             box.w / box.h > 2.5;
         if (imageCropLike) return box;
-        if (
-          // The minimap is pinned to the top-left. Pale-blue shop dialogs
-          // elsewhere in the frame can be larger, so color/area alone must
-          // not outrank this stable screen anchor.
+        const anchoredPanel =
           box.x <= width * 0.08 &&
           box.y <= height * 0.12 &&
           box.w >= width * 0.045 &&
           box.w <= width * 0.3 &&
           box.h >= height * 0.025 &&
+          box.h <= height * 0.2 &&
+          count >= width * height * 0.001;
+        if (
+          // The minimap is pinned to the top-left. Pale-blue shop dialogs
+          // elsewhere in the frame can be larger, so color/area alone must
+          // not outrank this stable screen anchor.
+          anchoredPanel &&
           box.h <= height * 0.16 &&
-          box.w / box.h >= 2.0 &&
-          count >= width * height * 0.001
+          box.w / box.h >= 2.0
         )
           components.push(box);
+        else if (
+          // When the game is dimmed, blue from the minimap and its header can
+          // join into one tall component. Keep that anchored panel as a
+          // fallback and trim it back to the header height before cropping.
+          anchoredPanel &&
+          box.w / box.h >= 0.75 &&
+          box.w / box.h <= 1.3
+        )
+          mergedPanels.push(box);
       }
     }
     components.sort((a, b) =>
       a.x + a.y * 0.5 - (b.x + b.y * 0.5) || b.count - a.count,
     );
-    return components[0] || null;
+    if (components[0]) return components[0];
+    mergedPanels.sort((a, b) =>
+      a.x + a.y * 0.5 - (b.x + b.y * 0.5) || b.count - a.count,
+    );
+    const merged = mergedPanels[0];
+    return merged
+      ? { ...merged, h: Math.min(merged.h, Math.max(24, Math.round(height * 0.057))) }
+      : null;
   }
 
   function cropHeaderText(image, box = findHeader(image)) {
@@ -184,6 +204,51 @@
     return { width, height, data };
   }
 
+  function prepareThreshold(image, scale = 4) {
+    if (!image?.data || !image.width || !image.height) return null;
+    const histogram = new Uint32Array(256);
+    let count = 0,
+      total = 0;
+    // cropHeaderText masks the minimap emblem white; exclude it when finding
+    // the text/background split so it cannot skew the threshold.
+    for (let y = 0; y < image.height; y++)
+      for (let x = Math.floor(image.width * 0.3); x < image.width; x++) {
+        const value = image.data[(y * image.width + x) * 4];
+        histogram[value]++;
+        total += value;
+        count++;
+      }
+    if (!count) return null;
+    let backgroundWeight = 0,
+      backgroundSum = 0,
+      bestVariance = -1,
+      threshold = 0;
+    for (let value = 0; value < histogram.length; value++) {
+      backgroundWeight += histogram[value];
+      if (!backgroundWeight) continue;
+      const foregroundWeight = count - backgroundWeight;
+      if (!foregroundWeight) break;
+      backgroundSum += value * histogram[value];
+      const backgroundMean = backgroundSum / backgroundWeight,
+        foregroundMean = (total - backgroundSum) / foregroundWeight,
+        variance =
+          backgroundWeight *
+          foregroundWeight *
+          (backgroundMean - foregroundMean) ** 2;
+      if (variance > bestVariance) {
+        bestVariance = variance;
+        threshold = value;
+      }
+    }
+    const binary = new Uint8ClampedArray(image.data.length);
+    for (let i = 0; i < image.data.length; i += 4) {
+      const value = image.data[i] >= threshold ? 255 : 0;
+      binary[i] = binary[i + 1] = binary[i + 2] = value;
+      binary[i + 3] = 255;
+    }
+    return prepare({ width: image.width, height: image.height, data: binary }, scale);
+  }
+
   function splitLabelLines(image) {
     if (!image?.data || image.width < 20 || image.height < 12) return [];
     const activeRows = [];
@@ -269,7 +334,7 @@
   }
 
   function parse(text, confidence) {
-    if (!Number.isFinite(confidence) || confidence < 40) return null;
+    if (!Number.isFinite(confidence)) return null;
     const lines = String(text || "")
       .replace(/\r/g, "")
       .split("\n")
@@ -278,6 +343,15 @@
       .slice(0, 2);
     if (!lines.length || lines.some((line) => line.length > 38)) return null;
     const canonical = canonicalMap(lines);
+    // Some tiny minimap labels score below Tesseract's usual confidence gate
+    // even when both recognized lines exactly match one unique map entry. Keep
+    // low-confidence fuzzy reads rejected; only allow this exact vocabulary
+    // match through the gate.
+    const exactCanonical =
+      canonical &&
+      normalizeName(lines[0]) === normalizeName(canonical.street) &&
+      normalizeName(lines[1]) === normalizeName(canonical.name);
+    if (confidence < 40 && !exactCanonical) return null;
     return {
       text: canonical ? `${canonical.street} · ${canonical.name}` : lines.join(" · "),
       confidence,
@@ -292,5 +366,14 @@
     return value >>> 0;
   }
 
-  return { findHeader, cropHeaderText, splitLabelLines, prepare, parse, hash, canonicalMap };
+  return {
+    findHeader,
+    cropHeaderText,
+    splitLabelLines,
+    prepare,
+    prepareThreshold,
+    parse,
+    hash,
+    canonicalMap,
+  };
 });

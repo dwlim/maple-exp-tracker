@@ -1066,6 +1066,12 @@
             // with single-line segmentation before falling back to raw text.
             if (!result.map?.canonicalized) {
               const lines = MapName.splitLabelLines(input.mapImage);
+              const originalLines = String(reading?.text || "")
+                .replace(/\r/g, "")
+                .split("\n")
+                .map((line) => line.trim())
+                .filter((line) => line.length >= 3 && /[A-Za-z]{3}/.test(line));
+              let fullStreet = originalLines[0];
               if (lines.length === 2) {
                 // The Tesseract worker is shared and its parameters change per
                 // request, so keep these reads sequential to avoid PSM races.
@@ -1081,12 +1087,12 @@
                   street?.confidence ?? 0,
                   name?.confidence ?? 0,
                 );
-                const fullStreet = String(reading?.text || "")
-                    .replace(/\r/g, "")
-                    .split("\n")
-                    .map((line) => line.trim())
-                    .find((line) => line.length >= 3),
-                  corrected = [
+                fullStreet ||= String(street?.text || "")
+                  .replace(/\r/g, "")
+                  .split("\n")
+                  .map((line) => line.trim())
+                  .find((line) => line.length >= 3 && /[A-Za-z]{3}/.test(line));
+                const corrected = [
                     MapName.parse(
                       `${street?.text || ""}\n${name?.text || ""}`,
                       confidence,
@@ -1101,6 +1107,52 @@
                     ),
                   ].find((candidate) => candidate?.canonicalized);
                 if (corrected) result.map = corrected;
+              }
+              if (!result.map?.canonicalized) {
+                // The compact pixel font can merge letters at the standard
+                // scale. Retry one alternate scale and combine only its map
+                // line with the independently recognized street anchor.
+                // canonicalMap still requires a unique lexicon match.
+                const alternate = await recognize(
+                    MapName.prepare(input.mapImage, 5),
+                    "map",
+                  ),
+                  alternateLines = String(alternate?.text || "")
+                    .replace(/\r/g, "")
+                    .split("\n")
+                    .map((line) => line.trim())
+                    .filter((line) => line.length >= 3 && /[A-Za-z]{3}/.test(line)),
+                  streetLine = fullStreet || alternateLines[0],
+                  alternateLine = alternateLines[1],
+                  alternateCorrection =
+                    streetLine && alternateLine
+                      ? MapName.parse(
+                          `${streetLine}\n${alternateLine}`,
+                          fullStreet
+                            ? Math.min(
+                                reading?.confidence ?? 0,
+                                alternate?.confidence ?? 0,
+                              )
+                            : alternate?.confidence,
+                        )
+                      : null;
+                if (alternateCorrection?.canonicalized)
+                  result.map = alternateCorrection;
+              }
+              if (!result.map?.canonicalized) {
+                // Dimmed captures can leave the map text below the grayscale
+                // engine's contrast range. Try a text-area-only Otsu threshold
+                // and accept only a unique canonical map-list result.
+                const thresholded = await recognize(
+                    MapName.prepareThreshold(input.mapImage, 4),
+                    "map",
+                  ),
+                  thresholdedMap = MapName.parse(
+                    thresholded?.text,
+                    thresholded?.confidence,
+                  );
+                if (thresholdedMap?.canonicalized)
+                  result.map = thresholdedMap;
               }
             }
           } catch {

@@ -79,7 +79,11 @@ const Reader = require("../reader");
     );
   const dampCrop = MapName.cropHeaderText(dampFrame);
   assert.ok(dampCrop, "find the minimap header in the failed Damp Forest capture");
-  assert.equal(MapName.parse("Victoria Road\nHenesys", 39), null);
+  assert.equal(
+    MapName.parse("Victoria Road\nHenesys", 39)?.text,
+    "Victoria Road · Henesys",
+    "an exact map-list match is accepted below the normal confidence gate",
+  );
   assert.equal(
     MapName.parse("Victoria Road\nHenesys", 70).text,
     "Victoria Road · Henesys",
@@ -101,6 +105,18 @@ const Reader = require("../reader");
     ambiguous.text,
     "Dungeon · Camp Frest",
     "uncertain OCR remains raw instead of being guessed from the map list",
+  );
+  const exactLowConfidence = MapName.parse("Hidden Street\nFree Market 3", 35);
+  assert.equal(
+    exactLowConfidence?.text,
+    "Hidden Street · Free Market <3>",
+    "an exact, unique map-list match survives low aggregate OCR confidence",
+  );
+  assert.equal(exactLowConfidence.canonicalized, true);
+  assert.equal(
+    MapName.parse("Hidden Street\nFree Marker 3", 35),
+    null,
+    "low-confidence fuzzy map reads remain rejected",
   );
 
   const worker = await createWorker("eng", 1, {
@@ -144,6 +160,44 @@ const Reader = require("../reader");
       dampResult.map?.text,
       "Dungeon · Damp Forest",
       "the failed Damp Forest HUD crop reads after restoring left padding past the emblem",
+    );
+
+    const freeMarketThree = PNG.sync.read(
+      fs.readFileSync(
+        path.join(__dirname, "fixtures/map-header-free-market-3-low-confidence.png"),
+      ),
+    );
+    const freeMarketThreeResult = await reader.read({ mapImage: freeMarketThree });
+    assert.equal(
+      freeMarketThreeResult.map?.text,
+      "Hidden Street · Free Market <3>",
+      "the real OCR pipeline accepts the exact map-list match from a low-confidence HUD crop",
+    );
+
+    const freeMarketSeven = PNG.sync.read(
+      fs.readFileSync(
+        path.join(__dirname, "fixtures/map-header-free-market-7-fuzzy.png"),
+      ),
+    );
+    const freeMarketSevenResult = await reader.read({ mapImage: freeMarketSeven });
+    assert.equal(
+      freeMarketSevenResult.map?.text,
+      "Hidden Street · Free Market <7>",
+      "an alternate scale recovers a fuzzy map line from the exact recognized street",
+    );
+
+    const dimmedFrame = PNG.sync.read(
+      fs.readFileSync(path.join(__dirname, "fixtures/map-header-dimmed-panel.png")),
+    );
+    const dimmedHeader = MapName.findHeader(dimmedFrame);
+    assert.ok(dimmedHeader, "find the merged minimap header on a dimmed frame");
+    assert.equal(dimmedHeader.h, 64, "trim a merged minimap panel to the header band");
+    const dimmedCrop = MapName.cropHeaderText(dimmedFrame, dimmedHeader);
+    const dimmedResult = await reader.read({ mapImage: dimmedCrop });
+    assert.equal(
+      dimmedResult.map?.text,
+      "Hidden Street · Free Market Entrance",
+      "thresholded OCR recovers the map label in a dimmed capture",
     );
 
     // Regression for the compact, dimmed window capture: ensure the detector
