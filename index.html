@@ -1396,7 +1396,7 @@ root.MapleHudOcr={recognize,resolveReading,percentageReading};
             };
         }
         if (input.mesoImage) {
-          result.mesoPreview = input.mesoImage;
+          result.mesoPreview = prepareMeso(input.mesoImage);
           try {
             result.meso = await readMesoAmount(input.mesoImage, recognize);
           } catch {
@@ -1406,14 +1406,14 @@ root.MapleHudOcr={recognize,resolveReading,percentageReading};
         }
         if (input.mesoScanImage) {
           try {
-            let candidatePreview = null;
+            let candidateImage = null;
             const onPreview = (image) => {
-              candidatePreview = image;
-              try { input.onMesoPreview?.(image); } catch {}
+              candidateImage = image;
+              try { input.onMesoPreview?.(prepareMeso(image)); } catch {}
             };
             const field = (input.mesoReference && locateMesoReference(input.mesoScanImage, input.mesoReference, onPreview)) ||
               await locateMesoField(input.mesoScanImage, recognize, onPreview);
-            result.mesoPreview = field?.amountImage || candidatePreview;
+            result.mesoPreview = prepareMeso(field?.amountImage || candidateImage);
             if (field) {
               result.mesoCandidate = { region: field.region, border: field.border || null };
               const meso = await readMesoAmount(field.amountImage, recognize);
@@ -3587,7 +3587,6 @@ return {detect,crop,anchors,percentageRegion};
             const input = mesoRegion
               ? { mesoImage: cropNormalized(frame._pixels, mesoRegion) }
               : { mesoScanImage: frame._pixels };
-            if (debug && input.mesoImage) onMesoPreview(input.mesoImage);
             if (debug && input.mesoScanImage)
               input.onMesoPreview = onMesoPreview;
             const mesoRead = input.mesoScanImage && getMesoReference
@@ -3600,8 +3599,7 @@ return {detect,crop,anchors,percentageRegion};
                 generation !== getCapture().generation ||
                 sessionStartAt !== session.state.startAt
               ) return;
-              if (debug)
-                onMesoPreview(mesoResult?.mesoPreview || input.mesoImage || null);
+              if (debug) onMesoPreview(mesoResult?.mesoPreview || null);
               const mesoCandidate = mesoResult?.meso?.region
                 ? mesoResult.meso
                 : mesoResult?.mesoCandidate;

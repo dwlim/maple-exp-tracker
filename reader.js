@@ -130,7 +130,6 @@
             const input = mesoRegion
               ? { mesoImage: cropNormalized(frame._pixels, mesoRegion) }
               : { mesoScanImage: frame._pixels };
-            if (debug && input.mesoImage) onMesoPreview(input.mesoImage);
             if (debug && input.mesoScanImage)
               input.onMesoPreview = onMesoPreview;
             const mesoRead = input.mesoScanImage && getMesoReference
@@ -143,8 +142,7 @@
                 generation !== getCapture().generation ||
                 sessionStartAt !== session.state.startAt
               ) return;
-              if (debug)
-                onMesoPreview(mesoResult?.mesoPreview || input.mesoImage || null);
+              if (debug) onMesoPreview(mesoResult?.mesoPreview || null);
               const mesoCandidate = mesoResult?.meso?.region
                 ? mesoResult.meso
                 : mesoResult?.mesoCandidate;

@@ -1170,7 +1170,7 @@
             };
         }
         if (input.mesoImage) {
-          result.mesoPreview = input.mesoImage;
+          result.mesoPreview = prepareMeso(input.mesoImage);
           try {
             result.meso = await readMesoAmount(input.mesoImage, recognize);
           } catch {
@@ -1180,14 +1180,14 @@
         }
         if (input.mesoScanImage) {
           try {
-            let candidatePreview = null;
+            let candidateImage = null;
             const onPreview = (image) => {
-              candidatePreview = image;
-              try { input.onMesoPreview?.(image); } catch {}
+              candidateImage = image;
+              try { input.onMesoPreview?.(prepareMeso(image)); } catch {}
             };
             const field = (input.mesoReference && locateMesoReference(input.mesoScanImage, input.mesoReference, onPreview)) ||
               await locateMesoField(input.mesoScanImage, recognize, onPreview);
-            result.mesoPreview = field?.amountImage || candidatePreview;
+            result.mesoPreview = prepareMeso(field?.amountImage || candidateImage);
             if (field) {
               result.mesoCandidate = { region: field.region, border: field.border || null };
               const meso = await readMesoAmount(field.amountImage, recognize);
