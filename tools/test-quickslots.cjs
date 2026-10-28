@@ -345,7 +345,7 @@ const eight = packedFrame(cases.find((f) => f.name === "native-8-10")),
     getCapture: () => capture,
   });
   const pending = ui2.process(frame(eight), 1000);
-  assert.match(active.url.href, /tracker\/quickslot-worker.js\?v=8$/);
+  assert.match(active.url.href, /tracker\/quickslot-worker.js\?v=9$/);
   ui2.invalidate();
   await pending;
   assert.equal(active.stopped, true);

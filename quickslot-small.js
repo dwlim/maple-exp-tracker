@@ -82,7 +82,7 @@
     }
     return first && last && ink >= 6 && rows >= 6;
   }
-  function recognizeWithTemplates(image, palette, templates) {
+  function recognizeWithTemplates(image, palette, templates, adaptiveTemplates = []) {
     if (
       !palette ||
       image.height < 12 ||
@@ -104,7 +104,7 @@
             scores = new Map(),
             wide = cell(image, cursor, top, "0"),
             narrow = cell(image, cursor, top, "1");
-          for (const t of templates) {
+          for (const t of n === 0 ? templates.concat(adaptiveTemplates) : templates) {
             const shape = t.digit === "1" ? narrow : wide;
             if (!shape) continue;
             // Masked normalized correlation ignores the changing icon background.
@@ -210,13 +210,19 @@
     // First use the broadly calibrated font. Real-HUD supplemental glyphs are
     // only a fallback for crops the base model cannot read, so they cannot
     // change previously accepted counts or create new false positives there.
-    return reading || !adaptiveTemplates.length
-      ? reading
-      : recognizeWithTemplates(
-          image,
-          palette,
-          templates.concat(adaptiveTemplates),
-        );
+    if (reading || !adaptiveTemplates.length) return reading;
+    const adaptiveReading = recognizeWithTemplates(
+      image,
+      palette,
+      templates,
+      adaptiveTemplates,
+    );
+    // A supplemental real-HUD glyph is not enough evidence for short counts:
+    // cursor art can resemble a second glyph. Require at least three fully
+    // matched digits so a partial 330 cannot be accepted as 3 or 33.
+    return adaptiveReading && String(adaptiveReading.count).length >= 3
+      ? adaptiveReading
+      : null;
   }
   return { value, cell, recognize };
 });

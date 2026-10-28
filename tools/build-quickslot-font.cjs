@@ -65,7 +65,7 @@ for (const f of fixtures) {
   const data = z.inflateSync(Buffer.from(f.rgba, "base64"));
   let cursor = 0;
   for (let k = 0; k < f.text.length; k++) {
-    if (f.height === 12) {
+    if (f.height === 12 || f.smallFont) {
       const cell = Small.cell({ ...f, data }, cursor, 0, f.text[k]);
       if (!cell) throw Error("Incomplete manually labelled crop: " + f.name);
       font.push({
@@ -73,7 +73,9 @@ for (const f of fixtures) {
         palette,
         smallMask: masks[f.text[k]],
         smallCell: cell.map((v) => Math.round(v * 15).toString(16)).join(""),
-        ...(f.adaptive ? { adaptive: true } : {}),
+        ...(f.adaptive && (!f.adaptiveDigits || f.adaptiveDigits.includes(f.text[k]))
+          ? { adaptive: true }
+          : {}),
       });
       cursor += f.text[k] === "1" ? 5 : 8;
       continue;
