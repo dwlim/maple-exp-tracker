@@ -91,10 +91,19 @@
     if (!box) return null;
     // The icon sits at the left of the minimap header. Keep both lines of
     // text and a small margin while excluding the icon and frame border.
-    // Compact/windowed captures devote a smaller fraction of the title bar to
-    // the icon. A fixed 20% offset clips the first glyph on those layouts.
+    // The minimap logo is close to square and keeps roughly the same height
+    // relative to the blue title band. On narrow/windowed captures, the blue
+    // component can start well inside the logo, so a width-only offset leaves
+    // part of it in the OCR input. Use the detected header height as a floor
+    // for the icon exclusion while retaining the width-based offset on larger
+    // layouts; this keeps the first map-name glyph intact.
     const compactHeader = box.w / image.width < 0.155,
-      x0 = Math.max(0, Math.floor(box.x + box.w * (compactHeader ? 0.16 : 0.2))),
+      iconClearance = Math.ceil(box.h * 1.08),
+      xOffset = Math.max(
+        box.w * (compactHeader ? 0.16 : 0.2),
+        iconClearance,
+      ),
+      x0 = Math.max(0, Math.floor(box.x + xOffset)),
       y0 = Math.max(0, Math.floor(box.y + box.h * 0.35)),
       x1 = Math.min(image.width, Math.ceil(box.x + box.w * 0.97)),
       y1 = Math.min(image.height, Math.ceil(box.y + box.h * 0.92)),
