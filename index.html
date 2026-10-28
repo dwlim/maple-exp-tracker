@@ -2158,7 +2158,7 @@ return {detect,crop,anchors,percentageRegion};
       // Only the very narrow headers need this height-based floor. The wider
       // compact layout already has enough horizontal space after the logo;
       // applying the floor there can clip the first letter of the title.
-      iconClearance = headerWidthRatio < 0.12 ? Math.ceil(box.h * 1.08) : 0,
+      iconClearance = headerWidthRatio < 0.12 ? Math.ceil(box.h * 0.84) : 0,
       xOffset = Math.max(
         box.w * (compactHeader ? 0.16 : 0.2),
         iconClearance,
