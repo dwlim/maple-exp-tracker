@@ -33,6 +33,7 @@
     getMesoReference,
     debug = false,
     onMesoPreview = () => {},
+    onMapPreview = () => {},
   }) {
     let busy = false,
       mesoReading = false,
@@ -50,7 +51,13 @@
       } catch {
         return;
       }
-      if (!mapImage) return;
+      if (!mapImage) {
+        if (debug)
+          try { onMapPreview(null); } catch {}
+        return;
+      }
+      if (debug)
+        try { onMapPreview(MapName.prepare(mapImage)); } catch {}
       const hash = MapName.hash(mapImage);
       // Keep retrying an unrecognized header at the normal capture cadence.
       // A one-minute same-crop throttle can leave the stream card blank after

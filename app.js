@@ -116,6 +116,7 @@
         getMesoReference: () => mesoReference,
         debug,
         onMesoPreview: (pixels) => view.showMesoPreview(pixels),
+        onMapPreview: (pixels) => view.showMapPreview(pixels),
       });
       const items = Quickslots.mount({
         document,

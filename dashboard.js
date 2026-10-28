@@ -600,6 +600,7 @@
       showExpPreview,
       showLevelPreview: (pixels) => showCropPreview("levelCropPreview", pixels),
       showMesoPreview: (pixels) => showCropPreview("mesoCropPreview", pixels),
+      showMapPreview: (pixels) => showCropPreview("mapCropPreview", pixels),
       previewFrame,
       notice,
       bindCalibration,

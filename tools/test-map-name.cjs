@@ -88,6 +88,7 @@ const Reader = require("../reader");
     );
 
     let attempts = 0;
+    const mapPreviews = [];
     const retrySession = {
         state: { paused: false, startAt: 1, mapName: "" },
         clearPending() {},
@@ -116,6 +117,8 @@ const Reader = require("../reader");
         },
         debugTools: {},
         getCapture: () => capture,
+        debug: true,
+        onMapPreview: (pixels) => mapPreviews.push(pixels),
         localOcr: {
           async read(input) {
             if (!input.mapImage) return {};
@@ -132,10 +135,15 @@ const Reader = require("../reader");
         _reading: { levelResult: {}, expResult: {} },
       },
       flush = () => new Promise((resolve) => setTimeout(resolve, 0));
-    await retryReader.read(sameFrame, 1700000000000);
+    await retryReader.read(sameFrame, 1700000000000, { report: false });
     await flush();
     assert.equal(retrySession.state.mapName, "", "a failed OCR attempt leaves the map unset");
-    await retryReader.read(sameFrame, 1700000010000);
+    assert.deepEqual(
+      mapPreviews[0],
+      MapName.prepare(darkMapCrop),
+      "debug preview shows the exact enlarged and contrast-adjusted map OCR input",
+    );
+    await retryReader.read(sameFrame, 1700000010000, { report: false });
     await flush();
     assert.equal(attempts, 2, "an unchanged header is retried after a transient OCR miss");
     assert.equal(
