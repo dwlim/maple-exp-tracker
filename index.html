@@ -1297,7 +1297,8 @@ root.MapleHudOcr={recognize,resolveReading,percentageReading};
                 .split("\n")
                 .map((line) => line.trim())
                 .filter((line) => line.length >= 3 && /[A-Za-z]{3}/.test(line));
-              let fullStreet = originalLines[0];
+              let fullStreet = originalLines[0],
+                segmentedStreet = "";
               if (lines.length === 2) {
                 // The Tesseract worker is shared and its parameters change per
                 // request, so keep these reads sequential to avoid PSM races.
@@ -1313,11 +1314,12 @@ root.MapleHudOcr={recognize,resolveReading,percentageReading};
                   street?.confidence ?? 0,
                   name?.confidence ?? 0,
                 );
-                fullStreet ||= String(street?.text || "")
+                segmentedStreet = String(street?.text || "")
                   .replace(/\r/g, "")
                   .split("\n")
                   .map((line) => line.trim())
                   .find((line) => line.length >= 3 && /[A-Za-z]{3}/.test(line));
+                fullStreet ||= segmentedStreet;
                 const corrected = [
                     MapName.parse(
                       `${street?.text || ""}\n${name?.text || ""}`,
@@ -1348,7 +1350,10 @@ root.MapleHudOcr={recognize,resolveReading,percentageReading};
                     .split("\n")
                     .map((line) => line.trim())
                     .filter((line) => line.length >= 3 && /[A-Za-z]{3}/.test(line)),
-                  streetLine = fullStreet || alternateLines[0],
+                  // Prefer the isolated street row over block OCR. The latter
+                  // can merge letters in the first line while the other row
+                  // remains readable at an alternate scale.
+                  streetLine = segmentedStreet || fullStreet || alternateLines[0],
                   alternateLine = alternateLines[1],
                   alternateCorrection =
                     streetLine && alternateLine
@@ -2179,7 +2184,8 @@ return {detect,crop,anchors,percentageRegion};
       seen = new Uint8Array(scanWidth * scanHeight),
       queue = new Int32Array(scanWidth * scanHeight),
       components = [],
-      mergedPanels = [];
+      mergedPanels = [],
+      imageLikePanels = [];
     const isHeaderBlue = (x, y) => {
       const i = (y * width + x) * 4,
         r = image.data[i],
@@ -2234,7 +2240,11 @@ return {detect,crop,anchors,percentageRegion};
             box.w > width * 0.7 &&
             box.h > height * 0.65 &&
             box.w / box.h > 2.5;
-        if (imageCropLike) return box;
+        // A large region can be the game sky connected to the blue minimap
+        // chrome (common when a MapleStory window starts at the screen edge).
+        // Keep it as a last-resort candidate; don't let it mask the smaller
+        // top-left panel found in the same frame.
+        if (imageCropLike) imageLikePanels.push(box);
         const anchoredPanel =
           box.x <= width * 0.08 &&
           box.y <= height * 0.12 &&
@@ -2248,7 +2258,11 @@ return {detect,crop,anchors,percentageRegion};
           // elsewhere in the frame can be larger, so color/area alone must
           // not outrank this stable screen anchor.
           anchoredPanel &&
-          box.h <= height * 0.16 &&
+          // When the panel is fused with its minimap image (or nearby blue
+          // sky), its aspect ratio drops. Route those mid-width regions to the
+          // merged-panel fallback; broad, uniformly shaped title strips remain
+          // valid normal headers even at larger HUD scales.
+          (box.h <= height * 0.085 || box.w / box.h >= 2.8) &&
           box.w / box.h >= 2.0
         )
           components.push(box);
@@ -2258,22 +2272,22 @@ return {detect,crop,anchors,percentageRegion};
           // fallback and trim it back to the header height before cropping.
           anchoredPanel &&
           box.w / box.h >= 0.75 &&
-          box.w / box.h <= 1.3
+          box.w / box.h <= 2.8
         )
           mergedPanels.push(box);
       }
     }
-    components.sort((a, b) =>
+    const panel = [...components, ...mergedPanels].sort((a, b) =>
       a.x + a.y * 0.5 - (b.x + b.y * 0.5) || b.count - a.count,
-    );
-    if (components[0]) return components[0];
-    mergedPanels.sort((a, b) =>
-      a.x + a.y * 0.5 - (b.x + b.y * 0.5) || b.count - a.count,
-    );
-    const merged = mergedPanels[0];
-    return merged
-      ? { ...merged, h: Math.min(merged.h, Math.max(24, Math.round(height * 0.057))) }
-      : null;
+    )[0];
+    if (panel) {
+      // A merged minimap and title panel is tall; its text is only in the top
+      // band. Trim it to the expected header height before cropping.
+      return mergedPanels.includes(panel)
+        ? { ...panel, h: Math.min(panel.h, Math.max(24, Math.round(height * 0.057))) }
+        : panel;
+    }
+    return imageLikePanels.sort((a, b) => a.y - b.y || a.x - b.x)[0] || null;
   }
 
   function cropHeaderText(image, box = findHeader(image)) {

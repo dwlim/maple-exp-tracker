@@ -16,7 +16,8 @@
       seen = new Uint8Array(scanWidth * scanHeight),
       queue = new Int32Array(scanWidth * scanHeight),
       components = [],
-      mergedPanels = [];
+      mergedPanels = [],
+      imageLikePanels = [];
     const isHeaderBlue = (x, y) => {
       const i = (y * width + x) * 4,
         r = image.data[i],
@@ -71,7 +72,11 @@
             box.w > width * 0.7 &&
             box.h > height * 0.65 &&
             box.w / box.h > 2.5;
-        if (imageCropLike) return box;
+        // A large region can be the game sky connected to the blue minimap
+        // chrome (common when a MapleStory window starts at the screen edge).
+        // Keep it as a last-resort candidate; don't let it mask the smaller
+        // top-left panel found in the same frame.
+        if (imageCropLike) imageLikePanels.push(box);
         const anchoredPanel =
           box.x <= width * 0.08 &&
           box.y <= height * 0.12 &&
@@ -85,7 +90,11 @@
           // elsewhere in the frame can be larger, so color/area alone must
           // not outrank this stable screen anchor.
           anchoredPanel &&
-          box.h <= height * 0.16 &&
+          // When the panel is fused with its minimap image (or nearby blue
+          // sky), its aspect ratio drops. Route those mid-width regions to the
+          // merged-panel fallback; broad, uniformly shaped title strips remain
+          // valid normal headers even at larger HUD scales.
+          (box.h <= height * 0.085 || box.w / box.h >= 2.8) &&
           box.w / box.h >= 2.0
         )
           components.push(box);
@@ -95,22 +104,22 @@
           // fallback and trim it back to the header height before cropping.
           anchoredPanel &&
           box.w / box.h >= 0.75 &&
-          box.w / box.h <= 1.3
+          box.w / box.h <= 2.8
         )
           mergedPanels.push(box);
       }
     }
-    components.sort((a, b) =>
+    const panel = [...components, ...mergedPanels].sort((a, b) =>
       a.x + a.y * 0.5 - (b.x + b.y * 0.5) || b.count - a.count,
-    );
-    if (components[0]) return components[0];
-    mergedPanels.sort((a, b) =>
-      a.x + a.y * 0.5 - (b.x + b.y * 0.5) || b.count - a.count,
-    );
-    const merged = mergedPanels[0];
-    return merged
-      ? { ...merged, h: Math.min(merged.h, Math.max(24, Math.round(height * 0.057))) }
-      : null;
+    )[0];
+    if (panel) {
+      // A merged minimap and title panel is tall; its text is only in the top
+      // band. Trim it to the expected header height before cropping.
+      return mergedPanels.includes(panel)
+        ? { ...panel, h: Math.min(panel.h, Math.max(24, Math.round(height * 0.057))) }
+        : panel;
+    }
+    return imageLikePanels.sort((a, b) => a.y - b.y || a.x - b.x)[0] || null;
   }
 
   function cropHeaderText(image, box = findHeader(image)) {

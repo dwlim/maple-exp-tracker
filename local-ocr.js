@@ -1071,7 +1071,8 @@
                 .split("\n")
                 .map((line) => line.trim())
                 .filter((line) => line.length >= 3 && /[A-Za-z]{3}/.test(line));
-              let fullStreet = originalLines[0];
+              let fullStreet = originalLines[0],
+                segmentedStreet = "";
               if (lines.length === 2) {
                 // The Tesseract worker is shared and its parameters change per
                 // request, so keep these reads sequential to avoid PSM races.
@@ -1087,11 +1088,12 @@
                   street?.confidence ?? 0,
                   name?.confidence ?? 0,
                 );
-                fullStreet ||= String(street?.text || "")
+                segmentedStreet = String(street?.text || "")
                   .replace(/\r/g, "")
                   .split("\n")
                   .map((line) => line.trim())
                   .find((line) => line.length >= 3 && /[A-Za-z]{3}/.test(line));
+                fullStreet ||= segmentedStreet;
                 const corrected = [
                     MapName.parse(
                       `${street?.text || ""}\n${name?.text || ""}`,
@@ -1122,7 +1124,10 @@
                     .split("\n")
                     .map((line) => line.trim())
                     .filter((line) => line.length >= 3 && /[A-Za-z]{3}/.test(line)),
-                  streetLine = fullStreet || alternateLines[0],
+                  // Prefer the isolated street row over block OCR. The latter
+                  // can merge letters in the first line while the other row
+                  // remains readable at an alternate scale.
+                  streetLine = segmentedStreet || fullStreet || alternateLines[0],
                   alternateLine = alternateLines[1],
                   alternateCorrection =
                     streetLine && alternateLine

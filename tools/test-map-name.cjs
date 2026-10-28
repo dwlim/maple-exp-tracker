@@ -118,6 +118,16 @@ const Reader = require("../reader");
     null,
     "low-confidence fuzzy map reads remain rejected",
   );
+  assert.equal(
+    MapName.parse("Maple Eoad\nShall Hunting Ground ll", 35),
+    null,
+    "two approximate lines below the confidence gate are not guessed",
+  );
+  assert.equal(
+    MapName.parse("Maple Eoad\nShall Hunting Ground ll", 45)?.canonicalized,
+    false,
+    "uncertain Roman numerals are not inferred from ambiguous l/I glyphs",
+  );
 
   const worker = await createWorker("eng", 1, {
     langPath: path.resolve("assets/ocr"),
@@ -223,6 +233,48 @@ const Reader = require("../reader");
       darkResult.map?.text,
       "Kerning City Subway · Line 1 <Area 1>",
       "contrast recovery and crop alignment preserve the first glyph on compact HUDs",
+    );
+
+    const skyConnectedFrame = PNG.sync.read(
+      fs.readFileSync(path.join(__dirname, "fixtures/map-header-sky-connected.png")),
+    );
+    const skyConnectedHeader = MapName.findHeader(skyConnectedFrame);
+    assert.ok(skyConnectedHeader, "find the title panel when blue sky connects to it");
+    assert.ok(skyConnectedHeader.y < 20, "prefer the top-left title over the minimap image");
+    const skyConnectedCrop = MapName.cropHeaderText(skyConnectedFrame, skyConnectedHeader);
+    const skyConnectedResult = await reader.read({ mapImage: skyConnectedCrop });
+    assert.ok(skyConnectedResult.map?.text, "read a map label when blue sky connects to its header");
+    assert.equal(
+      skyConnectedResult.map?.canonicalized,
+      false,
+      "keep ambiguous Roman numerals raw instead of choosing the wrong map variant",
+    );
+
+    const widerSkyFrame = PNG.sync.read(
+      fs.readFileSync(path.join(__dirname, "fixtures/map-header-sky-connected-split-road.png")),
+    );
+    const widerSkyHeader = MapName.findHeader(widerSkyFrame);
+    assert.ok(widerSkyHeader, "find a taller, wider title panel fused to the sky");
+    assert.ok(widerSkyHeader.h <= 70, "trim a fused title panel to the title band");
+    assert.equal(
+      (await reader.read({ mapImage: MapName.cropHeaderText(widerSkyFrame, widerSkyHeader) })).map?.text,
+      "Maple Road · A Split Road",
+      "the wider title header is cropped from the top band rather than minimap image",
+    );
+
+    const romanAmbiguousFrame = PNG.sync.read(
+      fs.readFileSync(path.join(__dirname, "fixtures/map-header-roman-ambiguous.png")),
+    );
+    const romanAmbiguousHeader = MapName.findHeader(romanAmbiguousFrame);
+    assert.ok(romanAmbiguousHeader, "locate the title above blue sky on a busy frame");
+    const romanAmbiguousResult = await reader.read({
+      mapImage: MapName.cropHeaderText(romanAmbiguousFrame, romanAmbiguousHeader),
+    });
+    assert.ok(romanAmbiguousResult.map?.text, "preserve a readable raw label");
+    assert.equal(
+      romanAmbiguousResult.map?.canonicalized,
+      false,
+      "do not guess between similar Roman-numeral map names",
     );
 
     let attempts = 0;
