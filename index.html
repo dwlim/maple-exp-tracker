@@ -1310,9 +1310,20 @@ if(typeof module==='object'&&module.exports)module.exports=api;
       const task = queue.then(async () => {
         const result = {};
         if (input.mapImage) {
+          const mapReadings = input.includeMapDebug ? [] : null;
+          const readMap = async (pixels, kind = "map") => {
+            const reading = await recognize(pixels, kind);
+            mapReadings?.push({
+              kind,
+              text: String(reading?.text || "").trim(),
+              confidence: Number.isFinite(reading?.confidence) ? reading.confidence : null,
+            });
+            return reading;
+          };
+          if (mapReadings) result.mapDebug = mapReadings;
           try {
             const mapPixels = MapName.prepare(input.mapImage),
-              reading = await recognize(mapPixels, "map");
+              reading = await readMap(mapPixels, "map");
             result.map = MapName.parse(reading?.text, reading?.confidence);
             // Full-block OCR can merge the two tiny pixel-font lines. When it
             // cannot canonicalize a result, OCR each detected line separately
@@ -1329,11 +1340,11 @@ if(typeof module==='object'&&module.exports)module.exports=api;
               if (lines.length === 2) {
                 // The Tesseract worker is shared and its parameters change per
                 // request, so keep these reads sequential to avoid PSM races.
-                const street = await recognize(
+                const street = await readMap(
                     MapName.prepare(lines[0], 6),
                     "map-line",
                   ),
-                  name = await recognize(
+                  name = await readMap(
                     MapName.prepare(lines[1], 8),
                     "map-line",
                   );
@@ -1368,7 +1379,7 @@ if(typeof module==='object'&&module.exports)module.exports=api;
                 // scale. Retry one alternate scale and combine only its map
                 // line with the independently recognized street anchor.
                 // canonicalMap still requires a unique lexicon match.
-                const alternate = await recognize(
+                const alternate = await readMap(
                     MapName.prepare(input.mapImage, 5),
                     "map",
                   ),
@@ -1407,7 +1418,7 @@ if(typeof module==='object'&&module.exports)module.exports=api;
                 // Dimmed captures can leave the map text below the grayscale
                 // engine's contrast range. Try a text-area-only Otsu threshold
                 // and accept only a unique canonical map-list result.
-                const thresholded = await recognize(
+                const thresholded = await readMap(
                     MapName.prepareThreshold(input.mapImage, 4),
                     "map",
                   ),
@@ -1419,9 +1430,10 @@ if(typeof module==='object'&&module.exports)module.exports=api;
                   result.map = thresholdedMap;
               }
             }
-          } catch {
+          } catch (error) {
             // Map-name OCR is optional and independent of progression OCR.
             result.map = null;
+            if (mapReadings) result.mapDebugError = String(error?.message || error);
           }
         }
         for (const kind of ["level", "exp"]) {
@@ -3956,8 +3968,15 @@ return {detect,crop,anchors,percentageRegion};
       );
       img.src = canvas.toDataURL();
       status.textContent = pixels.width + " × " + pixels.height + " px";
+      img.dataset.cropSize = pixels.width + " × " + pixels.height + " px";
       canvas.width = 0;
       canvas.height = 0;
+    }
+    function showMapStatus(text) {
+      const img = q("#mapCropPreview"), status = q("#mapCropPreviewStatus");
+      if (!status) return;
+      const size = img?.dataset?.cropSize;
+      status.textContent = [size, text].filter(Boolean).join(" · ");
     }
     async function previewFrame(frame, cancelled = () => false) {
       const image = q("#latestFrame"),
@@ -4109,6 +4128,7 @@ return {detect,crop,anchors,percentageRegion};
       showLevelPreview: (pixels) => showCropPreview("levelCropPreview", pixels),
       showMesoPreview: (pixels) => showCropPreview("mesoCropPreview", pixels),
       showMapPreview: (pixels) => showCropPreview("mapCropPreview", pixels),
+      showMapStatus,
       previewFrame,
       notice,
       bindCalibration,
@@ -4193,7 +4213,7 @@ return {detect,crop,anchors,percentageRegion};
       if (!mapImage) {
         reportMapFailure(frame, readAt, "no-map-header", "map-header-not-found");
         if (debug)
-          try { onMapPreview(null); } catch {}
+          try { onMapPreview(null); view.showMapStatus?.("No map header found"); } catch {}
         return;
       }
       if (debug)
@@ -4212,7 +4232,7 @@ return {detect,crop,anchors,percentageRegion};
       lastMapAttemptAt = readAt;
       const sessionStartAt = session.state.startAt;
       void localOcr
-        .read({ mapImage })
+        .read({ mapImage, includeMapDebug: debug })
         .then((result) => {
           if (
             session.state.paused ||
@@ -4220,6 +4240,17 @@ return {detect,crop,anchors,percentageRegion};
             !getCapture().stream ||
             sessionStartAt !== session.state.startAt
           ) return;
+          if (debug) {
+            const raw = (result?.mapDebug || []).map((entry) => {
+              const text = String(entry.text || "[empty]").replace(/\s+/g, " ").slice(0, 70);
+              return `${entry.kind}: ${text} (${entry.confidence ?? "no confidence"}%)`;
+            });
+            view.showMapStatus?.(
+              result?.map?.text
+                ? `Matched ${result.map.text} · ${raw.join(" → ")}`
+                : `No match · ${result?.mapDebugError || raw.join(" → ") || "No OCR output"}`,
+            );
+          }
           if (result?.map?.text) {
             lastMapFailureHash = null;
             session.setMapName?.(result.map.text, readAt);
@@ -4227,7 +4258,10 @@ return {detect,crop,anchors,percentageRegion};
             reportMapFailure(frame, readAt, hash, "map-name-not-found");
           }
         })
-        .catch(() => reportMapFailure(frame, readAt, hash, "map-name-ocr-error"));
+        .catch((error) => {
+          if (debug) view.showMapStatus?.(`OCR error: ${String(error?.message || error).slice(0, 100)}`);
+          reportMapFailure(frame, readAt, hash, "map-name-ocr-error");
+        });
     }
     async function read(frame, timestamp, { report = true } = {}) {
       if (session.state.paused || busy) return;

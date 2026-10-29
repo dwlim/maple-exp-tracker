@@ -448,8 +448,15 @@
       );
       img.src = canvas.toDataURL();
       status.textContent = pixels.width + " × " + pixels.height + " px";
+      img.dataset.cropSize = pixels.width + " × " + pixels.height + " px";
       canvas.width = 0;
       canvas.height = 0;
+    }
+    function showMapStatus(text) {
+      const img = q("#mapCropPreview"), status = q("#mapCropPreviewStatus");
+      if (!status) return;
+      const size = img?.dataset?.cropSize;
+      status.textContent = [size, text].filter(Boolean).join(" · ");
     }
     async function previewFrame(frame, cancelled = () => false) {
       const image = q("#latestFrame"),
@@ -601,6 +608,7 @@
       showLevelPreview: (pixels) => showCropPreview("levelCropPreview", pixels),
       showMesoPreview: (pixels) => showCropPreview("mesoCropPreview", pixels),
       showMapPreview: (pixels) => showCropPreview("mapCropPreview", pixels),
+      showMapStatus,
       previewFrame,
       notice,
       bindCalibration,

@@ -1080,9 +1080,20 @@
       const task = queue.then(async () => {
         const result = {};
         if (input.mapImage) {
+          const mapReadings = input.includeMapDebug ? [] : null;
+          const readMap = async (pixels, kind = "map") => {
+            const reading = await recognize(pixels, kind);
+            mapReadings?.push({
+              kind,
+              text: String(reading?.text || "").trim(),
+              confidence: Number.isFinite(reading?.confidence) ? reading.confidence : null,
+            });
+            return reading;
+          };
+          if (mapReadings) result.mapDebug = mapReadings;
           try {
             const mapPixels = MapName.prepare(input.mapImage),
-              reading = await recognize(mapPixels, "map");
+              reading = await readMap(mapPixels, "map");
             result.map = MapName.parse(reading?.text, reading?.confidence);
             // Full-block OCR can merge the two tiny pixel-font lines. When it
             // cannot canonicalize a result, OCR each detected line separately
@@ -1099,11 +1110,11 @@
               if (lines.length === 2) {
                 // The Tesseract worker is shared and its parameters change per
                 // request, so keep these reads sequential to avoid PSM races.
-                const street = await recognize(
+                const street = await readMap(
                     MapName.prepare(lines[0], 6),
                     "map-line",
                   ),
-                  name = await recognize(
+                  name = await readMap(
                     MapName.prepare(lines[1], 8),
                     "map-line",
                   );
@@ -1138,7 +1149,7 @@
                 // scale. Retry one alternate scale and combine only its map
                 // line with the independently recognized street anchor.
                 // canonicalMap still requires a unique lexicon match.
-                const alternate = await recognize(
+                const alternate = await readMap(
                     MapName.prepare(input.mapImage, 5),
                     "map",
                   ),
@@ -1177,7 +1188,7 @@
                 // Dimmed captures can leave the map text below the grayscale
                 // engine's contrast range. Try a text-area-only Otsu threshold
                 // and accept only a unique canonical map-list result.
-                const thresholded = await recognize(
+                const thresholded = await readMap(
                     MapName.prepareThreshold(input.mapImage, 4),
                     "map",
                   ),
@@ -1189,9 +1200,10 @@
                   result.map = thresholdedMap;
               }
             }
-          } catch {
+          } catch (error) {
             // Map-name OCR is optional and independent of progression OCR.
             result.map = null;
+            if (mapReadings) result.mapDebugError = String(error?.message || error);
           }
         }
         for (const kind of ["level", "exp"]) {

@@ -68,7 +68,7 @@
       if (!mapImage) {
         reportMapFailure(frame, readAt, "no-map-header", "map-header-not-found");
         if (debug)
-          try { onMapPreview(null); } catch {}
+          try { onMapPreview(null); view.showMapStatus?.("No map header found"); } catch {}
         return;
       }
       if (debug)
@@ -87,7 +87,7 @@
       lastMapAttemptAt = readAt;
       const sessionStartAt = session.state.startAt;
       void localOcr
-        .read({ mapImage })
+        .read({ mapImage, includeMapDebug: debug })
         .then((result) => {
           if (
             session.state.paused ||
@@ -95,6 +95,17 @@
             !getCapture().stream ||
             sessionStartAt !== session.state.startAt
           ) return;
+          if (debug) {
+            const raw = (result?.mapDebug || []).map((entry) => {
+              const text = String(entry.text || "[empty]").replace(/\s+/g, " ").slice(0, 70);
+              return `${entry.kind}: ${text} (${entry.confidence ?? "no confidence"}%)`;
+            });
+            view.showMapStatus?.(
+              result?.map?.text
+                ? `Matched ${result.map.text} · ${raw.join(" → ")}`
+                : `No match · ${result?.mapDebugError || raw.join(" → ") || "No OCR output"}`,
+            );
+          }
           if (result?.map?.text) {
             lastMapFailureHash = null;
             session.setMapName?.(result.map.text, readAt);
@@ -102,7 +113,10 @@
             reportMapFailure(frame, readAt, hash, "map-name-not-found");
           }
         })
-        .catch(() => reportMapFailure(frame, readAt, hash, "map-name-ocr-error"));
+        .catch((error) => {
+          if (debug) view.showMapStatus?.(`OCR error: ${String(error?.message || error).slice(0, 100)}`);
+          reportMapFailure(frame, readAt, hash, "map-name-ocr-error");
+        });
     }
     async function read(frame, timestamp, { report = true } = {}) {
       if (session.state.paused || busy) return;

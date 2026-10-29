@@ -182,6 +182,13 @@ const Reader = require("../reader");
       "Victoria Road · Henesys",
       "bundled OCR reads both lines of the minimap label",
     );
+    const debugResult = await reader.read({ mapImage: mapCrop, includeMapDebug: true });
+    assert.equal(debugResult.map?.text, result.map.text);
+    assert.ok(debugResult.mapDebug?.length, "debug reads retain the browser OCR attempts");
+    assert.match(debugResult.mapDebug[0].text, /Victoria Road|Henesys/);
+    assert.ok(debugResult.mapDebug[0].confidence >= 0);
+    assert.ok(debugResult.mapDebug[0].confidence <= 100);
+    assert.equal(result.mapDebug, undefined, "normal reads do not retain debug OCR text");
 
     const anchoredResult = await reader.read({ mapImage: anchoredCrop });
     assert.equal(
@@ -331,6 +338,7 @@ const Reader = require("../reader");
         },
       },
       capture = { generation: 1, stream: {} },
+      mapStatuses = [],
       retryReader = Reader.create({
         session: retrySession,
         recognition: { decodeFrame: async () => {} },
@@ -339,6 +347,7 @@ const Reader = require("../reader");
           renderReading() {},
           status() {},
           output() {},
+          showMapStatus(text) { mapStatuses.push(text); },
         },
         debugTools: {
           async rejectFrame(frame, timestamp, reason) {
@@ -354,7 +363,10 @@ const Reader = require("../reader");
             if (!input.mapImage) return {};
             attempts++;
             return attempts <= 2
-              ? { map: null }
+              ? {
+                  map: null,
+                  mapDebug: [{ kind: "map", text: "Victoria Road", confidence: 83 }],
+                }
               : { map: { text: "Kerning City Subway · Line 1 Area 1" } };
           },
         },
@@ -370,6 +382,7 @@ const Reader = require("../reader");
     assert.equal(retrySession.state.mapName, "", "a failed OCR attempt leaves the map unset");
     assert.equal(mapFailures.length, 1, "a failed map OCR reading requests a debug screenshot");
     assert.equal(mapFailures[0].reason, "map-name-not-found");
+    assert.match(mapStatuses[0], /map: Victoria Road \(83%\)/);
     assert.deepEqual(
       mapPreviews[0],
       MapName.prepare(darkMapCrop),
