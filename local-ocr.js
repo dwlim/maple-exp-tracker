@@ -1081,7 +1081,7 @@
                     "map-line",
                   ),
                   name = await recognize(
-                    MapName.prepare(lines[1], 6),
+                    MapName.prepare(lines[1], 8),
                     "map-line",
                   );
                 const confidence = Math.min(

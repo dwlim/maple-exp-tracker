@@ -1307,7 +1307,7 @@ root.MapleHudOcr={recognize,resolveReading,percentageReading};
                     "map-line",
                   ),
                   name = await recognize(
-                    MapName.prepare(lines[1], 6),
+                    MapName.prepare(lines[1], 8),
                     "map-line",
                   );
                 const confidence = Math.min(
@@ -2620,8 +2620,31 @@ return {detect,crop,anchors,percentageRegion};
         matches.push({ street, name, score: streetDistance + nameDistance });
     }
     matches.sort((a, b) => a.score - b.score);
-    if (!matches.length || (matches[1] && matches[1].score === matches[0].score)) return null;
-    return matches[0];
+    if (matches.length && (!matches[1] || matches[1].score !== matches[0].score))
+      return matches[0];
+
+    // Long minimap labels are often clipped to a few dozen tiny pixels. When
+    // neither line is exact, allow a small combined error only if the street
+    // is within one edit, the map name within two, and the nearest pair is
+    // unique. Short labels and ambiguous roman-numeral neighbors stay raw.
+    const combinedLength =
+      normalizeName(lines[0]).length + normalizeName(lines[1]).length;
+    if (combinedLength < 38) return null;
+    const nearMatches = [];
+    for (const [street, name] of mapNames) {
+      const streetDistance = editDistance(lines[0], street),
+        nameDistance = editDistance(lines[1], name);
+      if (streetDistance <= 1 && nameDistance <= 2)
+        nearMatches.push({ street, name, score: streetDistance + nameDistance });
+    }
+    nearMatches.sort((a, b) => a.score - b.score);
+    if (
+      !nearMatches.length ||
+      nearMatches[0].score > 3 ||
+      (nearMatches[1] && nearMatches[1].score === nearMatches[0].score)
+    )
+      return null;
+    return nearMatches[0];
   }
 
   function parse(text, confidence) {
