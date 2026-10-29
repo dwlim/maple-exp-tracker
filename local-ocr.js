@@ -963,6 +963,14 @@
         ocrResults.push(result);
       }
     }
+    const initialGlyph = recognizeMesoDigits(image);
+    if (ocrResults.length === 2 && ocrResults[0].amount === ocrResults[1].amount) {
+      if (initialGlyph && initialGlyph.amount !== ocrResults[0].amount) return null;
+      return {
+        amount: ocrResults[0].amount,
+        confidence: Math.round(Math.min(ocrResults[0].confidence, ocrResults[1].confidence)),
+      };
+    }
     const adaptive = await recognize(prepareMeso(image, mesoAdaptiveThreshold(image)), "meso-value-adaptive"),
       adaptiveAmount = parseMeso(adaptive.text);
     if (adaptiveAmount !== null && adaptive.confidence >= 40) {
@@ -970,7 +978,7 @@
       results.push(result);
       ocrResults.push(result);
     }
-    const glyph = recognizeMesoDigits(image);
+    const glyph = initialGlyph || recognizeMesoDigits(image);
     if (glyph) results.push(glyph);
     const votes = new Map();
     for (const result of results) {
