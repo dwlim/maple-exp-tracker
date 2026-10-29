@@ -2397,7 +2397,14 @@ return {detect,crop,anchors,percentageRegion};
             : box.y + box.h * 0.35,
         ),
       ),
-      x1 = Math.min(image.width, Math.ceil(box.x + box.w * 0.97)),
+      x1 = Math.min(
+        image.width,
+        Math.ceil(
+          worldButton
+            ? box.x + box.w - controlUnit * 0.1
+            : box.x + box.w * 0.97,
+        ),
+      ),
       y1 = Math.min(
         image.height,
         Math.ceil(
