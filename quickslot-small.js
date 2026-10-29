@@ -90,7 +90,8 @@
       image.data.length !== image.width * image.height * 4
     )
       return null;
-    const readings = new Map();
+    const readings = new Map(),
+      unresolvedPrefixes = new Set();
     for (let top = 0; top <= image.height - 12; top++)
       for (let left = 0; left <= 4; left++) {
         if (hasText(image, palette, 0, top, left + 2)) continue;
@@ -104,7 +105,10 @@
             scores = new Map(),
             wide = cell(image, cursor, top, "0"),
             narrow = cell(image, cursor, top, "1");
-          for (const t of n === 0 ? templates.concat(adaptiveTemplates) : templates) {
+          // Adaptive samples come from native HUD crops and can describe any
+          // digit position. Keep them out of the baseline pass; this function
+          // is only the conservative fallback after the base font rejects.
+          for (const t of templates.concat(adaptiveTemplates)) {
             const shape = t.digit === "1" ? narrow : wide;
             if (!shape) continue;
             // Masked normalized correlation ignores the changing icon background.
@@ -157,8 +161,10 @@
           ) {
             // Color alone is not proof of an empty tail. A weak masked match
             // still means a possible continuation, so reject the whole count.
+            const visibleTail = text && hasText(image, palette, cursor, top);
+            if (visibleTail) unresolvedPrefixes.add(text);
             if (
-              hasText(image, palette, cursor, top) ||
+              visibleTail ||
               [...scores.values()].some((e) => e <= 0.25)
             )
               valid = false;
@@ -191,8 +197,11 @@
     const full = [...readings.entries()]
       .filter(
         ([text]) =>
-          ![...readings.keys()].some(
-            (other) => other.length > text.length && other.startsWith(text),
+          ![...readings.keys()].some((other) =>
+            other.length > text.length && other.startsWith(text),
+          ) &&
+          ![...unresolvedPrefixes].some(
+            (prefix) => prefix.startsWith(text) && prefix.length >= text.length,
           ),
       )
       .map(([, reading]) => reading);

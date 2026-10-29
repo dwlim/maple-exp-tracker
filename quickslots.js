@@ -409,7 +409,7 @@
             store.remove(item.id);
           }
           if (!store.state.enabled) return;
-          let unreadable = false;
+          const unreadableSlots = [];
           for (const item of [...store.state.items]) {
             if (stopped() || !store.state.enabled) return;
             const slot = found.slots[item.slot];
@@ -438,11 +438,19 @@
             cache.set(item.id, { key, result });
             store.observe(item.id, result, t);
             if (!Number.isInteger(result?.count) || result.confidence < 90)
-              unreadable = true;
+              unreadableSlots.push(item.slot + 1);
           }
-          if (unreadable && !stopped()) {
+          if (unreadableSlots.length && !stopped()) {
             try {
-              await onRejectedFrame?.(frame, t, "quickslot-quantity-unreadable", stopped);
+              await onRejectedFrame?.(
+                frame,
+                t,
+                "quickslot-unreadable-s" + unreadableSlots.slice(0, 8).join("-") +
+                  (unreadableSlots.length > 8
+                    ? "-plus-" + (unreadableSlots.length - 8)
+                    : ""),
+                stopped,
+              );
             } catch {
               /* Saving diagnostics must not interrupt tracking. */
             }
