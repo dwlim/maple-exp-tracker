@@ -79,6 +79,31 @@ const Reader = require("../reader");
     );
   const dampCrop = MapName.cropHeaderText(dampFrame);
   assert.ok(dampCrop, "find the minimap header in the failed Damp Forest capture");
+  const compactHeaderCases = [
+    ["map-header-compact-subway.png", "Victoria Road · Subway Ticketing Booth"],
+    ["map-header-compact-ellinia-store.png", "Victoria Road · Ellinia Department Store"],
+    ["map-header-compact-ellinia.png", "Victoria Road · Ellinia Department Store"],
+    ["map-header-compact-henesys.png", "Victoria Road · Henesys Department Store"],
+  ].map(([filename, expected]) => {
+    const band = PNG.sync.read(fs.readFileSync(path.join(__dirname, "fixtures", filename))),
+      compactFrame = {
+        width: 1924,
+        height: 1126,
+        data: new Uint8ClampedArray(1924 * 1126 * 4),
+      };
+    for (let i = 0; i < compactFrame.data.length; i += 4) {
+      compactFrame.data[i] = compactFrame.data[i + 1] = compactFrame.data[i + 2] = 24;
+      compactFrame.data[i + 3] = 255;
+    }
+    for (let y = 0; y < band.height; y++)
+      compactFrame.data.set(
+        band.data.subarray(y * band.width * 4, (y + 1) * band.width * 4),
+        (44 + y) * compactFrame.width * 4,
+      );
+    const crop = MapName.cropHeaderText(compactFrame);
+    assert.ok(crop, `find compact header for ${filename}`);
+    return { filename, expected, crop };
+  });
   assert.equal(
     MapName.parse("Victoria Road\nHenesys", 39)?.text,
     "Victoria Road · Henesys",
@@ -171,6 +196,15 @@ const Reader = require("../reader");
       "Dungeon · Damp Forest",
       "the failed Damp Forest HUD crop reads after restoring left padding past the emblem",
     );
+
+    for (const { filename, expected, crop } of compactHeaderCases) {
+      const compactResult = await reader.read({ mapImage: crop });
+      assert.equal(
+        compactResult.map?.text,
+        expected,
+        `the bundled OCR reads the compact minimap title in ${filename}`,
+      );
+    }
 
     const freeMarketThree = PNG.sync.read(
       fs.readFileSync(

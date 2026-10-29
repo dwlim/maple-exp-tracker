@@ -208,7 +208,7 @@
   }
 
   function cropHeaderText(image, box = findHeader(image)) {
-    if (!box) return null;
+    if (!box) return cropCompactHeaderText(image);
     const worldButton = findWorldButton(image, box),
       // The orange label background is only its most saturated center; infer
       // the full control height from the surrounding minimap dimensions.
@@ -302,6 +302,125 @@
       high = percentile(pixelCount * 0.95),
       range = high - low;
     if (compactHeader && range >= 24)
+      for (let i = 0; i < data.length; i += 4) {
+        const value = Math.max(0, Math.min(255, Math.round(((data[i] - low) * 255) / range)));
+        data[i] = data[i + 1] = data[i + 2] = value;
+      }
+    return { width: w, height: h, data };
+  }
+
+  // Some windowed captures show the minimap title as a single compact row,
+  // without the normal blue panel. The gold WORLD button and adjacent zoom
+  // controls remain visible, so use that fixed control row to bound the text.
+  function cropCompactHeaderText(image) {
+    if (!image?.data || !image.width || !image.height) return null;
+    const width = image.width,
+      height = image.height,
+      scanWidth = Math.floor(width * 0.34),
+      scanHeight = Math.floor(height * 0.12),
+      seen = new Uint8Array(scanWidth * scanHeight),
+      queue = new Int32Array(scanWidth * scanHeight),
+      candidates = [];
+    const isGold = (x, y) => {
+      const i = (y * width + x) * 4,
+        r = image.data[i],
+        g = image.data[i + 1],
+        b = image.data[i + 2];
+      return r > 145 && g > 65 && b < 165 && r > g * 1.08 && g > b * 1.18;
+    };
+    for (let sy = 0; sy < scanHeight; sy++)
+      for (let sx = 0; sx < scanWidth; sx++) {
+        const start = sy * scanWidth + sx;
+        if (seen[start] || !isGold(sx, sy)) continue;
+        let head = 0,
+          tail = 0,
+          count = 0,
+          left = sx,
+          right = sx,
+          top = sy,
+          bottom = sy;
+        queue[tail++] = start;
+        seen[start] = 1;
+        while (head < tail) {
+          const cell = queue[head++],
+            x = cell % scanWidth,
+            y = Math.floor(cell / scanWidth);
+          count++;
+          left = Math.min(left, x);
+          right = Math.max(right, x);
+          top = Math.min(top, y);
+          bottom = Math.max(bottom, y);
+          const neighbors = [
+            x > 0 ? cell - 1 : -1,
+            x + 1 < scanWidth ? cell + 1 : -1,
+            y > 0 ? cell - scanWidth : -1,
+            y + 1 < scanHeight ? cell + scanWidth : -1,
+          ];
+          for (const neighbor of neighbors) {
+            if (neighbor < 0 || seen[neighbor]) continue;
+            const nx = neighbor % scanWidth,
+              ny = Math.floor(neighbor / scanWidth);
+            if (!isGold(nx, ny)) continue;
+            seen[neighbor] = 1;
+            queue[tail++] = neighbor;
+          }
+        }
+        const button = {
+          x: left,
+          y: top,
+          w: right - left + 1,
+          h: bottom - top + 1,
+          count,
+        };
+        if (
+          button.x >= width * 0.08 &&
+          button.x <= width * 0.28 &&
+          button.y <= height * 0.08 &&
+          button.w >= width * 0.012 &&
+          button.w <= width * 0.055 &&
+          button.h >= height * 0.008 &&
+          button.h <= height * 0.035 &&
+          button.w / button.h >= 1.4 &&
+          button.w / button.h <= 5.5 &&
+          count >= button.w * button.h * 0.15
+        )
+          candidates.push(button);
+      }
+    const button = candidates.sort((a, b) => b.count - a.count)[0];
+    if (!button) return null;
+    // The zoom controls are immediately left of WORLD. Leave a small safety
+    // gap after them and include padding above/below the one-line label.
+    const padding = Math.max(7, Math.ceil(button.h * 0.9)),
+      x1 = Math.max(0, Math.floor(button.x - button.w * 0.72)),
+      y0 = Math.max(0, Math.floor(button.y - padding)),
+      y1 = Math.min(height, Math.ceil(button.y + button.h + padding)),
+      w = x1,
+      h = y1 - y0;
+    if (w < width * 0.08 || h < 8) return null;
+    const data = new Uint8ClampedArray(w * h * 4);
+    const histogram = new Uint32Array(256);
+    for (let y = 0; y < h; y++)
+      for (let x = 0; x < w; x++) {
+        const source = ((y + y0) * width + x) * 4,
+          target = (y * w + x) * 4,
+          gray = Math.round(
+            image.data[source] * 0.299 +
+              image.data[source + 1] * 0.587 +
+              image.data[source + 2] * 0.114,
+          );
+        data[target] = data[target + 1] = data[target + 2] = gray;
+        data[target + 3] = 255;
+        histogram[gray]++;
+      }
+    const total = w * h;
+    let low = 0,
+      high = 255,
+      accumulated = 0;
+    while (low < 255 && accumulated < total * 0.05) accumulated += histogram[low++];
+    accumulated = 0;
+    while (high > 0 && accumulated < total * 0.95) accumulated += histogram[high--];
+    const range = high - low;
+    if (range >= 24)
       for (let i = 0; i < data.length; i += 4) {
         const value = Math.max(0, Math.min(255, Math.round(((data[i] - low) * 255) / range)));
         data[i] = data[i + 1] = data[i + 2] = value;
@@ -479,14 +598,63 @@
     return nearMatches[0];
   }
 
+  function canonicalInline(line) {
+    if (!Array.isArray(mapNames)) return null;
+    const observed = normalizeName(
+      String(line || "").replace(/^\s*\d{2,3}\s*fps\b[^a-z0-9]*/i, ""),
+    );
+    if (observed.length < 14) return null;
+    const exactNameMatches = mapNames.filter(([, name]) =>
+      observed.endsWith(normalizeName(name)),
+    );
+    if (
+      exactNameMatches.length === 1 &&
+      normalizeName(exactNameMatches[0][1]).length >= 8
+    )
+      return { street: exactNameMatches[0][0], name: exactNameMatches[0][1], score: 0 };
+    const candidates = [];
+    for (const [street, name] of mapNames) {
+      const streetText = normalizeName(street),
+        nameText = normalizeName(name),
+        best = { street, name, score: Infinity, streetDistance: Infinity, nameDistance: Infinity };
+      for (let offset = 0; offset <= 4; offset++)
+        for (let split = Math.max(1, streetText.length - 1); split <= streetText.length + 1; split++) {
+          const streetDistance = editDistance(observed.slice(offset, offset + split), streetText),
+            nameDistance = editDistance(observed.slice(offset + split), nameText),
+            score = streetDistance + nameDistance;
+          if (score < best.score)
+            Object.assign(best, { score, streetDistance, nameDistance });
+        }
+      if (
+        best.streetDistance <= 1 &&
+        best.nameDistance <= 2 &&
+        (best.streetDistance === 0 || best.nameDistance === 0)
+      )
+        candidates.push(best);
+    }
+    candidates.sort((a, b) => a.score - b.score);
+    if (!candidates.length || (candidates[1] && candidates[1].score === candidates[0].score))
+      return null;
+    return candidates[0];
+  }
+
   function parse(text, confidence) {
     if (!Number.isFinite(confidence)) return null;
-    const lines = String(text || "")
+    const rawLines = String(text || "")
       .replace(/\r/g, "")
       .split("\n")
       .map((line) => line.replace(/\s+/g, " ").trim())
-      .filter((line) => line.length >= 3 && /[A-Za-z]{3}/.test(line))
-      .slice(0, 2);
+      .filter((line) => line.length >= 3 && /[A-Za-z]{3}/.test(line));
+    if (rawLines.length === 1) {
+      const inline = canonicalInline(rawLines[0]);
+      if (inline && (confidence >= 40 || inline.score === 0))
+        return {
+          text: `${inline.street} · ${inline.name}`,
+          confidence,
+          canonicalized: true,
+        };
+    }
+    const lines = rawLines.slice(0, 2);
     if (!lines.length || lines.some((line) => line.length > 38)) return null;
     const canonical = canonicalMap(lines);
     // Some tiny minimap labels score below Tesseract's usual confidence gate
@@ -516,6 +684,7 @@
     findHeader,
     findWorldButton,
     cropHeaderText,
+    cropCompactHeaderText,
     splitLabelLines,
     prepare,
     prepareThreshold,

@@ -1142,6 +1142,10 @@
                     MapName.prepare(input.mapImage, 5),
                     "map",
                   ),
+                  alternateDirect = MapName.parse(
+                    alternate?.text,
+                    alternate?.confidence,
+                  ),
                   alternateLines = String(alternate?.text || "")
                     .replace(/\r/g, "")
                     .split("\n")
@@ -1164,6 +1168,8 @@
                             : alternate?.confidence,
                         )
                       : null;
+                if (alternateDirect?.canonicalized)
+                  result.map = alternateDirect;
                 if (alternateCorrection?.canonicalized)
                   result.map = alternateCorrection;
               }
