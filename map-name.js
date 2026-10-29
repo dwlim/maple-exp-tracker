@@ -122,17 +122,129 @@
     return imageLikePanels.sort((a, b) => a.y - b.y || a.x - b.x)[0] || null;
   }
 
+  // The gold WORLD button sits on the minimap's top control row. Its size and
+  // bottom edge are a steadier scale/position anchor for the map-name lines
+  // than the height of the blue panel, which can include part of the map.
+  function findWorldButton(image, box) {
+    if (!image?.data || !box) return null;
+    const width = image.width,
+      x0 = Math.max(0, Math.floor(box.x + box.w * 0.68)),
+      x1 = Math.min(width, Math.ceil(box.x + box.w)),
+      y0 = Math.max(0, Math.floor(box.y)),
+      y1 = Math.min(image.height, Math.ceil(box.y + box.h * 0.42)),
+      scanWidth = x1 - x0,
+      scanHeight = y1 - y0;
+    if (scanWidth < 8 || scanHeight < 4) return null;
+    const seen = new Uint8Array(scanWidth * scanHeight),
+      queue = new Int32Array(scanWidth * scanHeight),
+      candidates = [];
+    const isGold = (x, y) => {
+      const i = (y * width + x) * 4,
+        r = image.data[i],
+        g = image.data[i + 1],
+        b = image.data[i + 2];
+      return r > 145 && g > 65 && b < 165 && r > g * 1.08 && g > b * 1.18;
+    };
+    for (let sy = 0; sy < scanHeight; sy++)
+      for (let sx = 0; sx < scanWidth; sx++) {
+        const start = sy * scanWidth + sx;
+        if (seen[start] || !isGold(x0 + sx, y0 + sy)) continue;
+        let head = 0,
+          tail = 0,
+          count = 0,
+          left = sx,
+          right = sx,
+          top = sy,
+          bottom = sy;
+        queue[tail++] = start;
+        seen[start] = 1;
+        while (head < tail) {
+          const cell = queue[head++],
+            x = cell % scanWidth,
+            y = Math.floor(cell / scanWidth);
+          count++;
+          left = Math.min(left, x);
+          right = Math.max(right, x);
+          top = Math.min(top, y);
+          bottom = Math.max(bottom, y);
+          const neighbors = [
+            x > 0 ? cell - 1 : -1,
+            x + 1 < scanWidth ? cell + 1 : -1,
+            y > 0 ? cell - scanWidth : -1,
+            y + 1 < scanHeight ? cell + scanWidth : -1,
+          ];
+          for (const neighbor of neighbors) {
+            if (neighbor < 0 || seen[neighbor]) continue;
+            const nx = neighbor % scanWidth,
+              ny = Math.floor(neighbor / scanWidth);
+            if (!isGold(x0 + nx, y0 + ny)) continue;
+            seen[neighbor] = 1;
+            queue[tail++] = neighbor;
+          }
+        }
+        const candidate = {
+          x: x0 + left,
+          y: y0 + top,
+          w: right - left + 1,
+          h: bottom - top + 1,
+          count,
+        };
+        const relativeX = (candidate.x - box.x) / box.w,
+          relativeY = (candidate.y - box.y) / box.h;
+        if (
+          candidate.w >= box.w * 0.08 &&
+          candidate.w <= box.w * 0.24 &&
+          candidate.h >= box.h * 0.07 &&
+          candidate.h <= box.h * 0.28 &&
+          candidate.w / candidate.h >= 1.4 &&
+          candidate.w / candidate.h <= 5.5 &&
+          relativeX >= 0.72 &&
+          relativeY <= 0.3 &&
+          count >= candidate.w * candidate.h * 0.18
+        )
+          candidates.push(candidate);
+      }
+    return candidates.sort((a, b) => b.count - a.count)[0] || null;
+  }
+
   function cropHeaderText(image, box = findHeader(image)) {
     if (!box) return null;
-    const headerWidthRatio = box.w / image.width,
+    const worldButton = findWorldButton(image, box),
+      // The orange label background is only its most saturated center; infer
+      // the full control height from the surrounding minimap dimensions.
+      controlUnit = worldButton
+        ? Math.max(worldButton.h * 1.35, box.h * 0.16)
+        : 0,
+      headerWidthRatio = box.w / image.width,
       compactHeader = headerWidthRatio < 0.155,
-      // Use the square emblem to locate the text, but leave some left padding:
-      // at small HUD sizes the first glyph can start immediately after it.
-      xOffset = box.h * 0.35,
+      // The WORLD button height scales with the minimap text and emblem. Use
+      // it to leave the emblem behind while retaining the first title glyph.
+      xOffset = worldButton ? controlUnit * 1.5 : box.h * 0.35,
       x0 = Math.max(0, Math.floor(box.x + xOffset)),
-      y0 = Math.max(0, Math.floor(box.y + box.h * 0.35)),
-      x1 = Math.min(image.width, Math.ceil(box.x + box.w * 0.97)),
-      y1 = Math.min(image.height, Math.ceil(box.y + box.h * 0.92)),
+      y0 = Math.max(
+        0,
+        Math.floor(
+          worldButton
+            ? worldButton.y + worldButton.h + Math.max(2, controlUnit * 0.25)
+            : box.y + box.h * 0.35,
+        ),
+      ),
+      x1 = Math.min(
+        image.width,
+        Math.ceil(
+          worldButton
+            ? box.x + box.w - controlUnit * 0.1
+            : box.x + box.w * 0.97,
+        ),
+      ),
+      y1 = Math.min(
+        image.height,
+        Math.ceil(
+          worldButton
+            ? y0 + controlUnit * 3
+            : box.y + box.h * 0.92,
+        ),
+      ),
       w = x1 - x0,
       h = y1 - y0;
     if (w < 20 || h < 10) return null;
@@ -151,10 +263,12 @@
       }
     // Mask the emblem through its expected right edge while retaining the
     // original x position of the first text glyph.
-    const logoSliver = Math.max(
+    const logoSliver = worldButton
+      ? Math.max(0, Math.min(Math.floor(w * 0.48), Math.ceil(controlUnit * 1.55)))
+      : Math.max(
       0,
       Math.min(Math.floor(w * 0.48), Math.ceil(box.h * 0.65 - xOffset)),
-    );
+      );
     if (logoSliver > 0 && w > logoSliver + 1) {
       const background = [];
       for (let x = logoSliver; x < Math.min(w, logoSliver + 7); x++)
@@ -377,6 +491,7 @@
 
   return {
     findHeader,
+    findWorldButton,
     cropHeaderText,
     splitLabelLines,
     prepare,
