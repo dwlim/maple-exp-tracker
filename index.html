@@ -227,6 +227,943 @@ if(typeof module==='object'&&module.exports)module.exports=api;
 })(typeof window==='undefined'?globalThis:window);
 </script>
 <!-- HUD FONT END -->
+<!-- HUD REGIONS START -->
+<script>(function(root,factory){const api=factory();if(typeof module==='object'&&module.exports)module.exports=api;else root.MapleHudRegions=api;})(typeof window==='undefined'?globalThis:window,function(){
+function crop(image,box){
+ const x=Math.max(0,Math.floor(box.x)),y=Math.max(0,Math.floor(box.y)),width=Math.max(1,Math.min(image.width-x,Math.ceil(box.w))),height=Math.max(1,Math.min(image.height-y,Math.ceil(box.h))),data=new Uint8ClampedArray(width*height*4);
+ for(let row=0;row<height;row++)data.set((image.data.subarray||image.data.slice).call(image.data,((y+row)*image.width+x)*4,((y+row)*image.width+x+width)*4),row*width*4);
+ return {width,height,data};
+}
+function components(image,kind,from=.65){
+ const {width,height,data}=image,top=Math.floor(height*from),h=height-top,mask=new Uint8Array(width*h),queue=new Uint32Array(width*h),out=[];
+ for(let y=top;y<height;y++)for(let x=0;x<width;x++){const i=(y*width+x)*4,r=data[i],g=data[i+1],b=data[i+2];mask[(y-top)*width+x]=kind==='orange'?(r>100&&g/r>.25&&g/r<.85&&b/r<.4):kind==='cash'?(r>110&&r>g*1.7&&r>b*1.3):kind==='white'?(Math.min(r,g,b)>135&&Math.max(r,g,b)-Math.min(r,g,b)<65):kind==='blue'?(b>90&&b>r*1.4&&g>r*1.2):(g-r>12&&g-b>20);}
+ for(let seed=0;seed<mask.length;seed++)if(mask[seed]){let count=1;queue[0]=seed;mask[seed]=0;let l=width,r=0,t=h,b=0;
+  for(let head=0;head<count;head++){const i=queue[head],x=i%width,y=Math.floor(i/width);l=Math.min(l,x);r=Math.max(r,x+1);t=Math.min(t,y);b=Math.max(b,y+1);
+   for(let dy=-1;dy<=1;dy++)for(let dx=-1;dx<=1;dx++){const nx=x+dx,ny=y+dy,j=ny*width+nx;if(nx>=0&&nx<width&&ny>=0&&ny<h&&mask[j]){mask[j]=0;queue[count++]=j;}}
+  }
+  if(count>=3)out.push({x:l,y:t+top,w:r-l,h:b-t,area:count});
+ }
+ return out;
+}
+function whiteSpans(image,x0,x1,y0,y1){
+ const spans=[];let start=null;
+ for(let x=Math.max(0,Math.floor(x0));x<=Math.min(image.width,Math.ceil(x1));x++){let count=0,t=y1,b=y0;
+  if(x<x1)for(let y=Math.max(0,Math.floor(y0));y<Math.min(image.height,Math.ceil(y1));y++){const i=(y*image.width+x)*4,r=image.data[i],g=image.data[i+1],z=image.data[i+2];if(Math.min(r,g,z)>135&&Math.max(r,g,z)-Math.min(r,g,z)<65){count++;t=Math.min(t,y);b=Math.max(b,y+1);}}
+  if(count){if(!start)start={x,y:t,w:0,h:b-t};else{const end=Math.max(start.y+start.h,b);start.y=Math.min(start.y,t);start.h=end-start.y;}}
+  else if(start){start.w=x-start.x;spans.push(start);start=null;}
+ }
+ return spans;
+}
+const normal=(b,image)=>({x:b.x/image.width,y:b.y/image.height,w:b.w/image.width,h:b.h/image.height,...(b.kind?{kind:b.kind}:{})});
+const lvMask='111100000011100000011100111100000011100000111100111100000001100000111100111100000001100000111100111100000001110000110000111100000001110000110000111100000000110001110000111100000000111101110000111100000000111101110000111100000000111101100000111100000000011111100000111100000000011111100000111100000000011111000011111100000000011111000011111111111110011111000011111111111110001111000011';
+function hasLvLabel(image,tile){
+ const spans=whiteSpans(image,tile.x-tile.h*3.5,tile.x-1,tile.y-tile.h*.3,tile.y+tile.h*1.3);
+ for(let end=spans.length-1;end>=0;end--)for(let n=1;n<=3&&end-n+1>=0;n++){
+  const group=spans.slice(end-n+1,end+1),x=group[0].x,y=Math.min(...group.map(b=>b.y)),w=group.at(-1).x+group.at(-1).w-x,h=Math.max(...group.map(b=>b.y+b.h))-y;
+  if(h<tile.h*.55||w/h<1.1||w/h>2.3||tile.x-x-w>tile.h*1.5)continue;
+  let error=0;for(let yy=0;yy<16;yy++)for(let xx=0;xx<24;xx++){const px=x+Math.min(w-1,Math.floor((xx+.5)*w/24)),py=y+Math.min(h-1,Math.floor((yy+.5)*h/16)),i=(py*image.width+px)*4,on=Math.min(image.data[i],image.data[i+1],image.data[i+2])>135;error+=Number(on)!==Number(lvMask[yy*24+xx]);}
+  if(error/384<.24)return true;
+ }
+ return false;
+}
+
+const expLabelMask='111111111111111100011111001111111110111111111100111110011100111111111111111110000000011111111100111110011111111110000000011111111100111110011111111000000000001111111100111110011111111111110000001111111000111110011111111111111000001111111000001111111111111111110000001111111000111111111110111111110000001111111000111111111110111110000000001111111000111111100000111000000000011111111100111110000000111110000000111111111100001110000000111111111111111100011110111110011110111111111111111100011110111110011110111111111111111100011111111110011110011111111111111000000110001100000110';
+function hasExpLabel(image,box){
+ const spans=whiteSpans(image,box.x-box.h*5,box.x,box.y-box.h*.7,box.y+box.h*1.1),candidates=[];
+ for(let end=spans.length-1;end>=0;end--)for(let n=1;n<=4&&end-n+1>=0;n++){
+  const group=spans.slice(end-n+1,end+1),x=group[0].x,y=Math.min(...group.map(b=>b.y)),w=group.at(-1).x+group.at(-1).w-x,h=Math.max(...group.map(b=>b.y+b.h))-y;candidates.push({x,y,w,h});
+ }
+ // A bright panel border can join every column in a projection. Connected ink
+ // components isolate the EXP letters from that border instead of widening the crop.
+ const left=Math.max(0,Math.floor(box.x-box.h*5)),top=Math.max(0,Math.floor(box.y-box.h*.7)),patch=crop(image,{x:left,y:top,w:box.x-left,h:box.h*1.8});
+ const ink=components(patch,'white',0).map(b=>({...b,x:b.x+left,y:b.y+top}));candidates.push(...ink);
+ // At some scales EX and P are disconnected, while a panel border joins the
+ // column projection. Group aligned letter components before checking the label.
+ for(const first of ink.filter(b=>b.h>=box.h*.65)){
+  const row=ink.filter(b=>b.x>=first.x&&Math.abs(b.y-first.y)<=first.h*.2&&Math.abs(b.h-first.h)<=first.h*.25).sort((a,b)=>a.x-b.x);
+  let right=first.x+first.w,bottom=first.y+first.h,top=first.y;
+  for(const next of row.slice(1)){if(next.x-right>first.h*.35)break;right=Math.max(right,next.x+next.w);top=Math.min(top,next.y);bottom=Math.max(bottom,next.y+next.h);candidates.push({x:first.x,y:top,w:right-first.x,h:bottom-top});}
+ }
+ for(const {x,y,w,h} of candidates){
+  if(h<box.h*.65||w/h<1.8||w/h>3.3||box.x-x-w>box.h*.8)continue;
+  let error=0;for(let yy=0;yy<16;yy++)for(let xx=0;xx<36;xx++){const px=x+Math.min(w-1,Math.floor((xx+.5)*w/36)),py=y+Math.min(h-1,Math.floor((yy+.5)*h/16)),i=(py*image.width+px)*4,on=Math.min(image.data[i],image.data[i+1],image.data[i+2])>135;error+=Number(on)!==Number(expLabelMask[yy*36+xx]);}
+  if(error/576<.24)return true;
+ }
+ return false;
+}
+
+// Locate the bold EXP label before asking any reader to decode its value.
+function labelledExpBoxes(image,levelBox){
+ if(!levelBox)return [];
+ const ink=components(image,'white').filter(b=>b.h>=6&&b.h<=levelBox.h*1.5&&Math.abs(b.y-levelBox.y)<levelBox.h*1.5&&b.x>levelBox.x+levelBox.w),labels=[],out=[];
+ for(const first of ink){
+  const row=ink.filter(b=>b.x>=first.x&&Math.abs(b.y-first.y)<first.h*.2&&Math.abs(b.h-first.h)<first.h*.25).sort((a,b)=>a.x-b.x);let right=first.x+first.w;
+  for(let n=0;n<Math.min(4,row.length);n++){
+   const next=row[n];if(next.x-right>first.h*.4)break;right=Math.max(right,next.x+next.w);const w=right-first.x,h=first.h;if(w/h<1.8||w/h>3.3)continue;
+   let error=0;for(let yy=0;yy<16;yy++)for(let xx=0;xx<36;xx++){const x=first.x+Math.min(w-1,Math.floor((xx+.5)*w/36)),y=first.y+Math.min(h-1,Math.floor((yy+.5)*h/16)),i=(y*image.width+x)*4;error+=Number(Math.min(image.data[i],image.data[i+1],image.data[i+2])>135)!==Number(expLabelMask[yy*36+xx]);}
+   if(error/576<.24)labels.push({x:first.x,y:first.y,w,h});
+  }
+ }
+ for(const label of labels){
+  const left=label.x+label.w+1,top=Math.max(0,label.y-1),bottom=Math.min(image.height,label.y+label.h+2);let last=left,started=false,gap=0;
+  for(let x=left;x<Math.min(image.width,left+label.h*24);x++){
+   let on=false;for(let y=label.y;y<label.y+label.h;y++){const i=(y*image.width+x)*4,r=image.data[i],g=image.data[i+1],b=image.data[i+2];if((Math.min(r,g,b)>120&&Math.max(r,g,b)-Math.min(r,g,b)<65)||(g-r>8&&g-b>12)){on=true;break;}}
+   if(on){last=x+1;started=true;gap=0;}else if(++gap>label.h*.8){break;}
+  }
+  if(started&&last-left>label.h*2)out.push({x:left,y:top,w:last-left+2,h:bottom-top});
+ }return out;
+}
+function detectText(image,levelOcr,expOcr,previous){
+ if(previous?.width===image.width&&previous?.height===image.height&&previous.level&&previous.exp){
+  const box=r=>({x:Math.round(r.x*image.width),y:Math.round(r.y*image.height),w:Math.round(r.w*image.width),h:Math.round(r.h*image.height)}),l=box(previous.level),e=box(previous.exp),lr=levelOcr.recognize(crop(image,l)),er=expOcr.recognize(crop(image,e));
+  if(/^\d{1,3}$/.test(lr.data.text)&&hasLvLabel(image,l)&&(/^\d[\d.]*\[\d+\.\d{2}%\]$/.test(er.text)||(/^(?:\[\d{1,3}\.\d{2}%\]|\d{1,3}\.\d{2}%)$/.test(er.text)&&hasExpLabel(image,e))))return {level:previous.level,exp:previous.exp};
+ }
+ const orange=components(image,'orange').filter(b=>b.h>=5&&b.h<=image.height*.09&&b.w>=b.h*.35&&b.w<=b.h*3.5),levels=[];
+ for(const first of orange){const group=[first];let last=first;
+  if(orange.some(b=>b.x+b.w<=first.x&&first.x-b.x-b.w<=first.h*.4&&Math.abs(b.y-first.y)<first.h*.2))continue;
+  for(let n=0;n<2;n++){const next=orange.filter(b=>b.x>=last.x+last.w&&b.x-last.x-last.w<=first.h*.4&&Math.abs(b.y-first.y)<=first.h*.2&&Math.abs(b.h-first.h)<=first.h*.25).sort((a,b)=>a.x-b.x)[0];if(!next)break;group.push(next);last=next;}
+  if(!hasLvLabel(image,first))continue;
+  const box={x:Math.max(0,first.x-1),y:Math.max(0,first.y-1),w:last.x+last.w-first.x+2,h:Math.max(...group.map(b=>b.y+b.h))-first.y+2},read=levelOcr.recognize(crop(image,box));
+  if(!read.expectedDigits)continue;
+  levels.push({box,level:read.data.text,score:first.y/image.height+(read.data.text.includes('?')?0:1)+group.length*.05});
+ }
+ levels.sort((a,b)=>b.score-a.score);
+ const row=levels[0]?.box;
+ const brackets=components(image,'green').filter(b=>b.h>=2&&b.h<=image.height*.06&&b.w<=b.h&&(!row||(b.x>row.x+row.w&&Math.abs(b.y-row.y)<row.h*2))).sort((a,b)=>b.y-a.y).slice(0,256),exps=[];
+ for(const left of brackets)for(const right of brackets){
+  const h=Math.max(left.h,right.h),gap=right.x-left.x-left.w;
+  if(gap<h*2.5||gap>h*22||Math.abs(left.y-right.y)>h*.3||Math.abs(left.h-right.h)>h*.4)continue;
+  const nearby=h<4?whiteSpans(image,left.x,right.x,left.y-h,left.y+h*2).filter(b=>b.h>=h&&b.h<=h*3):[];
+  const textHeight=Math.max(h,...nearby.map(b=>b.h)),y=Math.max(0,Math.min(left.y,right.y,...nearby.map(b=>b.y))-1),bottom=Math.min(image.height,Math.max(left.y+left.h,right.y+right.h,...nearby.map(b=>b.y+b.h))+1),spans=whiteSpans(image,left.x-textHeight*14,left.x,y,bottom);
+  const heights=whiteSpans(image,left.x+left.w,right.x,y,bottom).map(b=>b.h).filter(v=>v>=h*.5).sort((a,b)=>a-b),glyphHeight=heights[Math.floor(heights.length/2)]||h;
+  // The bold EXP label is taller/wider than the numeric font. Never rank a truncated suffix above a longer uncertain amount.
+  for(const span of spans){let fullHeight=span.h;for(let x=span.x;x<span.x+span.w;x++){let top=span.y;for(let yy=span.y;yy>=Math.max(0,y-h*.7);yy--){const i=(Math.floor(yy)*image.width+x)*4,r=image.data[i],g=image.data[i+1],b=image.data[i+2];if(Math.min(r,g,b)<=135||Math.max(r,g,b)-Math.min(r,g,b)>=65)break;top=yy;}fullHeight=Math.max(fullHeight,span.y+span.h-top);}if(span.h<h*.5||fullHeight>glyphHeight*1.15||span.w>glyphHeight*1.3)continue;const box={x:Math.max(0,span.x-1),y,w:right.x+right.w-span.x+3,h:bottom-y},read=expOcr.recognize(crop(image,box));
+   if(/^\d[\d.]*\[\d+\.\d{2}%\]$/.test(read.text))exps.push({box,complete:true,score:read.text.length*20+5+read.confidence/100+left.y/image.height});
+   else if(/^[\d?][\d.?]*\[[\d.?]+%\]$/.test(read.text))exps.push({box,score:read.text.length*20+read.confidence/100+left.y/image.height});
+  }
+ }
+ // Percentage-only text still needs its EXP label and a recognizable EXP label.
+ // This prevents a cropped full reading or an HP/MP percentage becoming estimated EXP.
+ if(!exps.some(e=>e.complete)){
+  const levelBox=levels[0]?.box;
+  const consider=box=>{const read=expOcr.recognize(crop(image,box)),clear=/^(?:\[\d{1,3}\.\d{2}%\]|\d{1,3}\.\d{2}%)$/.test(read.text),uncertain=/^\[[\d?.]{3,7}[%?]\]$/.test(read.text);
+   // Locate the labelled HUD even when recognition is uncertain. Saving still
+   // requires the strict parser and frame agreement; detection never repairs text.
+   if((clear||uncertain)&&hasExpLabel(image,box))exps.push({box,score:(clear?200:0)+read.text.length*20+read.confidence/100});};
+  for(const left of brackets)for(const right of brackets){const h=Math.max(left.h,right.h);if(right.x-left.x<h*3||right.x-left.x>h*14||Math.abs(left.y-right.y)>h*.3||Math.abs(left.h-right.h)>h*.6)continue;const top=Math.max(0,Math.min(left.y,right.y)-Math.ceil(h*.25));consider({x:left.x-1,y:top,w:right.x+right.w-left.x+3,h:Math.max(left.y+left.h,right.y+right.h)+2-top});}
+  if(levelBox)for(const glyph of components(image,'white').filter(b=>b.h>=5&&b.w/b.h>.3&&b.w/b.h<1.5&&b.x>levelBox.x+levelBox.w&&Math.abs(b.y-levelBox.y)<levelBox.h*1.5)){
+   const y=glyph.y-1,bottom=glyph.y+glyph.h+1;
+   for(const span of whiteSpans(image,glyph.x-glyph.h*7,glyph.x,y,bottom)){if(span.h<glyph.h*.5)continue;consider({x:span.x-1,y,w:glyph.x+glyph.w-span.x+2,h:bottom-y});}
+  }
+ }
+ if(!exps.length)for(const box of labelledExpBoxes(image,levels[0]?.box))exps.push({box,score:1});
+ exps.sort((a,b)=>b.score-a.score);
+ return {level:levels[0]?normal(levels[0].box,image):null,exp:exps[0]?normal(exps[0].box,image):null};
+}
+// Register the native HUD using the red Cash Shop panel and its two blue
+// neighbors. Geometry proposes a search area; it never supplies digit labels.
+function anchors(image,kind){
+ // Coarse alignment only: always read actual glyphs at native resolution.
+ if(image.width>1600){
+  const scale=1600/image.width,width=1600,height=Math.max(1,Math.round(image.height*scale)),data=new Uint8ClampedArray(width*height*4);
+  for(let y=Math.floor(height*.65);y<height;y++)for(let x=0;x<width;x++){const i=(Math.min(image.height-1,Math.floor(y/scale))*image.width+Math.floor(x/scale))*4,j=(y*width+x)*4;data[j]=image.data[i];data[j+1]=image.data[i+1];data[j+2]=image.data[i+2];data[j+3]=255;}
+   return anchors({width,height,data},kind).map(b=>({x:b.x/scale,y:b.y/scale,w:b.w/scale,h:b.h/scale,area:b.area/(scale*scale),kind:b.kind}));
+ }
+ const blue=(x,y)=>{x=Math.round(x);y=Math.round(y);if(x<0||y<0||x>=image.width||y>=image.height)return false;const i=(y*image.width+x)*4,r=image.data[i],g=image.data[i+1],b=image.data[i+2];return b>90&&b>r*1.4&&g>r*1.2;};
+ // The contiguous Menu and Shortcut buttons are a larger, steadier template
+ // than the Cash Shop label, whose foreground color varies by client theme.
+ const staticButtons=components(image,'blue').filter(b=>{
+  const fill=b.area/(b.w*b.h),ratio=b.w/b.h;
+  return b.h>=12&&b.h<=Math.min(80,image.height*.08)&&ratio>=3.2&&ratio<=6.2&&fill>=.45&&b.x>image.width*.5&&b.x+b.w>image.width*.68&&b.y>image.height*.8;
+ }).sort((a,b)=>b.y-a.y);
+ const found=staticButtons.map(b=>({...b,kind:'static-buttons'}));
+ const cash=components(image,'cash').filter(b=>{
+  if(b.h<12||b.w/b.h<1.6||b.w/b.h>2.6||b.area/(b.w*b.h)<.35)return false;
+  // Sample the plain upper corners, avoiding each button's central icon/text.
+  return [1,2].every(n=>[.12,.85].filter(t=>blue(b.x+b.w*(n+t),b.y+b.h*.18)).length===2);
+ }).sort((a,b)=>b.y-a.y);
+ const cashAnchors=cash.map(b=>({...b,kind:'cash-shop'}));
+ if(kind==='cash-shop')return cashAnchors;
+ if(kind==='static-buttons')return found;
+ return [...found,...cashAnchors];
+}
+function controlsMatch(image,box){
+ const color=(x,y,kind)=>{x=Math.round(x);y=Math.round(y);if(x<0||y<0||x>=image.width||y>=image.height)return false;const i=(y*image.width+x)*4,r=image.data[i],g=image.data[i+1],b=image.data[i+2];return kind==='cash'?r>110&&r>g*1.7&&r>b*1.3:b>90&&b>r*1.4&&g>r*1.2;};
+ if(box.kind==='static-buttons')return [.08,.25,.42,.58,.75,.92].filter(t=>color(box.x*image.width+box.w*image.width*t,box.y*image.height+box.h*image.height*.5,'blue')).length>=3;
+ return [.12,.85].every(t=>color(box.x+box.w*t,box.y+box.h*.18,'cash'))&&[1,2].every(n=>[.12,.85].every(t=>color(box.x+box.w*(n+t),box.y+box.h*.18,'blue')));
+}
+function detect(image,levelOcr,expOcr,previous){
+ if(previous?.width===image.width&&previous?.height===image.height&&previous.level&&previous.exp){
+  const box=r=>({x:r.x*image.width,y:r.y*image.height,w:r.w*image.width,h:r.h*image.height,kind:r.kind}),l=box(previous.level),e=box(previous.exp);
+  if(hasLvLabel(image,l)){
+   if(previous.percentageOnly&&previous.anchor&&previous.field){
+    // Reuse alignment only while the control row, bracket pair and occlusion
+    // still match. A newly visible EXP label restores full-amount detection.
+    if(controlsMatch(image,box(previous.anchor))&&!hasExpLabel(image,box(previous.field))){const exp=percentageRegion(image,previous.exp);if(exp)return {...previous,exp};}
+   }else if(hasExpLabel(image,e))return {level:previous.level,exp:previous.exp};
+  }
+ }
+ for(const button of anchors(image)){
+  if(button.kind==='static-buttons'){
+   const x=Math.max(0,Math.floor(button.x-button.w*5.5)),patch=crop(image,{x,y:0,w:button.x-x,h:image.height}),found=detectText(patch,levelOcr,expOcr);
+   if(!found.level||!found.exp)continue;
+   const map=r=>({x:(x+r.x*patch.width)/image.width,y:r.y,w:r.w*patch.width/image.width,h:r.h});
+   const level=map(found.level),exp=map(found.exp),lp={x:level.x*image.width,y:level.y*image.height,w:level.w*image.width,h:level.h*image.height},ep={x:exp.x*image.width,y:exp.y*image.height,w:exp.w*image.width,h:exp.h*image.height};
+   const levelOffset=(button.x-lp.x)/button.w,expOffset=(button.x-ep.x)/button.w,gap=(button.x-(ep.x+ep.w))/button.w;
+   if(level.x>=exp.x||levelOffset<2.6||levelOffset>5.5||expOffset<.6||expOffset>2.25||gap<0||gap>1.6||Math.abs(lp.y-button.y)>button.h*.75||Math.abs(ep.y-button.y)>button.h*.75||lp.h>button.h*.85||ep.h>button.h*.85)continue;
+   const field={x:found.exp.x*patch.width,y:found.exp.y*patch.height,w:found.exp.w*patch.width,h:found.exp.h*patch.height};
+   if(!hasExpLabel(patch,field)){const percent=percentageRegion(patch,found.exp);if(percent)return {level,exp:map(percent),percentageOnly:true,field:exp,anchor:normal(button,image)};}
+   return {level,exp};
+  }
+  const x=Math.max(0,Math.floor(button.x-button.w*9)),y=Math.max(0,Math.floor(button.y-button.h*3)),patch=crop(image,{x,y,w:button.x-x,h:button.h*4.2});
+  const found=detectText(patch,levelOcr,expOcr);
+  // When labels are too small to match, the independently checked control
+  // row still defines conservative field windows. Readers may reject the ink.
+  if(!found.level){
+   const tiles=components(patch,'orange',0).filter(t=>Math.abs((x+t.x)-(button.x-button.w*7.25))<button.w*.65&&Math.abs((y+t.y)-(button.y+button.h*.3))<button.h*.35&&t.h>button.h*.2&&t.h<button.h*.8);
+   if(tiles.length){const l=Math.min(...tiles.map(t=>t.x)),top=Math.min(...tiles.map(t=>t.y)),r=Math.max(...tiles.map(t=>t.x+t.w)),bottom=Math.max(...tiles.map(t=>t.y+t.h));found.level=normal({x:l-1,y:top-1,w:r-l+2,h:bottom-top+2},patch);}
+  }
+  // Tile fallback can recover a level after text detection failed. Use that row
+  // to locate the actual EXP label before resorting to a geometric field window.
+  if(!found.exp&&found.level){const r=found.level,boxes=labelledExpBoxes(patch,{x:r.x*patch.width,y:r.y*patch.height,w:r.w*patch.width,h:r.h*patch.height});if(boxes.length)found.exp=normal(boxes[0],patch);}
+  if(!found.exp)found.exp=normal({x:button.x-x-button.w*1.55,y:button.y-y,w:button.w*1.48,h:button.h*.48},patch);
+  if(!found.level)continue;
+  const map=r=>({x:(x+r.x*patch.width)/image.width,y:(y+r.y*patch.height)/image.height,w:r.w*patch.width/image.width,h:r.h*patch.height/image.height});
+  const level=map(found.level),exp=map(found.exp);
+  // The native panels must share a row and retain the fixed left-to-right order.
+  if(level.x>=exp.x||Math.abs(level.y-exp.y)*image.height>button.h*.6||exp.x*image.width<button.x-button.w*2.5)continue;
+  // A covering window can hide the amount and EXP label while leaving the
+  // percentage visible. The verified native control row anchors this field;
+  // require its unique complete bracket pair instead of reading the occluder.
+  const field={x:found.exp.x*patch.width,y:found.exp.y*patch.height,w:found.exp.w*patch.width,h:found.exp.h*patch.height};
+  if(!hasExpLabel(patch,field)){const percent=percentageRegion(patch,found.exp);if(percent)return {level,exp:map(percent),percentageOnly:true,field:exp,anchor:normal(button,image)};}
+  return {level,exp};
+ }
+ return detectText(image,levelOcr,expOcr,previous);
+}
+// Isolate a unique complete percentage bracket pair within an anchored EXP field.
+function percentageRegion(image,region){
+ if(!region)return null;
+ const origin={x:Math.round(region.x*image.width),y:Math.round(region.y*image.height),w:Math.round(region.w*image.width),h:Math.round(region.h*image.height)},patch=crop(image,origin),green=components(patch,'green',0).filter(b=>b.h>=3&&b.h<=patch.height&&b.w<=b.h*.8),pairs=[];
+ for(const left of green)for(const right of green){const h=Math.max(left.h,right.h);if(right.x-left.x<h*3||right.x-left.x>h*14||Math.abs(left.y-right.y)>h*.3||Math.abs(left.h-right.h)>h*.6)continue;const y=Math.max(0,Math.min(left.y,right.y)-Math.ceil(h*.3)),box={x:Math.max(0,left.x-1),y,w:right.x+right.w-left.x+3,h:Math.min(patch.height,Math.max(left.y+left.h,right.y+right.h)+2)-y};pairs.push(box);}
+ if(pairs.length!==1)return null;
+ const b=pairs[0];return normal({x:origin.x+b.x,y:origin.y+b.y,w:b.w,h:b.h},image);
+}
+return {detect,crop,anchors,percentageRegion};
+});
+</script>
+<!-- HUD REGIONS END -->
+<!-- MAP NAMES START -->
+<script>// Canonical street/map pairs used as a local OCR correction vocabulary.
+// Adapted from OSMS Data Explorer public dataset (CC BY 4.0):
+// https://osmsdataexplorer.com/ · https://creativecommons.org/licenses/by/4.0/
+// Changes: reduced to unique street/map-name pairs. The dataset is unofficial;
+// MapleStory names and other game content are © Nexon and are not covered by CC BY.
+(function (root) {
+  const pairs = [["Maple Road","Mushroom Town - West Entrance"],["Maple Road","Mushroom Town"],["Maple Road","Mushroom Town Townstreet"],["Maple Road","East Entrance to Mushroom Town"],["Maple Road","Snail Hunting Ground I"],["Maple Road","Snail Hunting Ground II"],["Maple Road","Snail Hunting Ground III"],["Maple Road","A Split Road"],["Maple Road","Southperry"],["Maple Road","Southperry Armor Store"],["Rainbow Street","The Field West of Amherst"],["Rainbow Street","In a Small Forest"],["Rainbow Street","Dangerous Forest"],["Rainbow Street","Mushroom Garden"],["Rainbow Street","Snail Garden"],["Rainbow Street","Hunting Ground Middle of the Forest I"],["Rainbow Street","Hunting Ground Middle of the Forest II"],["Rainbow Street","Amherst"],["Rainbow Street","Amherst Weapon Store"],["Rainbow Street","Amherst Townstreet"],["Rainbow Street","Amherst Department Store"],["Rainbow Street","Snail Field of Flowers"],["Rainbow Street","The Field East of Amherst"],["Rainbow Street","Tomato Field"],["Victoria Road","Lith Harbor"],["Victoria Road","Lith Harbor Armor Shop"],["Victoria Road","Lith Harbor Department Store"],["Victoria Road","Lith Harbor Weapon Shop"],["Victoria Road","Right Around Lith Harbor"],["Victoria Road","Thicket Around the Beach I"],["Victoria Road","Thicket Around the Beach II"],["Victoria Road","Thicket Around the Beach III"],["Victoria Road","3-Way Road-Split"],["Hidden Street","The Pig Beach"],["Hidden Street","Beach Hunting Ground"],["Victoria Road","Henesys"],["Victoria Road","Henesys Townstreet"],["Hidden Street","An Empty House"],["Hidden Street","Pig Park"],["Hidden Street","Pig Park II"],["Hidden Street","Someone Else's House"],["Hidden Street","The Resting Spot, Pig Park"],["Victoria Road","Henesys Town Hall"],["Yellow Mushroom House","Victoria Road"],["Victoria Road","Henesys Hunting Ground I"],["Victoria Road","Henesys Hunting Ground II"],["Victoria Road","Henesys Hunting Ground III"],["Victoria Road","A Hill West of Henesys "],["Hidden Street","Mushroom Garden"],["Victoria Road","Forest West of Henesys"],["Victoria Road","Henesys Market"],["Victoria Road","Henesys Weapon Store"],["Victoria Road","Henesys Department Store"],["Victoria Road","Henesys Plastic Surgery"],["Victoria Road","Henesys Hair Salon"],["Victoria Road","Henesys Skin-Care"],["Victoria Road","Henesys Park"],["Victoria Road","Bowman Instructional School"],["Victoria Road","Pet-Walking Road"],["Victoria Road","The Hill East of Henesys"],["Victoria Road","The Rain-Forest East of Henesys"],["Victoria Road","The Forest East of Henesys"],["Hidden Street","The Blue Mushroom Forest"],["Hidden Street","Utah's Pig Farm"],["Warning Street","The Road to the Dungeon"],["Warning Street","Henesys Dungeon Entrance"],["Hidden Street","The Breathing Rock"],["Victoria Road","The Entrance of Golem's Temple"],["Victoria Road","Golem's Temple I"],["Victoria Road","Golem's Temple II"],["Victoria Road","Golem's Temple III"],["Victoria Road","Golem's Temple IV"],["Victoria Road","Ellinia"],["Victoria Road","Ellinia Weapon Store"],["Victoria Road","Ellinia Department Store"],["Victoria Road","Magic Library"],["Hidden Street","Marr's Forest"],["Hidden Street","The Circulation Desk"],["Victoria Road","The Field South of Ellinia"],["Victoria Road","The Forest of Wisdom"],["Hidden Street","Monkey Forest I"],["Victoria Road","Tree Dungeon, Monkey Forest I"],["Victoria Road","Monkey Forest II"],["Hidden Street","Tree Dungeon, Monkey Forest II"],["Hidden Street","The Forest of Evil I"],["Hidden Street","The Forest of Evil II"],["Hidden Street","Downstairs at the Forest"],["Victoria Road","The Forest South of Ellinia"],["Victoria Road","Dungeon, Southern Forest I"],["Victoria Road","Dungeon, Southern Forest II"],["Victoria Road","Dungeon, Southern Forest III"],["Victoria Road","Dungeon, Southern Forest IV"],["Hidden Street","The Forest of Patience <Step 1>"],["Hidden Street","The Forest of Patience <Step 2>"],["Hidden Street","The Forest of Patience <Step 3>"],["Hidden Street","The Forest of Patience <Step 4>"],["Hidden Street","The Forest of Patience <Step 5>"],["Victoria Road","The Field Up North of Ellinia"],["Victoria Road","The Tree That Grew I"],["Victoria Road","The Tree That Grew II"],["Victoria Road","The Tree That Grew III"],["Victoria Road","The Forest North of Ellinia"],["Victoria Road","The Tree Tunnel At the Forest Up North"],["Victoria Road","Tree Dungeon, Forest Up North I"],["Victoria Road","Tree Dungeon, Forest Up North II"],["Victoria Road","Tree Dungeon, Forest Up North III"],["Victoria Road","Tree Dungeon, Forest Up North IV"],["Victoria Road","Tree Dungeon, Forest Up North V"],["Victoria Road","Tree Dungeon, Forest Up North VI"],["Victoria Road","Tree Dungeon, Forest Up North VII"],["Victoria Road","Tree Dungeon, Forest Up North VIII"],["Victoria Road","Tree Dungeon, Forest Up North IX"],["Victoria Road","Ellinia Station"],["Victoria Road","Before Takeoff <To Orbis>"],["Victoria Road","Kerning City"],["Victoria Road","Kerning City Self-Defence Item Store"],["Victoria Road","Kerning City Pharmacy"],["Victoria Road","Thieves' Hideout"],["Victoria Road","Niora Hospital"],["Victoria Road","Kerning City Hair Salon"],["Victoria Road","Kerning City Repair Shop"],["Victoria Road","Kerning City Civic Center"],["Victoria Road","Backalley Semi-Basement"],["Victoria Road","Kerning City Construction Site"],["Hidden Street","Caution Falling Down"],["Victoria Road","L Forest I"],["Victoria Road","L Forest II"],["Victoria Road","L Forest III"],["Victoria Road","Kerning City Middle Forest I"],["Victoria Road","Kerning City Middle Forest II"],["Victoria Road","Kerning City Middle Forest III"],["Victoria Road","Subway Ticketing Booth"],["Kerning City Subway","Line 1 <Area 1>"],["Kerning City Subway","Transfer Area"],["Kerning City Subway","Line 1 <Area 2>"],["Kerning City Subway","Line 1 <Area 3>"],["Kerning City Subway","Line 1 <Area 4>"],["Kerning City Subway","Line 2 <Area 1>"],["Kerning City Subway","Line 2 <Area 2>"],["Kerning City Subway","Line 2 <Area 3>"],["Victoria Road","Sunset Sky"],["Victoria Road","Construction Site North of Kerning City"],["Hidden Street","Northern Top of Construction Site"],["Warning Street","The Swamp of Despair I"],["Warning Street","The Swamp of Despair II"],["Warning Street","The Swamp of Despair III"],["Warning Street","Dangerous Croko I"],["Warning Street","Dangerous Croko II"],["Hidden Street","Monkey Swamp I"],["Hidden Street","Monkey Swamp II"],["Hidden Street","Monkey Swamp III"],["Hidden Street","The Hermit's Cabin"],["Line 3 Construction Site","B1 <Area 1>"],["Line 3 Construction Site","B1 <Area 2>"],["Line 3 Construction Site","B1 <Subway Depot>"],["Line 3 Construction Site","B2 <Area 1>"],["Line 3 Construction Site","B2 <Area 2>"],["Line 3 Construction Site","B2 <Subway Depot>"],["Line 3 Construction Site","B3 <Area 1>"],["Line 3 Construction Site","B3 <Area 2>"],["Line 3 Construction Site","B3 <Area 3>"],["Line 3 Construction Site","B3 <Subway Depot>"],["Hidden Street","The Murky Swamp I"],["Hidden Street","The Murky Swamp II"],["Hidden Street","Cabin of the Forsaken"],["Victoria Road","Perion"],["Victoria Road","Perion Weapon Store"],["Victoria Road","Perion Department Store"],["Victoria Road","Warriors' Sanctuary"],["Victoria Road","West Street Corner of Perion"],["Victoria Road","West Rocky Mountain I"],["Victoria Road","West Rocky Mountain II"],["Victoria Road","West Rocky Mountain III"],["Victoria Road","West Rocky Mountain IV"],["Victoria Road","West Domain of Perion"],["Victoria Road","Perion Street Corner"],["Hidden Street","Land of Wild Boar"],["Hidden Street","Over the Wall"],["Victoria Road","East Rocky Mountain I"],["Victoria Road","East Rocky Mountain II"],["Victoria Road","East Rocky Mountain III"],["Victoria Road","East Rocky Mountain IV"],["Victoria Road","East Rocky Mountain V"],["Victoria Road","East Rocky Mountain VI"],["Victoria Road","East Rocky Mountain VII"],["Victoria Road","Parched Land"],["Victoria Road","Rocky Road I"],["Victoria Road","Rocky Road II"],["Victoria Road","Rocky Road III"],["Victoria Road","East Domain of Perion"],["Hidden Street","The Land of Wild Boar II"],["Warning Street","Deep Valley I"],["Hidden Street","Dangerous Valley"],["Hidden Street","Dangerous Valley II"],["Warning Street","Deep Valley II"],["Warning Street","The Burnt Land I"],["Warning Street","The Burnt Land II"],["Warning Street","The Burnt Land III"],["Warning Street","The Burnt Land IV"],["Warning Street","The Burnt Land V"],["Warning Street","Deep Valley III"],["Warning Street","Perion Dungeon Entrance"],["Victoria Road","Excavation Site I"],["Victoria Road","Excavation Site II"],["Victoria Road","Excavation Site III"],["Victoria Road","Excavation Site <Camp>"],["Victoria Road","Remains <Tomb> I"],["Victoria Road","Remains <Tomb> II"],["Victoria Road","Remains <Tomb> III"],["Victoria Road","Remains <Tomb> IV"],["Victoria Road","Remains <Cliff>"],["Victoria Road","Camp 1"],["Victoria Road","Camp 2"],["Victoria Road","Camp 3"],["Dungeon","Sleepywood"],["Dungeon","Sleepywood Hotel"],["Dungeon","Regular Sauna"],["Dungeon","VIP Sauna"],["Dungeon","Swampy Land in a Deep Forest"],["Dungeon","Hunting Ground in the Deep Forest I"],["Dungeon","Hunting Ground in the Deep Forest II"],["Dungeon","Deep Forest"],["Dungeon","Damp Tree-Forest"],["Dungeon","Damp Forest"],["Hidden Street","The Deep Forest of Patience <Step 1>"],["Hidden Street","The Deep Forest of Patience <Step 2>"],["Hidden Street","The Deep Forest of Patience <Step 3>"],["Hidden Street","The Deep Forest of Patience <Step 4>"],["Hidden Street","The Deep Forest of Patience <Step 5>"],["Hidden Street","The Deep Forest of Patience <Step 6>"],["Hidden Street","The Deep Forest of Patience <Step 7>"],["Dungeon","Sleepy Dungeon I"],["Dungeon","Sleepy Dungeon II"],["Dungeon","Sleepy Dungeon III"],["Dungeon","Sleepy Dungeon IV"],["Dungeon","Sleepy Dungeon V"],["Dungeon","Ant Tunnel I"],["Dungeon","Ant Tunnel II"],["Dungeon","Ant Tunnel III"],["Dungeon","Ant Tunnel IV"],["Dungeon","Dark Cave"],["Dungeon","Dangerous Steam"],["Dungeon","Deep Ant Tunnel I"],["Dungeon","Deep Ant Tunnel II"],["Dungeon","Ant Tunnel Park"],["Dungeon","The Cave of Evil Eye I"],["Dungeon","The Cave of Evil Eye II"],["Dungeon","The Cave of Evil Eye III"],["Dungeon","The Cave of Evil Eye IV"],["Dungeon","Drake Hunting Ground"],["Dungeon","The Tunnel That Lost Light I"],["Dungeon","The Tunnel That Lost Light II"],["Dungeon","The Grave of Mushmom"],["Dungeon","Another Entrance"],["Dungeon","Drake's Meal Table"],["Dungeon","Wild Kargo's Area"],["Dungeon","Another Path"],["Dungeon","Sanctuary Entrance I"],["Dungeon","Sanctuary Entrance II"],["Dungeon","Sanctuary Entrance III"],["Dungeon","Sanctuary Entrance IV"],["Dungeon","The Cursed Sanctuary"],["Florina Road","Florina Beach"],["Florina Road","A Look-Out Shed Around the Beach"],["Florina Road","Lorang Lorang"],["Hidden Street","Lorang Lorang Lorang"],["Florina Road","Lorang and Clang"],["Florina Road","Clang and Lorang"],["Florina Road","Hot Sand"],["Hidden Street","1st Accompaniment <1st Stage>"],["Hidden Street","1st Accompaniment <2nd Stage>"],["Hidden Street","1st Accompaniment <3rd Stage>"],["Hidden Street","1st Accompaniment <4th stage>"],["Hidden Street","1st Accompaniment <Last Stage>"],["Hidden Street","1st Accompaniment <Bonus>"],["Hidden Street","1st Accompaniment <Exit>"],["Hidden Street","Ant Tunnel For Bowman"],["Hidden Street","Magician's Tree Dungeon"],["Hidden Street","Thief's Construction Site"],["Hidden Street","Warrior's Rocky Mountain"],["Hidden Street","Free Market Entrance"],["Hidden Street","Free Market <1>"],["Hidden Street","Free Market <2>"],["Hidden Street","Free Market <3>"],["Hidden Street","Free Market <4>"],["Hidden Street","Free Market <5>"],["Hidden Street","Free Market <6>"],["Hidden Street","Free Market <7>"],["Hidden Street","Free Market <8>"],["Hidden Street","Free Market <9>"],["Hidden Street","Free Market <10>"],["Hidden Street","Free Market <11>"],["Hidden Street","Free Market <12>"],["Hidden Street","Free Market <13>"],["Hidden Street","Free Market <14>"],["Hidden Street","Free Market <15>"],["Hidden Street","Free Market <16>"],["Hidden Street","Free Market <17>"],["Hidden Street","Free Market <18>"],["Hidden Street","Free Market <19>"],["Hidden Street","Free Market <20>"],["Hidden Street","Primrose Hill"],["Hidden Street","Shortcut"],["Hidden Street","Pig Town"],["Hidden Street","Back to Town"],["Victoria Road","Yellow Mushroom House"],["Truth Booth","Truth Booth"],["Hidden Street","Maple Hill"],["Hidden Street","Physical Fitness Test <Waiting Room>"],["Hidden Street","Physical Fitness Test <Level 1>"],["Hidden Street","Physical Fitness Test <Level 2>"],["Hidden Street","Physical Fitness Test <Level 3>"],["Hidden Street","Physical Fitness Test <Level 4>"],["Hidden Street","Physical Fitness Test <Easy Waiting Room>"],["Hidden Street","Physical Fitness Test <Easy Level 1>"],["Hidden Street","Physical Fitness Test <Easy Level 2>"],["Hidden Street","Physical Fitness Test <Easy Level 3>"],["Hidden Street","Physical Fitness Test <Normal Waiting Room>"],["Hidden Street","Physical Fitness Test <Normal Level 1>"],["Hidden Street","Physical Fitness Test <Normal Level 2>"],["Hidden Street","Physical Fitness Test <Normal Level 3>"],["Hidden Street","Up and Up <Level 1>"],["Hidden Street","Up and Up <Level 2>"],["Hidden Street","Up and Up <Level 3>"],["Hidden Street","Coconut Harvest"],["Hidden Street","G* Coconut Season"],["Hidden Street","Leaving the Event"],["Hidden Street","Receiving the Reward For the Event"],["Hidden Street","The Manager's Room"],["Hidden Street","White Room"]];
+  if (typeof module === "object" && module.exports) module.exports = pairs;
+  else root.MapleMapNames = pairs;
+})(typeof window === "undefined" ? globalThis : window);
+</script>
+<!-- MAP NAMES END -->
+<!-- MAP NAME START -->
+<script>(function (root, factory) {
+  if (typeof module === "object" && module.exports)
+    module.exports = factory(require("./map-name-data"));
+  else root.MapleMapName = factory(root.MapleMapNames || []);
+})(typeof window === "undefined" ? globalThis : window, function (mapNames) {
+  "use strict";
+
+  // The minimap's title field is a distinctive pale blue. Search only the
+  // upper-left portion of the shared game frame, where MapleStory places it.
+  function findHeader(image) {
+    if (!image?.data || !image.width || !image.height) return null;
+    const width = image.width,
+      height = image.height,
+      scanWidth = Math.max(1, Math.floor(width * 0.45)),
+      scanHeight = Math.max(1, Math.floor(height * 0.3)),
+      seen = new Uint8Array(scanWidth * scanHeight),
+      queue = new Int32Array(scanWidth * scanHeight),
+      components = [],
+      mergedPanels = [],
+      imageLikePanels = [];
+    const isHeaderBlue = (x, y) => {
+      const i = (y * width + x) * 4,
+        r = image.data[i],
+        g = image.data[i + 1],
+        b = image.data[i + 2],
+        total = r + g + b;
+      return (
+        total > 35 &&
+        (g - r) / total >= 0.05 &&
+        (b - g) / total >= 0.015
+      );
+    };
+    for (let sy = 0; sy < scanHeight; sy++) {
+      for (let sx = 0; sx < scanWidth; sx++) {
+        const start = sy * scanWidth + sx;
+        if (seen[start] || !isHeaderBlue(sx, sy)) continue;
+        let head = 0,
+          tail = 0,
+          count = 0,
+          left = sx,
+          right = sx,
+          top = sy,
+          bottom = sy;
+        queue[tail++] = start;
+        seen[start] = 1;
+        while (head < tail) {
+          const cell = queue[head++],
+            x = cell % scanWidth,
+            y = Math.floor(cell / scanWidth);
+          count++;
+          left = Math.min(left, x);
+          right = Math.max(right, x);
+          top = Math.min(top, y);
+          bottom = Math.max(bottom, y);
+          const neighbors = [
+            x > 0 ? cell - 1 : -1,
+            x + 1 < scanWidth ? cell + 1 : -1,
+            y > 0 ? cell - scanWidth : -1,
+            y + 1 < scanHeight ? cell + scanWidth : -1,
+          ];
+          for (const neighbor of neighbors) {
+            if (neighbor < 0 || seen[neighbor]) continue;
+            const nx = neighbor % scanWidth,
+              ny = Math.floor(neighbor / scanWidth);
+            if (!isHeaderBlue(nx, ny)) continue;
+            seen[neighbor] = 1;
+            queue[tail++] = neighbor;
+          }
+        }
+        const box = { x: left, y: top, w: right - left + 1, h: bottom - top + 1, count },
+          imageCropLike =
+            box.w > width * 0.7 &&
+            box.h > height * 0.65 &&
+            box.w / box.h > 2.5;
+        // A large region can be the game sky connected to the blue minimap
+        // chrome (common when a MapleStory window starts at the screen edge).
+        // Keep it as a last-resort candidate; don't let it mask the smaller
+        // top-left panel found in the same frame.
+        if (imageCropLike) imageLikePanels.push(box);
+        const anchoredPanel =
+          box.x <= width * 0.08 &&
+          box.y <= height * 0.12 &&
+          box.w >= width * 0.045 &&
+          box.w <= width * 0.3 &&
+          box.h >= height * 0.025 &&
+          box.h <= height * 0.2 &&
+          count >= width * height * 0.001;
+        if (
+          // The minimap is pinned to the top-left. Pale-blue shop dialogs
+          // elsewhere in the frame can be larger, so color/area alone must
+          // not outrank this stable screen anchor.
+          anchoredPanel &&
+          // When the panel is fused with its minimap image (or nearby blue
+          // sky), its aspect ratio drops. Route those mid-width regions to the
+          // merged-panel fallback; broad, uniformly shaped title strips remain
+          // valid normal headers even at larger HUD scales.
+          (box.h <= height * 0.085 || box.w / box.h >= 2.8) &&
+          box.w / box.h >= 2.0
+        )
+          components.push(box);
+        else if (
+          // When the game is dimmed, blue from the minimap and its header can
+          // join into one tall component. Keep that anchored panel as a
+          // fallback and trim it back to the header height before cropping.
+          anchoredPanel &&
+          box.w / box.h >= 0.75 &&
+          box.w / box.h <= 2.8
+        )
+          mergedPanels.push(box);
+      }
+    }
+    const panel = [...components, ...mergedPanels].sort((a, b) =>
+      a.x + a.y * 0.5 - (b.x + b.y * 0.5) || b.count - a.count,
+    )[0];
+    if (panel) {
+      // A merged minimap and title panel is tall; its text is only in the top
+      // band. Trim it to the expected header height before cropping.
+      return mergedPanels.includes(panel)
+        ? { ...panel, h: Math.min(panel.h, Math.max(24, Math.round(height * 0.057))) }
+        : panel;
+    }
+    return imageLikePanels.sort((a, b) => a.y - b.y || a.x - b.x)[0] || null;
+  }
+
+  // The gold WORLD button sits on the minimap's top control row. Its size and
+  // bottom edge are a steadier scale/position anchor for the map-name lines
+  // than the height of the blue panel, which can include part of the map.
+  function findWorldButton(image, box) {
+    if (!image?.data || !box) return null;
+    const width = image.width,
+      x0 = Math.max(0, Math.floor(box.x + box.w * 0.68)),
+      x1 = Math.min(width, Math.ceil(box.x + box.w)),
+      y0 = Math.max(0, Math.floor(box.y)),
+      y1 = Math.min(image.height, Math.ceil(box.y + box.h * 0.42)),
+      scanWidth = x1 - x0,
+      scanHeight = y1 - y0;
+    if (scanWidth < 8 || scanHeight < 4) return null;
+    const seen = new Uint8Array(scanWidth * scanHeight),
+      queue = new Int32Array(scanWidth * scanHeight),
+      candidates = [];
+    const isGold = (x, y) => {
+      const i = (y * width + x) * 4,
+        r = image.data[i],
+        g = image.data[i + 1],
+        b = image.data[i + 2];
+      return r > 145 && g > 65 && b < 165 && r > g * 1.08 && g > b * 1.18;
+    };
+    for (let sy = 0; sy < scanHeight; sy++)
+      for (let sx = 0; sx < scanWidth; sx++) {
+        const start = sy * scanWidth + sx;
+        if (seen[start] || !isGold(x0 + sx, y0 + sy)) continue;
+        let head = 0,
+          tail = 0,
+          count = 0,
+          left = sx,
+          right = sx,
+          top = sy,
+          bottom = sy;
+        queue[tail++] = start;
+        seen[start] = 1;
+        while (head < tail) {
+          const cell = queue[head++],
+            x = cell % scanWidth,
+            y = Math.floor(cell / scanWidth);
+          count++;
+          left = Math.min(left, x);
+          right = Math.max(right, x);
+          top = Math.min(top, y);
+          bottom = Math.max(bottom, y);
+          const neighbors = [
+            x > 0 ? cell - 1 : -1,
+            x + 1 < scanWidth ? cell + 1 : -1,
+            y > 0 ? cell - scanWidth : -1,
+            y + 1 < scanHeight ? cell + scanWidth : -1,
+          ];
+          for (const neighbor of neighbors) {
+            if (neighbor < 0 || seen[neighbor]) continue;
+            const nx = neighbor % scanWidth,
+              ny = Math.floor(neighbor / scanWidth);
+            if (!isGold(x0 + nx, y0 + ny)) continue;
+            seen[neighbor] = 1;
+            queue[tail++] = neighbor;
+          }
+        }
+        const candidate = {
+          x: x0 + left,
+          y: y0 + top,
+          w: right - left + 1,
+          h: bottom - top + 1,
+          count,
+        };
+        const relativeX = (candidate.x - box.x) / box.w,
+          relativeY = (candidate.y - box.y) / box.h;
+        if (
+          candidate.w >= box.w * 0.08 &&
+          candidate.w <= box.w * 0.24 &&
+          candidate.h >= box.h * 0.07 &&
+          candidate.h <= box.h * 0.28 &&
+          candidate.w / candidate.h >= 1.4 &&
+          candidate.w / candidate.h <= 5.5 &&
+          relativeX >= 0.72 &&
+          relativeY <= 0.3 &&
+          count >= candidate.w * candidate.h * 0.18
+        )
+          candidates.push(candidate);
+      }
+    return candidates.sort((a, b) => b.count - a.count)[0] || null;
+  }
+
+  function cropHeaderText(image, box = findHeader(image)) {
+    if (!box) return cropCompactHeaderText(image);
+    const worldButton = findWorldButton(image, box),
+      // The orange label background is only its most saturated center; infer
+      // the full control height from the surrounding minimap dimensions.
+      controlUnit = worldButton
+        ? Math.max(worldButton.h * 1.35, box.h * 0.16)
+        : 0,
+      headerWidthRatio = box.w / image.width,
+      compactHeader = headerWidthRatio < 0.155,
+      // The WORLD button height scales with the minimap text and emblem. Use
+      // it to leave the emblem behind while retaining the first title glyph.
+      xOffset = worldButton ? controlUnit * 1.5 : box.h * 0.35,
+      x0 = Math.max(0, Math.floor(box.x + xOffset)),
+      y0 = Math.max(
+        0,
+        Math.floor(
+          worldButton
+            ? worldButton.y + worldButton.h + Math.max(2, controlUnit * 0.25)
+            : box.y + box.h * 0.35,
+        ),
+      ),
+      x1 = Math.min(
+        image.width,
+        Math.ceil(
+          worldButton
+            ? box.x + box.w - controlUnit * 0.1
+            : box.x + box.w * 0.97,
+        ),
+      ),
+      y1 = Math.min(
+        image.height,
+        Math.ceil(
+          worldButton
+            ? y0 + controlUnit * 3
+            : box.y + box.h * 0.92,
+        ),
+      ),
+      w = x1 - x0,
+      h = y1 - y0;
+    if (w < 20 || h < 10) return null;
+    const data = new Uint8ClampedArray(w * h * 4);
+    for (let y = 0; y < h; y++)
+      for (let x = 0; x < w; x++) {
+        const source = ((y + y0) * image.width + x + x0) * 4,
+          target = (y * w + x) * 4,
+          gray = Math.round(
+            image.data[source] * 0.299 +
+              image.data[source + 1] * 0.587 +
+              image.data[source + 2] * 0.114,
+          );
+        data[target] = data[target + 1] = data[target + 2] = gray;
+        data[target + 3] = 255;
+      }
+    // Mask the emblem through its expected right edge while retaining the
+    // original x position of the first text glyph.
+    const logoSliver = worldButton
+      ? Math.max(0, Math.min(Math.floor(w * 0.48), Math.ceil(controlUnit * 1.55)))
+      : Math.max(
+      0,
+      Math.min(Math.floor(w * 0.48), Math.ceil(box.h * 0.65 - xOffset)),
+      );
+    if (logoSliver > 0 && w > logoSliver + 1) {
+      const background = [];
+      for (let x = logoSliver; x < Math.min(w, logoSliver + 7); x++)
+        for (let y = 0; y < h; y++) {
+          const value = data[(y * w + x) * 4];
+          if (value >= 85 && value <= 230) background.push(value);
+        }
+      background.sort((a, b) => a - b);
+      const fill = background.length ? background[Math.floor(background.length / 2)] : 160;
+      for (let y = 0; y < h; y++)
+        for (let x = 0; x < logoSliver; x++) {
+          const i = (y * w + x) * 4;
+          data[i] = data[i + 1] = data[i + 2] = fill;
+        }
+    }
+    // Captures can be dimmed by overlays or Windows capture composition. Use
+    // a robust percentile stretch so the pale lettering remains legible while
+    // ignoring a few extreme pixels from the frame and text edges.
+    const histogram = new Uint32Array(256);
+    for (let i = 0; i < data.length; i += 4) histogram[data[i]]++;
+    const pixelCount = w * h;
+    function percentile(target) {
+      let total = 0;
+      for (let value = 0; value < histogram.length; value++) {
+        total += histogram[value];
+        if (total >= target) return value;
+      }
+      return 255;
+    }
+    const low = percentile(pixelCount * 0.05),
+      high = percentile(pixelCount * 0.95),
+      range = high - low;
+    if (compactHeader && range >= 24)
+      for (let i = 0; i < data.length; i += 4) {
+        const value = Math.max(0, Math.min(255, Math.round(((data[i] - low) * 255) / range)));
+        data[i] = data[i + 1] = data[i + 2] = value;
+      }
+    return { width: w, height: h, data };
+  }
+
+  // Some windowed captures show the minimap title as a single compact row,
+  // without the normal blue panel. The gold WORLD button and adjacent zoom
+  // controls remain visible, so use that fixed control row to bound the text.
+  function cropCompactHeaderText(image) {
+    if (!image?.data || !image.width || !image.height) return null;
+    const width = image.width,
+      height = image.height,
+      scanWidth = Math.floor(width * 0.34),
+      scanHeight = Math.floor(height * 0.12),
+      seen = new Uint8Array(scanWidth * scanHeight),
+      queue = new Int32Array(scanWidth * scanHeight),
+      candidates = [];
+    const isGold = (x, y) => {
+      const i = (y * width + x) * 4,
+        r = image.data[i],
+        g = image.data[i + 1],
+        b = image.data[i + 2];
+      return r > 145 && g > 65 && b < 165 && r > g * 1.08 && g > b * 1.18;
+    };
+    for (let sy = 0; sy < scanHeight; sy++)
+      for (let sx = 0; sx < scanWidth; sx++) {
+        const start = sy * scanWidth + sx;
+        if (seen[start] || !isGold(sx, sy)) continue;
+        let head = 0,
+          tail = 0,
+          count = 0,
+          left = sx,
+          right = sx,
+          top = sy,
+          bottom = sy;
+        queue[tail++] = start;
+        seen[start] = 1;
+        while (head < tail) {
+          const cell = queue[head++],
+            x = cell % scanWidth,
+            y = Math.floor(cell / scanWidth);
+          count++;
+          left = Math.min(left, x);
+          right = Math.max(right, x);
+          top = Math.min(top, y);
+          bottom = Math.max(bottom, y);
+          const neighbors = [
+            x > 0 ? cell - 1 : -1,
+            x + 1 < scanWidth ? cell + 1 : -1,
+            y > 0 ? cell - scanWidth : -1,
+            y + 1 < scanHeight ? cell + scanWidth : -1,
+          ];
+          for (const neighbor of neighbors) {
+            if (neighbor < 0 || seen[neighbor]) continue;
+            const nx = neighbor % scanWidth,
+              ny = Math.floor(neighbor / scanWidth);
+            if (!isGold(nx, ny)) continue;
+            seen[neighbor] = 1;
+            queue[tail++] = neighbor;
+          }
+        }
+        const button = {
+          x: left,
+          y: top,
+          w: right - left + 1,
+          h: bottom - top + 1,
+          count,
+        };
+        if (
+          button.x >= width * 0.08 &&
+          button.x <= width * 0.28 &&
+          button.y <= height * 0.08 &&
+          button.w >= width * 0.012 &&
+          button.w <= width * 0.055 &&
+          button.h >= height * 0.008 &&
+          button.h <= height * 0.035 &&
+          button.w / button.h >= 1.4 &&
+          button.w / button.h <= 5.5 &&
+          count >= button.w * button.h * 0.15
+        )
+          candidates.push(button);
+      }
+    const button = candidates.sort((a, b) => b.count - a.count)[0];
+    if (!button) return null;
+    // The zoom controls are immediately left of WORLD. Leave a small safety
+    // gap after them and include padding above/below the one-line label.
+    const padding = Math.max(7, Math.ceil(button.h * 0.9)),
+      x1 = Math.max(0, Math.floor(button.x - button.w * 0.72)),
+      y0 = Math.max(0, Math.floor(button.y - padding)),
+      y1 = Math.min(height, Math.ceil(button.y + button.h + padding)),
+      w = x1,
+      h = y1 - y0;
+    if (w < width * 0.08 || h < 8) return null;
+    const data = new Uint8ClampedArray(w * h * 4);
+    const histogram = new Uint32Array(256);
+    for (let y = 0; y < h; y++)
+      for (let x = 0; x < w; x++) {
+        const source = ((y + y0) * width + x) * 4,
+          target = (y * w + x) * 4,
+          gray = Math.round(
+            image.data[source] * 0.299 +
+              image.data[source + 1] * 0.587 +
+              image.data[source + 2] * 0.114,
+          );
+        data[target] = data[target + 1] = data[target + 2] = gray;
+        data[target + 3] = 255;
+        histogram[gray]++;
+      }
+    const total = w * h;
+    let low = 0,
+      high = 255,
+      accumulated = 0;
+    while (low < 255 && accumulated < total * 0.05) accumulated += histogram[low++];
+    accumulated = 0;
+    while (high > 0 && accumulated < total * 0.95) accumulated += histogram[high--];
+    const range = high - low;
+    if (range >= 24)
+      for (let i = 0; i < data.length; i += 4) {
+        const value = Math.max(0, Math.min(255, Math.round(((data[i] - low) * 255) / range)));
+        data[i] = data[i + 1] = data[i + 2] = value;
+      }
+    return { width: w, height: h, data };
+  }
+
+  function prepare(image, scale = 4) {
+    if (!image?.data || !image.width || !image.height) return null;
+    const width = image.width * scale,
+      height = image.height * scale,
+      data = new Uint8ClampedArray(width * height * 4);
+    for (let y = 0; y < height; y++) {
+      const sourceY = Math.floor(y / scale);
+      for (let x = 0; x < width; x++) {
+        const source = (sourceY * image.width + Math.floor(x / scale)) * 4,
+          target = (y * width + x) * 4,
+          gray = image.data[source];
+        data[target] = data[target + 1] = data[target + 2] = gray;
+        data[target + 3] = 255;
+      }
+    }
+    return { width, height, data };
+  }
+
+  function prepareThreshold(image, scale = 4) {
+    if (!image?.data || !image.width || !image.height) return null;
+    const histogram = new Uint32Array(256);
+    let count = 0,
+      total = 0;
+    // cropHeaderText masks the minimap emblem white; exclude it when finding
+    // the text/background split so it cannot skew the threshold.
+    for (let y = 0; y < image.height; y++)
+      for (let x = Math.floor(image.width * 0.3); x < image.width; x++) {
+        const value = image.data[(y * image.width + x) * 4];
+        histogram[value]++;
+        total += value;
+        count++;
+      }
+    if (!count) return null;
+    let backgroundWeight = 0,
+      backgroundSum = 0,
+      bestVariance = -1,
+      threshold = 0;
+    for (let value = 0; value < histogram.length; value++) {
+      backgroundWeight += histogram[value];
+      if (!backgroundWeight) continue;
+      const foregroundWeight = count - backgroundWeight;
+      if (!foregroundWeight) break;
+      backgroundSum += value * histogram[value];
+      const backgroundMean = backgroundSum / backgroundWeight,
+        foregroundMean = (total - backgroundSum) / foregroundWeight,
+        variance =
+          backgroundWeight *
+          foregroundWeight *
+          (backgroundMean - foregroundMean) ** 2;
+      if (variance > bestVariance) {
+        bestVariance = variance;
+        threshold = value;
+      }
+    }
+    const binary = new Uint8ClampedArray(image.data.length);
+    for (let i = 0; i < image.data.length; i += 4) {
+      const value = image.data[i] >= threshold ? 255 : 0;
+      binary[i] = binary[i + 1] = binary[i + 2] = value;
+      binary[i + 3] = 255;
+    }
+    return prepare({ width: image.width, height: image.height, data: binary }, scale);
+  }
+
+  function splitLabelLines(image) {
+    if (!image?.data || image.width < 20 || image.height < 12) return [];
+    const activeRows = [];
+    for (let y = 0; y < image.height; y++) {
+      const values = [];
+      for (let x = 0; x < image.width; x++)
+        values.push(image.data[(y * image.width + x) * 4]);
+      values.sort((a, b) => a - b);
+      const median = values[Math.floor(values.length / 2)],
+        ink = values.filter((value) => Math.abs(value - median) >= 24).length;
+      activeRows.push(ink >= Math.max(3, Math.floor(image.width * 0.035)));
+    }
+    const runs = [];
+    for (let y = 0; y < activeRows.length; y++) {
+      if (!activeRows[y]) continue;
+      let end = y + 1;
+      while (end < activeRows.length && activeRows[end]) end++;
+      if (end - y >= 3) runs.push([Math.max(0, y - 1), Math.min(image.height, end + 1)]);
+      y = end - 1;
+    }
+    if (runs.length < 2) return [];
+    const rows = runs.slice(0, 2);
+    return rows.map(([top, bottom]) => {
+      const data = new Uint8ClampedArray(image.width * (bottom - top) * 4);
+      data.set(image.data.subarray(top * image.width * 4, bottom * image.width * 4));
+      return { width: image.width, height: bottom - top, data };
+    });
+  }
+
+  function normalizeName(text) {
+    return String(text || "")
+      .toLowerCase()
+      .replace(/[^a-z0-9]/g, "");
+  }
+
+  function editDistance(left, right) {
+    const a = normalizeName(left),
+      b = normalizeName(right);
+    if (!a || !b) return Infinity;
+    let previous = Array.from({ length: b.length + 1 }, (_, i) => i),
+      current = new Array(b.length + 1);
+    for (let i = 1; i <= a.length; i++) {
+      current[0] = i;
+      for (let j = 1; j <= b.length; j++)
+        current[j] = Math.min(
+          previous[j] + 1,
+          current[j - 1] + 1,
+          previous[j - 1] + (a[i - 1] === b[j - 1] ? 0 : 1),
+        );
+      [previous, current] = [current, previous];
+    }
+    return previous[b.length];
+  }
+
+  function canonicalMap(lines) {
+    if (lines.length !== 2 || !Array.isArray(mapNames)) return null;
+    const matches = [];
+    for (const [street, name] of mapNames) {
+      const streetDistance = editDistance(lines[0], street),
+        nameDistance = editDistance(lines[1], name),
+        normalizedName = normalizeName(name),
+        observedName = normalizeName(lines[1]),
+        numericSuffix = normalizedName.match(/\d+$/)?.[0],
+        hasExactNumericSuffix =
+          !!numericSuffix && observedName.endsWith(numericSuffix),
+        maxNameDistance =
+          streetDistance === 0 && hasExactNumericSuffix
+            ? 3
+            : Math.min(2, Math.max(1, Math.floor(normalizedName.length * 0.08)));
+      // Require at least one exact line as a strong anchor. This lets the
+      // known street disambiguate a small typo in the map name, without
+      // turning unrelated or ambiguous OCR into a guessed map.
+      if (
+        streetDistance <= 1 &&
+        nameDistance <= maxNameDistance &&
+        (streetDistance === 0 || nameDistance === 0)
+      )
+        matches.push({ street, name, score: streetDistance + nameDistance });
+    }
+    matches.sort((a, b) => a.score - b.score);
+    if (matches.length && (!matches[1] || matches[1].score !== matches[0].score))
+      return matches[0];
+
+    // Long minimap labels are often clipped to a few dozen tiny pixels. When
+    // neither line is exact, allow a small combined error only if the street
+    // is within one edit, the map name within two, and the nearest pair is
+    // unique. Short labels and ambiguous roman-numeral neighbors stay raw.
+    const combinedLength =
+      normalizeName(lines[0]).length + normalizeName(lines[1]).length;
+    if (combinedLength < 38) return null;
+    const nearMatches = [];
+    for (const [street, name] of mapNames) {
+      const streetDistance = editDistance(lines[0], street),
+        nameDistance = editDistance(lines[1], name);
+      if (streetDistance <= 1 && nameDistance <= 2)
+        nearMatches.push({ street, name, score: streetDistance + nameDistance });
+    }
+    nearMatches.sort((a, b) => a.score - b.score);
+    if (
+      !nearMatches.length ||
+      nearMatches[0].score > 3 ||
+      (nearMatches[1] && nearMatches[1].score === nearMatches[0].score)
+    )
+      return null;
+    return nearMatches[0];
+  }
+
+  function canonicalInline(line) {
+    if (!Array.isArray(mapNames)) return null;
+    const observed = normalizeName(
+      String(line || "").replace(/^\s*\d{2,3}\s*fps\b[^a-z0-9]*/i, ""),
+    );
+    if (observed.length < 14) return null;
+    const exactNameMatches = mapNames.filter(([, name]) =>
+      observed.endsWith(normalizeName(name)),
+    );
+    if (
+      exactNameMatches.length === 1 &&
+      normalizeName(exactNameMatches[0][1]).length >= 8
+    )
+      return { street: exactNameMatches[0][0], name: exactNameMatches[0][1], score: 0 };
+    const candidates = [];
+    for (const [street, name] of mapNames) {
+      const streetText = normalizeName(street),
+        nameText = normalizeName(name),
+        best = { street, name, score: Infinity, streetDistance: Infinity, nameDistance: Infinity };
+      for (let offset = 0; offset <= 4; offset++)
+        for (let split = Math.max(1, streetText.length - 1); split <= streetText.length + 1; split++) {
+          const streetDistance = editDistance(observed.slice(offset, offset + split), streetText),
+            nameDistance = editDistance(observed.slice(offset + split), nameText),
+            score = streetDistance + nameDistance;
+          if (score < best.score)
+            Object.assign(best, { score, streetDistance, nameDistance });
+        }
+      if (
+        best.streetDistance <= 1 &&
+        best.nameDistance <= 2 &&
+        (best.streetDistance === 0 || best.nameDistance === 0)
+      )
+        candidates.push(best);
+    }
+    candidates.sort((a, b) => a.score - b.score);
+    if (!candidates.length || (candidates[1] && candidates[1].score === candidates[0].score))
+      return null;
+    return candidates[0];
+  }
+
+  function parse(text, confidence) {
+    if (!Number.isFinite(confidence)) return null;
+    const rawLines = String(text || "")
+      .replace(/\r/g, "")
+      .split("\n")
+      .map((line) => line.replace(/\s+/g, " ").trim())
+      .filter((line) => line.length >= 3 && /[A-Za-z]{3}/.test(line));
+    if (rawLines.length === 1) {
+      const inline = canonicalInline(rawLines[0]);
+      if (inline && (confidence >= 40 || inline.score === 0))
+        return {
+          text: `${inline.street} · ${inline.name}`,
+          confidence,
+          canonicalized: true,
+        };
+    }
+    const lines = rawLines.slice(0, 2);
+    if (!lines.length || lines.some((line) => line.length > 38)) return null;
+    const canonical = canonicalMap(lines);
+    // Some tiny minimap labels score below Tesseract's usual confidence gate
+    // even when both recognized lines exactly match one unique map entry. Keep
+    // low-confidence fuzzy reads rejected; only allow this exact vocabulary
+    // match through the gate.
+    const exactCanonical =
+      canonical &&
+      normalizeName(lines[0]) === normalizeName(canonical.street) &&
+      normalizeName(lines[1]) === normalizeName(canonical.name);
+    if (confidence < 40 && !exactCanonical) return null;
+    return {
+      text: canonical ? `${canonical.street} · ${canonical.name}` : lines.join(" · "),
+      confidence,
+      canonicalized: !!canonical,
+    };
+  }
+
+  function hash(image) {
+    if (!image?.data) return 0;
+    let value = 2166136261;
+    for (const byte of image.data) value = Math.imul(value ^ byte, 16777619);
+    return value >>> 0;
+  }
+
+  return {
+    findHeader,
+    findWorldButton,
+    cropHeaderText,
+    cropCompactHeaderText,
+    splitLabelLines,
+    prepare,
+    prepareThreshold,
+    parse,
+    hash,
+    canonicalMap,
+  };
+});
+</script>
+<!-- MAP NAME END -->
 <!-- LOCAL OCR START -->
 <script>(function (root, factory) {
   const api = factory(
@@ -1971,943 +2908,6 @@ if(typeof module==='object'&&module.exports)module.exports=api;
 });
 </script>
 <!-- STREAM CARD END -->
-<!-- HUD REGIONS START -->
-<script>(function(root,factory){const api=factory();if(typeof module==='object'&&module.exports)module.exports=api;else root.MapleHudRegions=api;})(typeof window==='undefined'?globalThis:window,function(){
-function crop(image,box){
- const x=Math.max(0,Math.floor(box.x)),y=Math.max(0,Math.floor(box.y)),width=Math.max(1,Math.min(image.width-x,Math.ceil(box.w))),height=Math.max(1,Math.min(image.height-y,Math.ceil(box.h))),data=new Uint8ClampedArray(width*height*4);
- for(let row=0;row<height;row++)data.set((image.data.subarray||image.data.slice).call(image.data,((y+row)*image.width+x)*4,((y+row)*image.width+x+width)*4),row*width*4);
- return {width,height,data};
-}
-function components(image,kind,from=.65){
- const {width,height,data}=image,top=Math.floor(height*from),h=height-top,mask=new Uint8Array(width*h),queue=new Uint32Array(width*h),out=[];
- for(let y=top;y<height;y++)for(let x=0;x<width;x++){const i=(y*width+x)*4,r=data[i],g=data[i+1],b=data[i+2];mask[(y-top)*width+x]=kind==='orange'?(r>100&&g/r>.25&&g/r<.85&&b/r<.4):kind==='cash'?(r>110&&r>g*1.7&&r>b*1.3):kind==='white'?(Math.min(r,g,b)>135&&Math.max(r,g,b)-Math.min(r,g,b)<65):kind==='blue'?(b>90&&b>r*1.4&&g>r*1.2):(g-r>12&&g-b>20);}
- for(let seed=0;seed<mask.length;seed++)if(mask[seed]){let count=1;queue[0]=seed;mask[seed]=0;let l=width,r=0,t=h,b=0;
-  for(let head=0;head<count;head++){const i=queue[head],x=i%width,y=Math.floor(i/width);l=Math.min(l,x);r=Math.max(r,x+1);t=Math.min(t,y);b=Math.max(b,y+1);
-   for(let dy=-1;dy<=1;dy++)for(let dx=-1;dx<=1;dx++){const nx=x+dx,ny=y+dy,j=ny*width+nx;if(nx>=0&&nx<width&&ny>=0&&ny<h&&mask[j]){mask[j]=0;queue[count++]=j;}}
-  }
-  if(count>=3)out.push({x:l,y:t+top,w:r-l,h:b-t,area:count});
- }
- return out;
-}
-function whiteSpans(image,x0,x1,y0,y1){
- const spans=[];let start=null;
- for(let x=Math.max(0,Math.floor(x0));x<=Math.min(image.width,Math.ceil(x1));x++){let count=0,t=y1,b=y0;
-  if(x<x1)for(let y=Math.max(0,Math.floor(y0));y<Math.min(image.height,Math.ceil(y1));y++){const i=(y*image.width+x)*4,r=image.data[i],g=image.data[i+1],z=image.data[i+2];if(Math.min(r,g,z)>135&&Math.max(r,g,z)-Math.min(r,g,z)<65){count++;t=Math.min(t,y);b=Math.max(b,y+1);}}
-  if(count){if(!start)start={x,y:t,w:0,h:b-t};else{const end=Math.max(start.y+start.h,b);start.y=Math.min(start.y,t);start.h=end-start.y;}}
-  else if(start){start.w=x-start.x;spans.push(start);start=null;}
- }
- return spans;
-}
-const normal=(b,image)=>({x:b.x/image.width,y:b.y/image.height,w:b.w/image.width,h:b.h/image.height,...(b.kind?{kind:b.kind}:{})});
-const lvMask='111100000011100000011100111100000011100000111100111100000001100000111100111100000001100000111100111100000001110000110000111100000001110000110000111100000000110001110000111100000000111101110000111100000000111101110000111100000000111101100000111100000000011111100000111100000000011111100000111100000000011111000011111100000000011111000011111111111110011111000011111111111110001111000011';
-function hasLvLabel(image,tile){
- const spans=whiteSpans(image,tile.x-tile.h*3.5,tile.x-1,tile.y-tile.h*.3,tile.y+tile.h*1.3);
- for(let end=spans.length-1;end>=0;end--)for(let n=1;n<=3&&end-n+1>=0;n++){
-  const group=spans.slice(end-n+1,end+1),x=group[0].x,y=Math.min(...group.map(b=>b.y)),w=group.at(-1).x+group.at(-1).w-x,h=Math.max(...group.map(b=>b.y+b.h))-y;
-  if(h<tile.h*.55||w/h<1.1||w/h>2.3||tile.x-x-w>tile.h*1.5)continue;
-  let error=0;for(let yy=0;yy<16;yy++)for(let xx=0;xx<24;xx++){const px=x+Math.min(w-1,Math.floor((xx+.5)*w/24)),py=y+Math.min(h-1,Math.floor((yy+.5)*h/16)),i=(py*image.width+px)*4,on=Math.min(image.data[i],image.data[i+1],image.data[i+2])>135;error+=Number(on)!==Number(lvMask[yy*24+xx]);}
-  if(error/384<.24)return true;
- }
- return false;
-}
-
-const expLabelMask='111111111111111100011111001111111110111111111100111110011100111111111111111110000000011111111100111110011111111110000000011111111100111110011111111000000000001111111100111110011111111111110000001111111000111110011111111111111000001111111000001111111111111111110000001111111000111111111110111111110000001111111000111111111110111110000000001111111000111111100000111000000000011111111100111110000000111110000000111111111100001110000000111111111111111100011110111110011110111111111111111100011110111110011110111111111111111100011111111110011110011111111111111000000110001100000110';
-function hasExpLabel(image,box){
- const spans=whiteSpans(image,box.x-box.h*5,box.x,box.y-box.h*.7,box.y+box.h*1.1),candidates=[];
- for(let end=spans.length-1;end>=0;end--)for(let n=1;n<=4&&end-n+1>=0;n++){
-  const group=spans.slice(end-n+1,end+1),x=group[0].x,y=Math.min(...group.map(b=>b.y)),w=group.at(-1).x+group.at(-1).w-x,h=Math.max(...group.map(b=>b.y+b.h))-y;candidates.push({x,y,w,h});
- }
- // A bright panel border can join every column in a projection. Connected ink
- // components isolate the EXP letters from that border instead of widening the crop.
- const left=Math.max(0,Math.floor(box.x-box.h*5)),top=Math.max(0,Math.floor(box.y-box.h*.7)),patch=crop(image,{x:left,y:top,w:box.x-left,h:box.h*1.8});
- const ink=components(patch,'white',0).map(b=>({...b,x:b.x+left,y:b.y+top}));candidates.push(...ink);
- // At some scales EX and P are disconnected, while a panel border joins the
- // column projection. Group aligned letter components before checking the label.
- for(const first of ink.filter(b=>b.h>=box.h*.65)){
-  const row=ink.filter(b=>b.x>=first.x&&Math.abs(b.y-first.y)<=first.h*.2&&Math.abs(b.h-first.h)<=first.h*.25).sort((a,b)=>a.x-b.x);
-  let right=first.x+first.w,bottom=first.y+first.h,top=first.y;
-  for(const next of row.slice(1)){if(next.x-right>first.h*.35)break;right=Math.max(right,next.x+next.w);top=Math.min(top,next.y);bottom=Math.max(bottom,next.y+next.h);candidates.push({x:first.x,y:top,w:right-first.x,h:bottom-top});}
- }
- for(const {x,y,w,h} of candidates){
-  if(h<box.h*.65||w/h<1.8||w/h>3.3||box.x-x-w>box.h*.8)continue;
-  let error=0;for(let yy=0;yy<16;yy++)for(let xx=0;xx<36;xx++){const px=x+Math.min(w-1,Math.floor((xx+.5)*w/36)),py=y+Math.min(h-1,Math.floor((yy+.5)*h/16)),i=(py*image.width+px)*4,on=Math.min(image.data[i],image.data[i+1],image.data[i+2])>135;error+=Number(on)!==Number(expLabelMask[yy*36+xx]);}
-  if(error/576<.24)return true;
- }
- return false;
-}
-
-// Locate the bold EXP label before asking any reader to decode its value.
-function labelledExpBoxes(image,levelBox){
- if(!levelBox)return [];
- const ink=components(image,'white').filter(b=>b.h>=6&&b.h<=levelBox.h*1.5&&Math.abs(b.y-levelBox.y)<levelBox.h*1.5&&b.x>levelBox.x+levelBox.w),labels=[],out=[];
- for(const first of ink){
-  const row=ink.filter(b=>b.x>=first.x&&Math.abs(b.y-first.y)<first.h*.2&&Math.abs(b.h-first.h)<first.h*.25).sort((a,b)=>a.x-b.x);let right=first.x+first.w;
-  for(let n=0;n<Math.min(4,row.length);n++){
-   const next=row[n];if(next.x-right>first.h*.4)break;right=Math.max(right,next.x+next.w);const w=right-first.x,h=first.h;if(w/h<1.8||w/h>3.3)continue;
-   let error=0;for(let yy=0;yy<16;yy++)for(let xx=0;xx<36;xx++){const x=first.x+Math.min(w-1,Math.floor((xx+.5)*w/36)),y=first.y+Math.min(h-1,Math.floor((yy+.5)*h/16)),i=(y*image.width+x)*4;error+=Number(Math.min(image.data[i],image.data[i+1],image.data[i+2])>135)!==Number(expLabelMask[yy*36+xx]);}
-   if(error/576<.24)labels.push({x:first.x,y:first.y,w,h});
-  }
- }
- for(const label of labels){
-  const left=label.x+label.w+1,top=Math.max(0,label.y-1),bottom=Math.min(image.height,label.y+label.h+2);let last=left,started=false,gap=0;
-  for(let x=left;x<Math.min(image.width,left+label.h*24);x++){
-   let on=false;for(let y=label.y;y<label.y+label.h;y++){const i=(y*image.width+x)*4,r=image.data[i],g=image.data[i+1],b=image.data[i+2];if((Math.min(r,g,b)>120&&Math.max(r,g,b)-Math.min(r,g,b)<65)||(g-r>8&&g-b>12)){on=true;break;}}
-   if(on){last=x+1;started=true;gap=0;}else if(++gap>label.h*.8){break;}
-  }
-  if(started&&last-left>label.h*2)out.push({x:left,y:top,w:last-left+2,h:bottom-top});
- }return out;
-}
-function detectText(image,levelOcr,expOcr,previous){
- if(previous?.width===image.width&&previous?.height===image.height&&previous.level&&previous.exp){
-  const box=r=>({x:Math.round(r.x*image.width),y:Math.round(r.y*image.height),w:Math.round(r.w*image.width),h:Math.round(r.h*image.height)}),l=box(previous.level),e=box(previous.exp),lr=levelOcr.recognize(crop(image,l)),er=expOcr.recognize(crop(image,e));
-  if(/^\d{1,3}$/.test(lr.data.text)&&hasLvLabel(image,l)&&(/^\d[\d.]*\[\d+\.\d{2}%\]$/.test(er.text)||(/^(?:\[\d{1,3}\.\d{2}%\]|\d{1,3}\.\d{2}%)$/.test(er.text)&&hasExpLabel(image,e))))return {level:previous.level,exp:previous.exp};
- }
- const orange=components(image,'orange').filter(b=>b.h>=5&&b.h<=image.height*.09&&b.w>=b.h*.35&&b.w<=b.h*3.5),levels=[];
- for(const first of orange){const group=[first];let last=first;
-  if(orange.some(b=>b.x+b.w<=first.x&&first.x-b.x-b.w<=first.h*.4&&Math.abs(b.y-first.y)<first.h*.2))continue;
-  for(let n=0;n<2;n++){const next=orange.filter(b=>b.x>=last.x+last.w&&b.x-last.x-last.w<=first.h*.4&&Math.abs(b.y-first.y)<=first.h*.2&&Math.abs(b.h-first.h)<=first.h*.25).sort((a,b)=>a.x-b.x)[0];if(!next)break;group.push(next);last=next;}
-  if(!hasLvLabel(image,first))continue;
-  const box={x:Math.max(0,first.x-1),y:Math.max(0,first.y-1),w:last.x+last.w-first.x+2,h:Math.max(...group.map(b=>b.y+b.h))-first.y+2},read=levelOcr.recognize(crop(image,box));
-  if(!read.expectedDigits)continue;
-  levels.push({box,level:read.data.text,score:first.y/image.height+(read.data.text.includes('?')?0:1)+group.length*.05});
- }
- levels.sort((a,b)=>b.score-a.score);
- const row=levels[0]?.box;
- const brackets=components(image,'green').filter(b=>b.h>=2&&b.h<=image.height*.06&&b.w<=b.h&&(!row||(b.x>row.x+row.w&&Math.abs(b.y-row.y)<row.h*2))).sort((a,b)=>b.y-a.y).slice(0,256),exps=[];
- for(const left of brackets)for(const right of brackets){
-  const h=Math.max(left.h,right.h),gap=right.x-left.x-left.w;
-  if(gap<h*2.5||gap>h*22||Math.abs(left.y-right.y)>h*.3||Math.abs(left.h-right.h)>h*.4)continue;
-  const nearby=h<4?whiteSpans(image,left.x,right.x,left.y-h,left.y+h*2).filter(b=>b.h>=h&&b.h<=h*3):[];
-  const textHeight=Math.max(h,...nearby.map(b=>b.h)),y=Math.max(0,Math.min(left.y,right.y,...nearby.map(b=>b.y))-1),bottom=Math.min(image.height,Math.max(left.y+left.h,right.y+right.h,...nearby.map(b=>b.y+b.h))+1),spans=whiteSpans(image,left.x-textHeight*14,left.x,y,bottom);
-  const heights=whiteSpans(image,left.x+left.w,right.x,y,bottom).map(b=>b.h).filter(v=>v>=h*.5).sort((a,b)=>a-b),glyphHeight=heights[Math.floor(heights.length/2)]||h;
-  // The bold EXP label is taller/wider than the numeric font. Never rank a truncated suffix above a longer uncertain amount.
-  for(const span of spans){let fullHeight=span.h;for(let x=span.x;x<span.x+span.w;x++){let top=span.y;for(let yy=span.y;yy>=Math.max(0,y-h*.7);yy--){const i=(Math.floor(yy)*image.width+x)*4,r=image.data[i],g=image.data[i+1],b=image.data[i+2];if(Math.min(r,g,b)<=135||Math.max(r,g,b)-Math.min(r,g,b)>=65)break;top=yy;}fullHeight=Math.max(fullHeight,span.y+span.h-top);}if(span.h<h*.5||fullHeight>glyphHeight*1.15||span.w>glyphHeight*1.3)continue;const box={x:Math.max(0,span.x-1),y,w:right.x+right.w-span.x+3,h:bottom-y},read=expOcr.recognize(crop(image,box));
-   if(/^\d[\d.]*\[\d+\.\d{2}%\]$/.test(read.text))exps.push({box,complete:true,score:read.text.length*20+5+read.confidence/100+left.y/image.height});
-   else if(/^[\d?][\d.?]*\[[\d.?]+%\]$/.test(read.text))exps.push({box,score:read.text.length*20+read.confidence/100+left.y/image.height});
-  }
- }
- // Percentage-only text still needs its EXP label and a recognizable EXP label.
- // This prevents a cropped full reading or an HP/MP percentage becoming estimated EXP.
- if(!exps.some(e=>e.complete)){
-  const levelBox=levels[0]?.box;
-  const consider=box=>{const read=expOcr.recognize(crop(image,box)),clear=/^(?:\[\d{1,3}\.\d{2}%\]|\d{1,3}\.\d{2}%)$/.test(read.text),uncertain=/^\[[\d?.]{3,7}[%?]\]$/.test(read.text);
-   // Locate the labelled HUD even when recognition is uncertain. Saving still
-   // requires the strict parser and frame agreement; detection never repairs text.
-   if((clear||uncertain)&&hasExpLabel(image,box))exps.push({box,score:(clear?200:0)+read.text.length*20+read.confidence/100});};
-  for(const left of brackets)for(const right of brackets){const h=Math.max(left.h,right.h);if(right.x-left.x<h*3||right.x-left.x>h*14||Math.abs(left.y-right.y)>h*.3||Math.abs(left.h-right.h)>h*.6)continue;const top=Math.max(0,Math.min(left.y,right.y)-Math.ceil(h*.25));consider({x:left.x-1,y:top,w:right.x+right.w-left.x+3,h:Math.max(left.y+left.h,right.y+right.h)+2-top});}
-  if(levelBox)for(const glyph of components(image,'white').filter(b=>b.h>=5&&b.w/b.h>.3&&b.w/b.h<1.5&&b.x>levelBox.x+levelBox.w&&Math.abs(b.y-levelBox.y)<levelBox.h*1.5)){
-   const y=glyph.y-1,bottom=glyph.y+glyph.h+1;
-   for(const span of whiteSpans(image,glyph.x-glyph.h*7,glyph.x,y,bottom)){if(span.h<glyph.h*.5)continue;consider({x:span.x-1,y,w:glyph.x+glyph.w-span.x+2,h:bottom-y});}
-  }
- }
- if(!exps.length)for(const box of labelledExpBoxes(image,levels[0]?.box))exps.push({box,score:1});
- exps.sort((a,b)=>b.score-a.score);
- return {level:levels[0]?normal(levels[0].box,image):null,exp:exps[0]?normal(exps[0].box,image):null};
-}
-// Register the native HUD using the red Cash Shop panel and its two blue
-// neighbors. Geometry proposes a search area; it never supplies digit labels.
-function anchors(image,kind){
- // Coarse alignment only: always read actual glyphs at native resolution.
- if(image.width>1600){
-  const scale=1600/image.width,width=1600,height=Math.max(1,Math.round(image.height*scale)),data=new Uint8ClampedArray(width*height*4);
-  for(let y=Math.floor(height*.65);y<height;y++)for(let x=0;x<width;x++){const i=(Math.min(image.height-1,Math.floor(y/scale))*image.width+Math.floor(x/scale))*4,j=(y*width+x)*4;data[j]=image.data[i];data[j+1]=image.data[i+1];data[j+2]=image.data[i+2];data[j+3]=255;}
-   return anchors({width,height,data},kind).map(b=>({x:b.x/scale,y:b.y/scale,w:b.w/scale,h:b.h/scale,area:b.area/(scale*scale),kind:b.kind}));
- }
- const blue=(x,y)=>{x=Math.round(x);y=Math.round(y);if(x<0||y<0||x>=image.width||y>=image.height)return false;const i=(y*image.width+x)*4,r=image.data[i],g=image.data[i+1],b=image.data[i+2];return b>90&&b>r*1.4&&g>r*1.2;};
- // The contiguous Menu and Shortcut buttons are a larger, steadier template
- // than the Cash Shop label, whose foreground color varies by client theme.
- const staticButtons=components(image,'blue').filter(b=>{
-  const fill=b.area/(b.w*b.h),ratio=b.w/b.h;
-  return b.h>=12&&b.h<=Math.min(80,image.height*.08)&&ratio>=3.2&&ratio<=6.2&&fill>=.45&&b.x>image.width*.5&&b.x+b.w>image.width*.68&&b.y>image.height*.8;
- }).sort((a,b)=>b.y-a.y);
- const found=staticButtons.map(b=>({...b,kind:'static-buttons'}));
- const cash=components(image,'cash').filter(b=>{
-  if(b.h<12||b.w/b.h<1.6||b.w/b.h>2.6||b.area/(b.w*b.h)<.35)return false;
-  // Sample the plain upper corners, avoiding each button's central icon/text.
-  return [1,2].every(n=>[.12,.85].filter(t=>blue(b.x+b.w*(n+t),b.y+b.h*.18)).length===2);
- }).sort((a,b)=>b.y-a.y);
- const cashAnchors=cash.map(b=>({...b,kind:'cash-shop'}));
- if(kind==='cash-shop')return cashAnchors;
- if(kind==='static-buttons')return found;
- return [...found,...cashAnchors];
-}
-function controlsMatch(image,box){
- const color=(x,y,kind)=>{x=Math.round(x);y=Math.round(y);if(x<0||y<0||x>=image.width||y>=image.height)return false;const i=(y*image.width+x)*4,r=image.data[i],g=image.data[i+1],b=image.data[i+2];return kind==='cash'?r>110&&r>g*1.7&&r>b*1.3:b>90&&b>r*1.4&&g>r*1.2;};
- if(box.kind==='static-buttons')return [.08,.25,.42,.58,.75,.92].filter(t=>color(box.x*image.width+box.w*image.width*t,box.y*image.height+box.h*image.height*.5,'blue')).length>=3;
- return [.12,.85].every(t=>color(box.x+box.w*t,box.y+box.h*.18,'cash'))&&[1,2].every(n=>[.12,.85].every(t=>color(box.x+box.w*(n+t),box.y+box.h*.18,'blue')));
-}
-function detect(image,levelOcr,expOcr,previous){
- if(previous?.width===image.width&&previous?.height===image.height&&previous.level&&previous.exp){
-  const box=r=>({x:r.x*image.width,y:r.y*image.height,w:r.w*image.width,h:r.h*image.height,kind:r.kind}),l=box(previous.level),e=box(previous.exp);
-  if(hasLvLabel(image,l)){
-   if(previous.percentageOnly&&previous.anchor&&previous.field){
-    // Reuse alignment only while the control row, bracket pair and occlusion
-    // still match. A newly visible EXP label restores full-amount detection.
-    if(controlsMatch(image,box(previous.anchor))&&!hasExpLabel(image,box(previous.field))){const exp=percentageRegion(image,previous.exp);if(exp)return {...previous,exp};}
-   }else if(hasExpLabel(image,e))return {level:previous.level,exp:previous.exp};
-  }
- }
- for(const button of anchors(image)){
-  if(button.kind==='static-buttons'){
-   const x=Math.max(0,Math.floor(button.x-button.w*5.5)),patch=crop(image,{x,y:0,w:button.x-x,h:image.height}),found=detectText(patch,levelOcr,expOcr);
-   if(!found.level||!found.exp)continue;
-   const map=r=>({x:(x+r.x*patch.width)/image.width,y:r.y,w:r.w*patch.width/image.width,h:r.h});
-   const level=map(found.level),exp=map(found.exp),lp={x:level.x*image.width,y:level.y*image.height,w:level.w*image.width,h:level.h*image.height},ep={x:exp.x*image.width,y:exp.y*image.height,w:exp.w*image.width,h:exp.h*image.height};
-   const levelOffset=(button.x-lp.x)/button.w,expOffset=(button.x-ep.x)/button.w,gap=(button.x-(ep.x+ep.w))/button.w;
-   if(level.x>=exp.x||levelOffset<2.6||levelOffset>5.5||expOffset<.6||expOffset>2.25||gap<0||gap>1.6||Math.abs(lp.y-button.y)>button.h*.75||Math.abs(ep.y-button.y)>button.h*.75||lp.h>button.h*.85||ep.h>button.h*.85)continue;
-   const field={x:found.exp.x*patch.width,y:found.exp.y*patch.height,w:found.exp.w*patch.width,h:found.exp.h*patch.height};
-   if(!hasExpLabel(patch,field)){const percent=percentageRegion(patch,found.exp);if(percent)return {level,exp:map(percent),percentageOnly:true,field:exp,anchor:normal(button,image)};}
-   return {level,exp};
-  }
-  const x=Math.max(0,Math.floor(button.x-button.w*9)),y=Math.max(0,Math.floor(button.y-button.h*3)),patch=crop(image,{x,y,w:button.x-x,h:button.h*4.2});
-  const found=detectText(patch,levelOcr,expOcr);
-  // When labels are too small to match, the independently checked control
-  // row still defines conservative field windows. Readers may reject the ink.
-  if(!found.level){
-   const tiles=components(patch,'orange',0).filter(t=>Math.abs((x+t.x)-(button.x-button.w*7.25))<button.w*.65&&Math.abs((y+t.y)-(button.y+button.h*.3))<button.h*.35&&t.h>button.h*.2&&t.h<button.h*.8);
-   if(tiles.length){const l=Math.min(...tiles.map(t=>t.x)),top=Math.min(...tiles.map(t=>t.y)),r=Math.max(...tiles.map(t=>t.x+t.w)),bottom=Math.max(...tiles.map(t=>t.y+t.h));found.level=normal({x:l-1,y:top-1,w:r-l+2,h:bottom-top+2},patch);}
-  }
-  // Tile fallback can recover a level after text detection failed. Use that row
-  // to locate the actual EXP label before resorting to a geometric field window.
-  if(!found.exp&&found.level){const r=found.level,boxes=labelledExpBoxes(patch,{x:r.x*patch.width,y:r.y*patch.height,w:r.w*patch.width,h:r.h*patch.height});if(boxes.length)found.exp=normal(boxes[0],patch);}
-  if(!found.exp)found.exp=normal({x:button.x-x-button.w*1.55,y:button.y-y,w:button.w*1.48,h:button.h*.48},patch);
-  if(!found.level)continue;
-  const map=r=>({x:(x+r.x*patch.width)/image.width,y:(y+r.y*patch.height)/image.height,w:r.w*patch.width/image.width,h:r.h*patch.height/image.height});
-  const level=map(found.level),exp=map(found.exp);
-  // The native panels must share a row and retain the fixed left-to-right order.
-  if(level.x>=exp.x||Math.abs(level.y-exp.y)*image.height>button.h*.6||exp.x*image.width<button.x-button.w*2.5)continue;
-  // A covering window can hide the amount and EXP label while leaving the
-  // percentage visible. The verified native control row anchors this field;
-  // require its unique complete bracket pair instead of reading the occluder.
-  const field={x:found.exp.x*patch.width,y:found.exp.y*patch.height,w:found.exp.w*patch.width,h:found.exp.h*patch.height};
-  if(!hasExpLabel(patch,field)){const percent=percentageRegion(patch,found.exp);if(percent)return {level,exp:map(percent),percentageOnly:true,field:exp,anchor:normal(button,image)};}
-  return {level,exp};
- }
- return detectText(image,levelOcr,expOcr,previous);
-}
-// Isolate a unique complete percentage bracket pair within an anchored EXP field.
-function percentageRegion(image,region){
- if(!region)return null;
- const origin={x:Math.round(region.x*image.width),y:Math.round(region.y*image.height),w:Math.round(region.w*image.width),h:Math.round(region.h*image.height)},patch=crop(image,origin),green=components(patch,'green',0).filter(b=>b.h>=3&&b.h<=patch.height&&b.w<=b.h*.8),pairs=[];
- for(const left of green)for(const right of green){const h=Math.max(left.h,right.h);if(right.x-left.x<h*3||right.x-left.x>h*14||Math.abs(left.y-right.y)>h*.3||Math.abs(left.h-right.h)>h*.6)continue;const y=Math.max(0,Math.min(left.y,right.y)-Math.ceil(h*.3)),box={x:Math.max(0,left.x-1),y,w:right.x+right.w-left.x+3,h:Math.min(patch.height,Math.max(left.y+left.h,right.y+right.h)+2)-y};pairs.push(box);}
- if(pairs.length!==1)return null;
- const b=pairs[0];return normal({x:origin.x+b.x,y:origin.y+b.y,w:b.w,h:b.h},image);
-}
-return {detect,crop,anchors,percentageRegion};
-});
-</script>
-<!-- HUD REGIONS END -->
-<!-- MAP NAMES START -->
-<script>// Canonical street/map pairs used as a local OCR correction vocabulary.
-// Adapted from OSMS Data Explorer public dataset (CC BY 4.0):
-// https://osmsdataexplorer.com/ · https://creativecommons.org/licenses/by/4.0/
-// Changes: reduced to unique street/map-name pairs. The dataset is unofficial;
-// MapleStory names and other game content are © Nexon and are not covered by CC BY.
-(function (root) {
-  const pairs = [["Maple Road","Mushroom Town - West Entrance"],["Maple Road","Mushroom Town"],["Maple Road","Mushroom Town Townstreet"],["Maple Road","East Entrance to Mushroom Town"],["Maple Road","Snail Hunting Ground I"],["Maple Road","Snail Hunting Ground II"],["Maple Road","Snail Hunting Ground III"],["Maple Road","A Split Road"],["Maple Road","Southperry"],["Maple Road","Southperry Armor Store"],["Rainbow Street","The Field West of Amherst"],["Rainbow Street","In a Small Forest"],["Rainbow Street","Dangerous Forest"],["Rainbow Street","Mushroom Garden"],["Rainbow Street","Snail Garden"],["Rainbow Street","Hunting Ground Middle of the Forest I"],["Rainbow Street","Hunting Ground Middle of the Forest II"],["Rainbow Street","Amherst"],["Rainbow Street","Amherst Weapon Store"],["Rainbow Street","Amherst Townstreet"],["Rainbow Street","Amherst Department Store"],["Rainbow Street","Snail Field of Flowers"],["Rainbow Street","The Field East of Amherst"],["Rainbow Street","Tomato Field"],["Victoria Road","Lith Harbor"],["Victoria Road","Lith Harbor Armor Shop"],["Victoria Road","Lith Harbor Department Store"],["Victoria Road","Lith Harbor Weapon Shop"],["Victoria Road","Right Around Lith Harbor"],["Victoria Road","Thicket Around the Beach I"],["Victoria Road","Thicket Around the Beach II"],["Victoria Road","Thicket Around the Beach III"],["Victoria Road","3-Way Road-Split"],["Hidden Street","The Pig Beach"],["Hidden Street","Beach Hunting Ground"],["Victoria Road","Henesys"],["Victoria Road","Henesys Townstreet"],["Hidden Street","An Empty House"],["Hidden Street","Pig Park"],["Hidden Street","Pig Park II"],["Hidden Street","Someone Else's House"],["Hidden Street","The Resting Spot, Pig Park"],["Victoria Road","Henesys Town Hall"],["Yellow Mushroom House","Victoria Road"],["Victoria Road","Henesys Hunting Ground I"],["Victoria Road","Henesys Hunting Ground II"],["Victoria Road","Henesys Hunting Ground III"],["Victoria Road","A Hill West of Henesys "],["Hidden Street","Mushroom Garden"],["Victoria Road","Forest West of Henesys"],["Victoria Road","Henesys Market"],["Victoria Road","Henesys Weapon Store"],["Victoria Road","Henesys Department Store"],["Victoria Road","Henesys Plastic Surgery"],["Victoria Road","Henesys Hair Salon"],["Victoria Road","Henesys Skin-Care"],["Victoria Road","Henesys Park"],["Victoria Road","Bowman Instructional School"],["Victoria Road","Pet-Walking Road"],["Victoria Road","The Hill East of Henesys"],["Victoria Road","The Rain-Forest East of Henesys"],["Victoria Road","The Forest East of Henesys"],["Hidden Street","The Blue Mushroom Forest"],["Hidden Street","Utah's Pig Farm"],["Warning Street","The Road to the Dungeon"],["Warning Street","Henesys Dungeon Entrance"],["Hidden Street","The Breathing Rock"],["Victoria Road","The Entrance of Golem's Temple"],["Victoria Road","Golem's Temple I"],["Victoria Road","Golem's Temple II"],["Victoria Road","Golem's Temple III"],["Victoria Road","Golem's Temple IV"],["Victoria Road","Ellinia"],["Victoria Road","Ellinia Weapon Store"],["Victoria Road","Ellinia Department Store"],["Victoria Road","Magic Library"],["Hidden Street","Marr's Forest"],["Hidden Street","The Circulation Desk"],["Victoria Road","The Field South of Ellinia"],["Victoria Road","The Forest of Wisdom"],["Hidden Street","Monkey Forest I"],["Victoria Road","Tree Dungeon, Monkey Forest I"],["Victoria Road","Monkey Forest II"],["Hidden Street","Tree Dungeon, Monkey Forest II"],["Hidden Street","The Forest of Evil I"],["Hidden Street","The Forest of Evil II"],["Hidden Street","Downstairs at the Forest"],["Victoria Road","The Forest South of Ellinia"],["Victoria Road","Dungeon, Southern Forest I"],["Victoria Road","Dungeon, Southern Forest II"],["Victoria Road","Dungeon, Southern Forest III"],["Victoria Road","Dungeon, Southern Forest IV"],["Hidden Street","The Forest of Patience <Step 1>"],["Hidden Street","The Forest of Patience <Step 2>"],["Hidden Street","The Forest of Patience <Step 3>"],["Hidden Street","The Forest of Patience <Step 4>"],["Hidden Street","The Forest of Patience <Step 5>"],["Victoria Road","The Field Up North of Ellinia"],["Victoria Road","The Tree That Grew I"],["Victoria Road","The Tree That Grew II"],["Victoria Road","The Tree That Grew III"],["Victoria Road","The Forest North of Ellinia"],["Victoria Road","The Tree Tunnel At the Forest Up North"],["Victoria Road","Tree Dungeon, Forest Up North I"],["Victoria Road","Tree Dungeon, Forest Up North II"],["Victoria Road","Tree Dungeon, Forest Up North III"],["Victoria Road","Tree Dungeon, Forest Up North IV"],["Victoria Road","Tree Dungeon, Forest Up North V"],["Victoria Road","Tree Dungeon, Forest Up North VI"],["Victoria Road","Tree Dungeon, Forest Up North VII"],["Victoria Road","Tree Dungeon, Forest Up North VIII"],["Victoria Road","Tree Dungeon, Forest Up North IX"],["Victoria Road","Ellinia Station"],["Victoria Road","Before Takeoff <To Orbis>"],["Victoria Road","Kerning City"],["Victoria Road","Kerning City Self-Defence Item Store"],["Victoria Road","Kerning City Pharmacy"],["Victoria Road","Thieves' Hideout"],["Victoria Road","Niora Hospital"],["Victoria Road","Kerning City Hair Salon"],["Victoria Road","Kerning City Repair Shop"],["Victoria Road","Kerning City Civic Center"],["Victoria Road","Backalley Semi-Basement"],["Victoria Road","Kerning City Construction Site"],["Hidden Street","Caution Falling Down"],["Victoria Road","L Forest I"],["Victoria Road","L Forest II"],["Victoria Road","L Forest III"],["Victoria Road","Kerning City Middle Forest I"],["Victoria Road","Kerning City Middle Forest II"],["Victoria Road","Kerning City Middle Forest III"],["Victoria Road","Subway Ticketing Booth"],["Kerning City Subway","Line 1 <Area 1>"],["Kerning City Subway","Transfer Area"],["Kerning City Subway","Line 1 <Area 2>"],["Kerning City Subway","Line 1 <Area 3>"],["Kerning City Subway","Line 1 <Area 4>"],["Kerning City Subway","Line 2 <Area 1>"],["Kerning City Subway","Line 2 <Area 2>"],["Kerning City Subway","Line 2 <Area 3>"],["Victoria Road","Sunset Sky"],["Victoria Road","Construction Site North of Kerning City"],["Hidden Street","Northern Top of Construction Site"],["Warning Street","The Swamp of Despair I"],["Warning Street","The Swamp of Despair II"],["Warning Street","The Swamp of Despair III"],["Warning Street","Dangerous Croko I"],["Warning Street","Dangerous Croko II"],["Hidden Street","Monkey Swamp I"],["Hidden Street","Monkey Swamp II"],["Hidden Street","Monkey Swamp III"],["Hidden Street","The Hermit's Cabin"],["Line 3 Construction Site","B1 <Area 1>"],["Line 3 Construction Site","B1 <Area 2>"],["Line 3 Construction Site","B1 <Subway Depot>"],["Line 3 Construction Site","B2 <Area 1>"],["Line 3 Construction Site","B2 <Area 2>"],["Line 3 Construction Site","B2 <Subway Depot>"],["Line 3 Construction Site","B3 <Area 1>"],["Line 3 Construction Site","B3 <Area 2>"],["Line 3 Construction Site","B3 <Area 3>"],["Line 3 Construction Site","B3 <Subway Depot>"],["Hidden Street","The Murky Swamp I"],["Hidden Street","The Murky Swamp II"],["Hidden Street","Cabin of the Forsaken"],["Victoria Road","Perion"],["Victoria Road","Perion Weapon Store"],["Victoria Road","Perion Department Store"],["Victoria Road","Warriors' Sanctuary"],["Victoria Road","West Street Corner of Perion"],["Victoria Road","West Rocky Mountain I"],["Victoria Road","West Rocky Mountain II"],["Victoria Road","West Rocky Mountain III"],["Victoria Road","West Rocky Mountain IV"],["Victoria Road","West Domain of Perion"],["Victoria Road","Perion Street Corner"],["Hidden Street","Land of Wild Boar"],["Hidden Street","Over the Wall"],["Victoria Road","East Rocky Mountain I"],["Victoria Road","East Rocky Mountain II"],["Victoria Road","East Rocky Mountain III"],["Victoria Road","East Rocky Mountain IV"],["Victoria Road","East Rocky Mountain V"],["Victoria Road","East Rocky Mountain VI"],["Victoria Road","East Rocky Mountain VII"],["Victoria Road","Parched Land"],["Victoria Road","Rocky Road I"],["Victoria Road","Rocky Road II"],["Victoria Road","Rocky Road III"],["Victoria Road","East Domain of Perion"],["Hidden Street","The Land of Wild Boar II"],["Warning Street","Deep Valley I"],["Hidden Street","Dangerous Valley"],["Hidden Street","Dangerous Valley II"],["Warning Street","Deep Valley II"],["Warning Street","The Burnt Land I"],["Warning Street","The Burnt Land II"],["Warning Street","The Burnt Land III"],["Warning Street","The Burnt Land IV"],["Warning Street","The Burnt Land V"],["Warning Street","Deep Valley III"],["Warning Street","Perion Dungeon Entrance"],["Victoria Road","Excavation Site I"],["Victoria Road","Excavation Site II"],["Victoria Road","Excavation Site III"],["Victoria Road","Excavation Site <Camp>"],["Victoria Road","Remains <Tomb> I"],["Victoria Road","Remains <Tomb> II"],["Victoria Road","Remains <Tomb> III"],["Victoria Road","Remains <Tomb> IV"],["Victoria Road","Remains <Cliff>"],["Victoria Road","Camp 1"],["Victoria Road","Camp 2"],["Victoria Road","Camp 3"],["Dungeon","Sleepywood"],["Dungeon","Sleepywood Hotel"],["Dungeon","Regular Sauna"],["Dungeon","VIP Sauna"],["Dungeon","Swampy Land in a Deep Forest"],["Dungeon","Hunting Ground in the Deep Forest I"],["Dungeon","Hunting Ground in the Deep Forest II"],["Dungeon","Deep Forest"],["Dungeon","Damp Tree-Forest"],["Dungeon","Damp Forest"],["Hidden Street","The Deep Forest of Patience <Step 1>"],["Hidden Street","The Deep Forest of Patience <Step 2>"],["Hidden Street","The Deep Forest of Patience <Step 3>"],["Hidden Street","The Deep Forest of Patience <Step 4>"],["Hidden Street","The Deep Forest of Patience <Step 5>"],["Hidden Street","The Deep Forest of Patience <Step 6>"],["Hidden Street","The Deep Forest of Patience <Step 7>"],["Dungeon","Sleepy Dungeon I"],["Dungeon","Sleepy Dungeon II"],["Dungeon","Sleepy Dungeon III"],["Dungeon","Sleepy Dungeon IV"],["Dungeon","Sleepy Dungeon V"],["Dungeon","Ant Tunnel I"],["Dungeon","Ant Tunnel II"],["Dungeon","Ant Tunnel III"],["Dungeon","Ant Tunnel IV"],["Dungeon","Dark Cave"],["Dungeon","Dangerous Steam"],["Dungeon","Deep Ant Tunnel I"],["Dungeon","Deep Ant Tunnel II"],["Dungeon","Ant Tunnel Park"],["Dungeon","The Cave of Evil Eye I"],["Dungeon","The Cave of Evil Eye II"],["Dungeon","The Cave of Evil Eye III"],["Dungeon","The Cave of Evil Eye IV"],["Dungeon","Drake Hunting Ground"],["Dungeon","The Tunnel That Lost Light I"],["Dungeon","The Tunnel That Lost Light II"],["Dungeon","The Grave of Mushmom"],["Dungeon","Another Entrance"],["Dungeon","Drake's Meal Table"],["Dungeon","Wild Kargo's Area"],["Dungeon","Another Path"],["Dungeon","Sanctuary Entrance I"],["Dungeon","Sanctuary Entrance II"],["Dungeon","Sanctuary Entrance III"],["Dungeon","Sanctuary Entrance IV"],["Dungeon","The Cursed Sanctuary"],["Florina Road","Florina Beach"],["Florina Road","A Look-Out Shed Around the Beach"],["Florina Road","Lorang Lorang"],["Hidden Street","Lorang Lorang Lorang"],["Florina Road","Lorang and Clang"],["Florina Road","Clang and Lorang"],["Florina Road","Hot Sand"],["Hidden Street","1st Accompaniment <1st Stage>"],["Hidden Street","1st Accompaniment <2nd Stage>"],["Hidden Street","1st Accompaniment <3rd Stage>"],["Hidden Street","1st Accompaniment <4th stage>"],["Hidden Street","1st Accompaniment <Last Stage>"],["Hidden Street","1st Accompaniment <Bonus>"],["Hidden Street","1st Accompaniment <Exit>"],["Hidden Street","Ant Tunnel For Bowman"],["Hidden Street","Magician's Tree Dungeon"],["Hidden Street","Thief's Construction Site"],["Hidden Street","Warrior's Rocky Mountain"],["Hidden Street","Free Market Entrance"],["Hidden Street","Free Market <1>"],["Hidden Street","Free Market <2>"],["Hidden Street","Free Market <3>"],["Hidden Street","Free Market <4>"],["Hidden Street","Free Market <5>"],["Hidden Street","Free Market <6>"],["Hidden Street","Free Market <7>"],["Hidden Street","Free Market <8>"],["Hidden Street","Free Market <9>"],["Hidden Street","Free Market <10>"],["Hidden Street","Free Market <11>"],["Hidden Street","Free Market <12>"],["Hidden Street","Free Market <13>"],["Hidden Street","Free Market <14>"],["Hidden Street","Free Market <15>"],["Hidden Street","Free Market <16>"],["Hidden Street","Free Market <17>"],["Hidden Street","Free Market <18>"],["Hidden Street","Free Market <19>"],["Hidden Street","Free Market <20>"],["Hidden Street","Primrose Hill"],["Hidden Street","Shortcut"],["Hidden Street","Pig Town"],["Hidden Street","Back to Town"],["Victoria Road","Yellow Mushroom House"],["Truth Booth","Truth Booth"],["Hidden Street","Maple Hill"],["Hidden Street","Physical Fitness Test <Waiting Room>"],["Hidden Street","Physical Fitness Test <Level 1>"],["Hidden Street","Physical Fitness Test <Level 2>"],["Hidden Street","Physical Fitness Test <Level 3>"],["Hidden Street","Physical Fitness Test <Level 4>"],["Hidden Street","Physical Fitness Test <Easy Waiting Room>"],["Hidden Street","Physical Fitness Test <Easy Level 1>"],["Hidden Street","Physical Fitness Test <Easy Level 2>"],["Hidden Street","Physical Fitness Test <Easy Level 3>"],["Hidden Street","Physical Fitness Test <Normal Waiting Room>"],["Hidden Street","Physical Fitness Test <Normal Level 1>"],["Hidden Street","Physical Fitness Test <Normal Level 2>"],["Hidden Street","Physical Fitness Test <Normal Level 3>"],["Hidden Street","Up and Up <Level 1>"],["Hidden Street","Up and Up <Level 2>"],["Hidden Street","Up and Up <Level 3>"],["Hidden Street","Coconut Harvest"],["Hidden Street","G* Coconut Season"],["Hidden Street","Leaving the Event"],["Hidden Street","Receiving the Reward For the Event"],["Hidden Street","The Manager's Room"],["Hidden Street","White Room"]];
-  if (typeof module === "object" && module.exports) module.exports = pairs;
-  else root.MapleMapNames = pairs;
-})(typeof window === "undefined" ? globalThis : window);
-</script>
-<!-- MAP NAMES END -->
-<!-- MAP NAME START -->
-<script>(function (root, factory) {
-  if (typeof module === "object" && module.exports)
-    module.exports = factory(require("./map-name-data"));
-  else root.MapleMapName = factory(root.MapleMapNames || []);
-})(typeof window === "undefined" ? globalThis : window, function (mapNames) {
-  "use strict";
-
-  // The minimap's title field is a distinctive pale blue. Search only the
-  // upper-left portion of the shared game frame, where MapleStory places it.
-  function findHeader(image) {
-    if (!image?.data || !image.width || !image.height) return null;
-    const width = image.width,
-      height = image.height,
-      scanWidth = Math.max(1, Math.floor(width * 0.45)),
-      scanHeight = Math.max(1, Math.floor(height * 0.3)),
-      seen = new Uint8Array(scanWidth * scanHeight),
-      queue = new Int32Array(scanWidth * scanHeight),
-      components = [],
-      mergedPanels = [],
-      imageLikePanels = [];
-    const isHeaderBlue = (x, y) => {
-      const i = (y * width + x) * 4,
-        r = image.data[i],
-        g = image.data[i + 1],
-        b = image.data[i + 2],
-        total = r + g + b;
-      return (
-        total > 35 &&
-        (g - r) / total >= 0.05 &&
-        (b - g) / total >= 0.015
-      );
-    };
-    for (let sy = 0; sy < scanHeight; sy++) {
-      for (let sx = 0; sx < scanWidth; sx++) {
-        const start = sy * scanWidth + sx;
-        if (seen[start] || !isHeaderBlue(sx, sy)) continue;
-        let head = 0,
-          tail = 0,
-          count = 0,
-          left = sx,
-          right = sx,
-          top = sy,
-          bottom = sy;
-        queue[tail++] = start;
-        seen[start] = 1;
-        while (head < tail) {
-          const cell = queue[head++],
-            x = cell % scanWidth,
-            y = Math.floor(cell / scanWidth);
-          count++;
-          left = Math.min(left, x);
-          right = Math.max(right, x);
-          top = Math.min(top, y);
-          bottom = Math.max(bottom, y);
-          const neighbors = [
-            x > 0 ? cell - 1 : -1,
-            x + 1 < scanWidth ? cell + 1 : -1,
-            y > 0 ? cell - scanWidth : -1,
-            y + 1 < scanHeight ? cell + scanWidth : -1,
-          ];
-          for (const neighbor of neighbors) {
-            if (neighbor < 0 || seen[neighbor]) continue;
-            const nx = neighbor % scanWidth,
-              ny = Math.floor(neighbor / scanWidth);
-            if (!isHeaderBlue(nx, ny)) continue;
-            seen[neighbor] = 1;
-            queue[tail++] = neighbor;
-          }
-        }
-        const box = { x: left, y: top, w: right - left + 1, h: bottom - top + 1, count },
-          imageCropLike =
-            box.w > width * 0.7 &&
-            box.h > height * 0.65 &&
-            box.w / box.h > 2.5;
-        // A large region can be the game sky connected to the blue minimap
-        // chrome (common when a MapleStory window starts at the screen edge).
-        // Keep it as a last-resort candidate; don't let it mask the smaller
-        // top-left panel found in the same frame.
-        if (imageCropLike) imageLikePanels.push(box);
-        const anchoredPanel =
-          box.x <= width * 0.08 &&
-          box.y <= height * 0.12 &&
-          box.w >= width * 0.045 &&
-          box.w <= width * 0.3 &&
-          box.h >= height * 0.025 &&
-          box.h <= height * 0.2 &&
-          count >= width * height * 0.001;
-        if (
-          // The minimap is pinned to the top-left. Pale-blue shop dialogs
-          // elsewhere in the frame can be larger, so color/area alone must
-          // not outrank this stable screen anchor.
-          anchoredPanel &&
-          // When the panel is fused with its minimap image (or nearby blue
-          // sky), its aspect ratio drops. Route those mid-width regions to the
-          // merged-panel fallback; broad, uniformly shaped title strips remain
-          // valid normal headers even at larger HUD scales.
-          (box.h <= height * 0.085 || box.w / box.h >= 2.8) &&
-          box.w / box.h >= 2.0
-        )
-          components.push(box);
-        else if (
-          // When the game is dimmed, blue from the minimap and its header can
-          // join into one tall component. Keep that anchored panel as a
-          // fallback and trim it back to the header height before cropping.
-          anchoredPanel &&
-          box.w / box.h >= 0.75 &&
-          box.w / box.h <= 2.8
-        )
-          mergedPanels.push(box);
-      }
-    }
-    const panel = [...components, ...mergedPanels].sort((a, b) =>
-      a.x + a.y * 0.5 - (b.x + b.y * 0.5) || b.count - a.count,
-    )[0];
-    if (panel) {
-      // A merged minimap and title panel is tall; its text is only in the top
-      // band. Trim it to the expected header height before cropping.
-      return mergedPanels.includes(panel)
-        ? { ...panel, h: Math.min(panel.h, Math.max(24, Math.round(height * 0.057))) }
-        : panel;
-    }
-    return imageLikePanels.sort((a, b) => a.y - b.y || a.x - b.x)[0] || null;
-  }
-
-  // The gold WORLD button sits on the minimap's top control row. Its size and
-  // bottom edge are a steadier scale/position anchor for the map-name lines
-  // than the height of the blue panel, which can include part of the map.
-  function findWorldButton(image, box) {
-    if (!image?.data || !box) return null;
-    const width = image.width,
-      x0 = Math.max(0, Math.floor(box.x + box.w * 0.68)),
-      x1 = Math.min(width, Math.ceil(box.x + box.w)),
-      y0 = Math.max(0, Math.floor(box.y)),
-      y1 = Math.min(image.height, Math.ceil(box.y + box.h * 0.42)),
-      scanWidth = x1 - x0,
-      scanHeight = y1 - y0;
-    if (scanWidth < 8 || scanHeight < 4) return null;
-    const seen = new Uint8Array(scanWidth * scanHeight),
-      queue = new Int32Array(scanWidth * scanHeight),
-      candidates = [];
-    const isGold = (x, y) => {
-      const i = (y * width + x) * 4,
-        r = image.data[i],
-        g = image.data[i + 1],
-        b = image.data[i + 2];
-      return r > 145 && g > 65 && b < 165 && r > g * 1.08 && g > b * 1.18;
-    };
-    for (let sy = 0; sy < scanHeight; sy++)
-      for (let sx = 0; sx < scanWidth; sx++) {
-        const start = sy * scanWidth + sx;
-        if (seen[start] || !isGold(x0 + sx, y0 + sy)) continue;
-        let head = 0,
-          tail = 0,
-          count = 0,
-          left = sx,
-          right = sx,
-          top = sy,
-          bottom = sy;
-        queue[tail++] = start;
-        seen[start] = 1;
-        while (head < tail) {
-          const cell = queue[head++],
-            x = cell % scanWidth,
-            y = Math.floor(cell / scanWidth);
-          count++;
-          left = Math.min(left, x);
-          right = Math.max(right, x);
-          top = Math.min(top, y);
-          bottom = Math.max(bottom, y);
-          const neighbors = [
-            x > 0 ? cell - 1 : -1,
-            x + 1 < scanWidth ? cell + 1 : -1,
-            y > 0 ? cell - scanWidth : -1,
-            y + 1 < scanHeight ? cell + scanWidth : -1,
-          ];
-          for (const neighbor of neighbors) {
-            if (neighbor < 0 || seen[neighbor]) continue;
-            const nx = neighbor % scanWidth,
-              ny = Math.floor(neighbor / scanWidth);
-            if (!isGold(x0 + nx, y0 + ny)) continue;
-            seen[neighbor] = 1;
-            queue[tail++] = neighbor;
-          }
-        }
-        const candidate = {
-          x: x0 + left,
-          y: y0 + top,
-          w: right - left + 1,
-          h: bottom - top + 1,
-          count,
-        };
-        const relativeX = (candidate.x - box.x) / box.w,
-          relativeY = (candidate.y - box.y) / box.h;
-        if (
-          candidate.w >= box.w * 0.08 &&
-          candidate.w <= box.w * 0.24 &&
-          candidate.h >= box.h * 0.07 &&
-          candidate.h <= box.h * 0.28 &&
-          candidate.w / candidate.h >= 1.4 &&
-          candidate.w / candidate.h <= 5.5 &&
-          relativeX >= 0.72 &&
-          relativeY <= 0.3 &&
-          count >= candidate.w * candidate.h * 0.18
-        )
-          candidates.push(candidate);
-      }
-    return candidates.sort((a, b) => b.count - a.count)[0] || null;
-  }
-
-  function cropHeaderText(image, box = findHeader(image)) {
-    if (!box) return cropCompactHeaderText(image);
-    const worldButton = findWorldButton(image, box),
-      // The orange label background is only its most saturated center; infer
-      // the full control height from the surrounding minimap dimensions.
-      controlUnit = worldButton
-        ? Math.max(worldButton.h * 1.35, box.h * 0.16)
-        : 0,
-      headerWidthRatio = box.w / image.width,
-      compactHeader = headerWidthRatio < 0.155,
-      // The WORLD button height scales with the minimap text and emblem. Use
-      // it to leave the emblem behind while retaining the first title glyph.
-      xOffset = worldButton ? controlUnit * 1.5 : box.h * 0.35,
-      x0 = Math.max(0, Math.floor(box.x + xOffset)),
-      y0 = Math.max(
-        0,
-        Math.floor(
-          worldButton
-            ? worldButton.y + worldButton.h + Math.max(2, controlUnit * 0.25)
-            : box.y + box.h * 0.35,
-        ),
-      ),
-      x1 = Math.min(
-        image.width,
-        Math.ceil(
-          worldButton
-            ? box.x + box.w - controlUnit * 0.1
-            : box.x + box.w * 0.97,
-        ),
-      ),
-      y1 = Math.min(
-        image.height,
-        Math.ceil(
-          worldButton
-            ? y0 + controlUnit * 3
-            : box.y + box.h * 0.92,
-        ),
-      ),
-      w = x1 - x0,
-      h = y1 - y0;
-    if (w < 20 || h < 10) return null;
-    const data = new Uint8ClampedArray(w * h * 4);
-    for (let y = 0; y < h; y++)
-      for (let x = 0; x < w; x++) {
-        const source = ((y + y0) * image.width + x + x0) * 4,
-          target = (y * w + x) * 4,
-          gray = Math.round(
-            image.data[source] * 0.299 +
-              image.data[source + 1] * 0.587 +
-              image.data[source + 2] * 0.114,
-          );
-        data[target] = data[target + 1] = data[target + 2] = gray;
-        data[target + 3] = 255;
-      }
-    // Mask the emblem through its expected right edge while retaining the
-    // original x position of the first text glyph.
-    const logoSliver = worldButton
-      ? Math.max(0, Math.min(Math.floor(w * 0.48), Math.ceil(controlUnit * 1.55)))
-      : Math.max(
-      0,
-      Math.min(Math.floor(w * 0.48), Math.ceil(box.h * 0.65 - xOffset)),
-      );
-    if (logoSliver > 0 && w > logoSliver + 1) {
-      const background = [];
-      for (let x = logoSliver; x < Math.min(w, logoSliver + 7); x++)
-        for (let y = 0; y < h; y++) {
-          const value = data[(y * w + x) * 4];
-          if (value >= 85 && value <= 230) background.push(value);
-        }
-      background.sort((a, b) => a - b);
-      const fill = background.length ? background[Math.floor(background.length / 2)] : 160;
-      for (let y = 0; y < h; y++)
-        for (let x = 0; x < logoSliver; x++) {
-          const i = (y * w + x) * 4;
-          data[i] = data[i + 1] = data[i + 2] = fill;
-        }
-    }
-    // Captures can be dimmed by overlays or Windows capture composition. Use
-    // a robust percentile stretch so the pale lettering remains legible while
-    // ignoring a few extreme pixels from the frame and text edges.
-    const histogram = new Uint32Array(256);
-    for (let i = 0; i < data.length; i += 4) histogram[data[i]]++;
-    const pixelCount = w * h;
-    function percentile(target) {
-      let total = 0;
-      for (let value = 0; value < histogram.length; value++) {
-        total += histogram[value];
-        if (total >= target) return value;
-      }
-      return 255;
-    }
-    const low = percentile(pixelCount * 0.05),
-      high = percentile(pixelCount * 0.95),
-      range = high - low;
-    if (compactHeader && range >= 24)
-      for (let i = 0; i < data.length; i += 4) {
-        const value = Math.max(0, Math.min(255, Math.round(((data[i] - low) * 255) / range)));
-        data[i] = data[i + 1] = data[i + 2] = value;
-      }
-    return { width: w, height: h, data };
-  }
-
-  // Some windowed captures show the minimap title as a single compact row,
-  // without the normal blue panel. The gold WORLD button and adjacent zoom
-  // controls remain visible, so use that fixed control row to bound the text.
-  function cropCompactHeaderText(image) {
-    if (!image?.data || !image.width || !image.height) return null;
-    const width = image.width,
-      height = image.height,
-      scanWidth = Math.floor(width * 0.34),
-      scanHeight = Math.floor(height * 0.12),
-      seen = new Uint8Array(scanWidth * scanHeight),
-      queue = new Int32Array(scanWidth * scanHeight),
-      candidates = [];
-    const isGold = (x, y) => {
-      const i = (y * width + x) * 4,
-        r = image.data[i],
-        g = image.data[i + 1],
-        b = image.data[i + 2];
-      return r > 145 && g > 65 && b < 165 && r > g * 1.08 && g > b * 1.18;
-    };
-    for (let sy = 0; sy < scanHeight; sy++)
-      for (let sx = 0; sx < scanWidth; sx++) {
-        const start = sy * scanWidth + sx;
-        if (seen[start] || !isGold(sx, sy)) continue;
-        let head = 0,
-          tail = 0,
-          count = 0,
-          left = sx,
-          right = sx,
-          top = sy,
-          bottom = sy;
-        queue[tail++] = start;
-        seen[start] = 1;
-        while (head < tail) {
-          const cell = queue[head++],
-            x = cell % scanWidth,
-            y = Math.floor(cell / scanWidth);
-          count++;
-          left = Math.min(left, x);
-          right = Math.max(right, x);
-          top = Math.min(top, y);
-          bottom = Math.max(bottom, y);
-          const neighbors = [
-            x > 0 ? cell - 1 : -1,
-            x + 1 < scanWidth ? cell + 1 : -1,
-            y > 0 ? cell - scanWidth : -1,
-            y + 1 < scanHeight ? cell + scanWidth : -1,
-          ];
-          for (const neighbor of neighbors) {
-            if (neighbor < 0 || seen[neighbor]) continue;
-            const nx = neighbor % scanWidth,
-              ny = Math.floor(neighbor / scanWidth);
-            if (!isGold(nx, ny)) continue;
-            seen[neighbor] = 1;
-            queue[tail++] = neighbor;
-          }
-        }
-        const button = {
-          x: left,
-          y: top,
-          w: right - left + 1,
-          h: bottom - top + 1,
-          count,
-        };
-        if (
-          button.x >= width * 0.08 &&
-          button.x <= width * 0.28 &&
-          button.y <= height * 0.08 &&
-          button.w >= width * 0.012 &&
-          button.w <= width * 0.055 &&
-          button.h >= height * 0.008 &&
-          button.h <= height * 0.035 &&
-          button.w / button.h >= 1.4 &&
-          button.w / button.h <= 5.5 &&
-          count >= button.w * button.h * 0.15
-        )
-          candidates.push(button);
-      }
-    const button = candidates.sort((a, b) => b.count - a.count)[0];
-    if (!button) return null;
-    // The zoom controls are immediately left of WORLD. Leave a small safety
-    // gap after them and include padding above/below the one-line label.
-    const padding = Math.max(7, Math.ceil(button.h * 0.9)),
-      x1 = Math.max(0, Math.floor(button.x - button.w * 0.72)),
-      y0 = Math.max(0, Math.floor(button.y - padding)),
-      y1 = Math.min(height, Math.ceil(button.y + button.h + padding)),
-      w = x1,
-      h = y1 - y0;
-    if (w < width * 0.08 || h < 8) return null;
-    const data = new Uint8ClampedArray(w * h * 4);
-    const histogram = new Uint32Array(256);
-    for (let y = 0; y < h; y++)
-      for (let x = 0; x < w; x++) {
-        const source = ((y + y0) * width + x) * 4,
-          target = (y * w + x) * 4,
-          gray = Math.round(
-            image.data[source] * 0.299 +
-              image.data[source + 1] * 0.587 +
-              image.data[source + 2] * 0.114,
-          );
-        data[target] = data[target + 1] = data[target + 2] = gray;
-        data[target + 3] = 255;
-        histogram[gray]++;
-      }
-    const total = w * h;
-    let low = 0,
-      high = 255,
-      accumulated = 0;
-    while (low < 255 && accumulated < total * 0.05) accumulated += histogram[low++];
-    accumulated = 0;
-    while (high > 0 && accumulated < total * 0.95) accumulated += histogram[high--];
-    const range = high - low;
-    if (range >= 24)
-      for (let i = 0; i < data.length; i += 4) {
-        const value = Math.max(0, Math.min(255, Math.round(((data[i] - low) * 255) / range)));
-        data[i] = data[i + 1] = data[i + 2] = value;
-      }
-    return { width: w, height: h, data };
-  }
-
-  function prepare(image, scale = 4) {
-    if (!image?.data || !image.width || !image.height) return null;
-    const width = image.width * scale,
-      height = image.height * scale,
-      data = new Uint8ClampedArray(width * height * 4);
-    for (let y = 0; y < height; y++) {
-      const sourceY = Math.floor(y / scale);
-      for (let x = 0; x < width; x++) {
-        const source = (sourceY * image.width + Math.floor(x / scale)) * 4,
-          target = (y * width + x) * 4,
-          gray = image.data[source];
-        data[target] = data[target + 1] = data[target + 2] = gray;
-        data[target + 3] = 255;
-      }
-    }
-    return { width, height, data };
-  }
-
-  function prepareThreshold(image, scale = 4) {
-    if (!image?.data || !image.width || !image.height) return null;
-    const histogram = new Uint32Array(256);
-    let count = 0,
-      total = 0;
-    // cropHeaderText masks the minimap emblem white; exclude it when finding
-    // the text/background split so it cannot skew the threshold.
-    for (let y = 0; y < image.height; y++)
-      for (let x = Math.floor(image.width * 0.3); x < image.width; x++) {
-        const value = image.data[(y * image.width + x) * 4];
-        histogram[value]++;
-        total += value;
-        count++;
-      }
-    if (!count) return null;
-    let backgroundWeight = 0,
-      backgroundSum = 0,
-      bestVariance = -1,
-      threshold = 0;
-    for (let value = 0; value < histogram.length; value++) {
-      backgroundWeight += histogram[value];
-      if (!backgroundWeight) continue;
-      const foregroundWeight = count - backgroundWeight;
-      if (!foregroundWeight) break;
-      backgroundSum += value * histogram[value];
-      const backgroundMean = backgroundSum / backgroundWeight,
-        foregroundMean = (total - backgroundSum) / foregroundWeight,
-        variance =
-          backgroundWeight *
-          foregroundWeight *
-          (backgroundMean - foregroundMean) ** 2;
-      if (variance > bestVariance) {
-        bestVariance = variance;
-        threshold = value;
-      }
-    }
-    const binary = new Uint8ClampedArray(image.data.length);
-    for (let i = 0; i < image.data.length; i += 4) {
-      const value = image.data[i] >= threshold ? 255 : 0;
-      binary[i] = binary[i + 1] = binary[i + 2] = value;
-      binary[i + 3] = 255;
-    }
-    return prepare({ width: image.width, height: image.height, data: binary }, scale);
-  }
-
-  function splitLabelLines(image) {
-    if (!image?.data || image.width < 20 || image.height < 12) return [];
-    const activeRows = [];
-    for (let y = 0; y < image.height; y++) {
-      const values = [];
-      for (let x = 0; x < image.width; x++)
-        values.push(image.data[(y * image.width + x) * 4]);
-      values.sort((a, b) => a - b);
-      const median = values[Math.floor(values.length / 2)],
-        ink = values.filter((value) => Math.abs(value - median) >= 24).length;
-      activeRows.push(ink >= Math.max(3, Math.floor(image.width * 0.035)));
-    }
-    const runs = [];
-    for (let y = 0; y < activeRows.length; y++) {
-      if (!activeRows[y]) continue;
-      let end = y + 1;
-      while (end < activeRows.length && activeRows[end]) end++;
-      if (end - y >= 3) runs.push([Math.max(0, y - 1), Math.min(image.height, end + 1)]);
-      y = end - 1;
-    }
-    if (runs.length < 2) return [];
-    const rows = runs.slice(0, 2);
-    return rows.map(([top, bottom]) => {
-      const data = new Uint8ClampedArray(image.width * (bottom - top) * 4);
-      data.set(image.data.subarray(top * image.width * 4, bottom * image.width * 4));
-      return { width: image.width, height: bottom - top, data };
-    });
-  }
-
-  function normalizeName(text) {
-    return String(text || "")
-      .toLowerCase()
-      .replace(/[^a-z0-9]/g, "");
-  }
-
-  function editDistance(left, right) {
-    const a = normalizeName(left),
-      b = normalizeName(right);
-    if (!a || !b) return Infinity;
-    let previous = Array.from({ length: b.length + 1 }, (_, i) => i),
-      current = new Array(b.length + 1);
-    for (let i = 1; i <= a.length; i++) {
-      current[0] = i;
-      for (let j = 1; j <= b.length; j++)
-        current[j] = Math.min(
-          previous[j] + 1,
-          current[j - 1] + 1,
-          previous[j - 1] + (a[i - 1] === b[j - 1] ? 0 : 1),
-        );
-      [previous, current] = [current, previous];
-    }
-    return previous[b.length];
-  }
-
-  function canonicalMap(lines) {
-    if (lines.length !== 2 || !Array.isArray(mapNames)) return null;
-    const matches = [];
-    for (const [street, name] of mapNames) {
-      const streetDistance = editDistance(lines[0], street),
-        nameDistance = editDistance(lines[1], name),
-        normalizedName = normalizeName(name),
-        observedName = normalizeName(lines[1]),
-        numericSuffix = normalizedName.match(/\d+$/)?.[0],
-        hasExactNumericSuffix =
-          !!numericSuffix && observedName.endsWith(numericSuffix),
-        maxNameDistance =
-          streetDistance === 0 && hasExactNumericSuffix
-            ? 3
-            : Math.min(2, Math.max(1, Math.floor(normalizedName.length * 0.08)));
-      // Require at least one exact line as a strong anchor. This lets the
-      // known street disambiguate a small typo in the map name, without
-      // turning unrelated or ambiguous OCR into a guessed map.
-      if (
-        streetDistance <= 1 &&
-        nameDistance <= maxNameDistance &&
-        (streetDistance === 0 || nameDistance === 0)
-      )
-        matches.push({ street, name, score: streetDistance + nameDistance });
-    }
-    matches.sort((a, b) => a.score - b.score);
-    if (matches.length && (!matches[1] || matches[1].score !== matches[0].score))
-      return matches[0];
-
-    // Long minimap labels are often clipped to a few dozen tiny pixels. When
-    // neither line is exact, allow a small combined error only if the street
-    // is within one edit, the map name within two, and the nearest pair is
-    // unique. Short labels and ambiguous roman-numeral neighbors stay raw.
-    const combinedLength =
-      normalizeName(lines[0]).length + normalizeName(lines[1]).length;
-    if (combinedLength < 38) return null;
-    const nearMatches = [];
-    for (const [street, name] of mapNames) {
-      const streetDistance = editDistance(lines[0], street),
-        nameDistance = editDistance(lines[1], name);
-      if (streetDistance <= 1 && nameDistance <= 2)
-        nearMatches.push({ street, name, score: streetDistance + nameDistance });
-    }
-    nearMatches.sort((a, b) => a.score - b.score);
-    if (
-      !nearMatches.length ||
-      nearMatches[0].score > 3 ||
-      (nearMatches[1] && nearMatches[1].score === nearMatches[0].score)
-    )
-      return null;
-    return nearMatches[0];
-  }
-
-  function canonicalInline(line) {
-    if (!Array.isArray(mapNames)) return null;
-    const observed = normalizeName(
-      String(line || "").replace(/^\s*\d{2,3}\s*fps\b[^a-z0-9]*/i, ""),
-    );
-    if (observed.length < 14) return null;
-    const exactNameMatches = mapNames.filter(([, name]) =>
-      observed.endsWith(normalizeName(name)),
-    );
-    if (
-      exactNameMatches.length === 1 &&
-      normalizeName(exactNameMatches[0][1]).length >= 8
-    )
-      return { street: exactNameMatches[0][0], name: exactNameMatches[0][1], score: 0 };
-    const candidates = [];
-    for (const [street, name] of mapNames) {
-      const streetText = normalizeName(street),
-        nameText = normalizeName(name),
-        best = { street, name, score: Infinity, streetDistance: Infinity, nameDistance: Infinity };
-      for (let offset = 0; offset <= 4; offset++)
-        for (let split = Math.max(1, streetText.length - 1); split <= streetText.length + 1; split++) {
-          const streetDistance = editDistance(observed.slice(offset, offset + split), streetText),
-            nameDistance = editDistance(observed.slice(offset + split), nameText),
-            score = streetDistance + nameDistance;
-          if (score < best.score)
-            Object.assign(best, { score, streetDistance, nameDistance });
-        }
-      if (
-        best.streetDistance <= 1 &&
-        best.nameDistance <= 2 &&
-        (best.streetDistance === 0 || best.nameDistance === 0)
-      )
-        candidates.push(best);
-    }
-    candidates.sort((a, b) => a.score - b.score);
-    if (!candidates.length || (candidates[1] && candidates[1].score === candidates[0].score))
-      return null;
-    return candidates[0];
-  }
-
-  function parse(text, confidence) {
-    if (!Number.isFinite(confidence)) return null;
-    const rawLines = String(text || "")
-      .replace(/\r/g, "")
-      .split("\n")
-      .map((line) => line.replace(/\s+/g, " ").trim())
-      .filter((line) => line.length >= 3 && /[A-Za-z]{3}/.test(line));
-    if (rawLines.length === 1) {
-      const inline = canonicalInline(rawLines[0]);
-      if (inline && (confidence >= 40 || inline.score === 0))
-        return {
-          text: `${inline.street} · ${inline.name}`,
-          confidence,
-          canonicalized: true,
-        };
-    }
-    const lines = rawLines.slice(0, 2);
-    if (!lines.length || lines.some((line) => line.length > 38)) return null;
-    const canonical = canonicalMap(lines);
-    // Some tiny minimap labels score below Tesseract's usual confidence gate
-    // even when both recognized lines exactly match one unique map entry. Keep
-    // low-confidence fuzzy reads rejected; only allow this exact vocabulary
-    // match through the gate.
-    const exactCanonical =
-      canonical &&
-      normalizeName(lines[0]) === normalizeName(canonical.street) &&
-      normalizeName(lines[1]) === normalizeName(canonical.name);
-    if (confidence < 40 && !exactCanonical) return null;
-    return {
-      text: canonical ? `${canonical.street} · ${canonical.name}` : lines.join(" · "),
-      confidence,
-      canonicalized: !!canonical,
-    };
-  }
-
-  function hash(image) {
-    if (!image?.data) return 0;
-    let value = 2166136261;
-    for (const byte of image.data) value = Math.imul(value ^ byte, 16777619);
-    return value >>> 0;
-  }
-
-  return {
-    findHeader,
-    findWorldButton,
-    cropHeaderText,
-    cropCompactHeaderText,
-    splitLabelLines,
-    prepare,
-    prepareThreshold,
-    parse,
-    hash,
-    canonicalMap,
-  };
-});
-</script>
-<!-- MAP NAME END -->
 <!-- SESSION START -->
 <script>(function (root, factory) {
   if (typeof module === "object" && module.exports) module.exports = factory();
@@ -6381,6 +6381,100 @@ return {detect,crop,anchors,percentageRegion};
 );
 </script>
 <!-- APP END -->
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 <style>body.meso-selecting .capture-debug{display:block!important}</style></head>
 <body><main class="app">
 <header class="top"><div class="brand"><div class="mark">✦</div><div><strong>maple track</strong><span>classic exp companion</span></div></div><div class="topright"><span class="subtle">SESSION 01 · <span id="sessionTime">00:00:00</span></span><span class="live-pill"><i></i><span id="liveState">READY</span></span></div></header>
