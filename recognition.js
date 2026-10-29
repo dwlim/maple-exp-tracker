@@ -17,9 +17,28 @@
     onLevelPreview = () => {},
   }) {
     function readExpGlyphs(region, frame, level) {
-      const pixels = cropLevelDigits(region, frame),
-        raw = hudOcr.recognize(pixels),
-        result = hudOcr.resolveReading(raw, required(level));
+      let pixels = cropLevelDigits(region, frame),
+        raw = hudOcr.recognize(pixels);
+      // A saved/manual box can end just after the percent sign and clip the
+      // thin green closing bracket. Retry with a few source pixels to the
+      // right; the OCR still has to see and recognize the real bracket.
+      if (/\[[\d.?]+%$/.test(raw.text)) {
+        const x = Math.round(region.x * frame.width),
+          right = x + Math.round(region.w * frame.width),
+          extra = Math.min(8, frame.width - right);
+        if (extra > 0) {
+          const extended = cropLevelDigits(
+            { ...region, w: region.w + extra / frame.width },
+            frame,
+          );
+          const extendedReading = hudOcr.recognize(extended);
+          if (extendedReading.text.endsWith("]")) {
+            pixels = extended;
+            raw = extendedReading;
+          }
+        }
+      }
+      const result = hudOcr.resolveReading(raw, required(level));
       if (debug) onExpPreview(pixels);
       const prior = state.samples.at(-1),
         percentageOnly = hudOcr.percentageReading(
