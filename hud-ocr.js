@@ -104,5 +104,9 @@ function percentageReading(text,requiredExp,previousExp=null){
  const previousFits=Number.isFinite(previousExp)&&previousExp>=0&&previousExp<=requiredExp&&Math.abs(previousExp-center)<=error;
  return {exp:previousFits?previousExp:Math.max(0,Math.min(requiredExp,Math.round(center))),pct,estimated:true,error};
 }
-root.MapleHudOcr={recognize,resolveReading,percentageReading};
+const mesoDigitTemplates=Array.from({length:10},()=>[]),seenMesoTemplates=Array.from({length:10},()=>new Set());
+for(const template of templates){if(!/^\d$/.test(template.char))continue;const rows=Array.from({length:8},(_,y)=>Array.from({length:5},(_,x)=>template.rows[Math.min(template.rows.length-1,Math.floor((y+.5)*template.rows.length/8))][Math.min(template.rows[0].length-1,Math.floor((x+.5)*template.rows[0].length/5))]).join(''));const key=rows.join('');if(!seenMesoTemplates[Number(template.char)].has(key)){seenMesoTemplates[Number(template.char)].add(key);mesoDigitTemplates[Number(template.char)].push(rows);}}
+const api={recognize,resolveReading,percentageReading,mesoDigitTemplates};
+root.MapleHudOcr=api;
+if(typeof module==='object'&&module.exports)module.exports=api;
 })(typeof window==='undefined'?globalThis:window);

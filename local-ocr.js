@@ -1,10 +1,11 @@
 (function (root, factory) {
   const api = factory(
     typeof module === "object" && module.exports ? require("./map-name") : root.MapleMapName,
+    typeof module === "object" && module.exports ? require("./hud-ocr") : root.MapleHudOcr,
   );
   if (typeof module === "object" && module.exports) module.exports = api;
   else root.MapleLocalOcr = api;
-})(typeof window === "undefined" ? globalThis : window, function (MapName) {
+})(typeof window === "undefined" ? globalThis : window, function (MapName, HudOcr) {
   function prepare(image, kind, mode) {
     let { width: w, height: h, data } = image,
       l = 0,
@@ -872,6 +873,12 @@
         [[".###.", "#...#", "#...#", ".###.", "#...#", "#...#", "#...#", ".###."]],
         [[".###.", "#...#", "#...#", "#...#", ".####", "....#", "...#.", ".##.."]],
       ];
+    // Reuse the same native digit exemplars as EXP, normalized to the compact
+    // meso glyph grid. Keep the meso segmentation and comma rules local.
+    for (let digit = 0; digit <= 9; digit++)
+      for (const rows of HudOcr?.mesoDigitTemplates?.[digit] || [])
+        if (!templates[digit].some((variant) => variant.join("\n") === rows.join("\n")))
+          templates[digit].push(rows);
     for (let y = 2; y < height - 2; y++)
       for (let x = 2; x < width - 2; x++) {
         const i = (y * width + x) * 4,
@@ -945,20 +952,26 @@
   }
   async function readMesoAmount(image, recognize) {
     if (!isMesoField(image)) return null;
-    const results = [];
+    const results = [], ocrResults = [];
     for (const [threshold, kind] of [[null, "meso-value"], [155, "meso-value-binary"]]) {
       const pixels = prepareMeso(image, threshold),
         reading = await recognize(pixels, kind),
         amount = parseMeso(reading.text);
-      if (amount !== null && reading.confidence >= 40)
-        results.push({ amount, confidence: reading.confidence });
+      if (amount !== null && reading.confidence >= 40) {
+        const result = { amount, confidence: reading.confidence };
+        results.push(result);
+        ocrResults.push(result);
+      }
     }
-    if (results.length === 2 && results[0].amount === results[1].amount)
-      return { amount: results[0].amount, confidence: Math.round(Math.min(results[0].confidence, results[1].confidence)) };
     const adaptive = await recognize(prepareMeso(image, mesoAdaptiveThreshold(image)), "meso-value-adaptive"),
       adaptiveAmount = parseMeso(adaptive.text);
-    if (adaptiveAmount !== null && adaptive.confidence >= 40)
-      results.push({ amount: adaptiveAmount, confidence: adaptive.confidence });
+    if (adaptiveAmount !== null && adaptive.confidence >= 40) {
+      const result = { amount: adaptiveAmount, confidence: adaptive.confidence };
+      results.push(result);
+      ocrResults.push(result);
+    }
+    const glyph = recognizeMesoDigits(image);
+    if (glyph) results.push(glyph);
     const votes = new Map();
     for (const result of results) {
       const group = votes.get(result.amount) || [];
@@ -966,12 +979,14 @@
       votes.set(result.amount, group);
     }
     const winner = [...votes.entries()].filter(([, confidences]) => confidences.length >= 2);
+    // A disagreement between native-font matching and OCR is ambiguous; keep
+    // the prior balance rather than accepting correlated OCR guesses.
+    if (glyph && ocrResults.some((reading) => reading.amount !== glyph.amount)) return null;
     if (winner.length === 1)
       return { amount: winner[0][0], confidence: Math.round(Math.min(...winner[0][1])) };
     // Short balances can be too small for Tesseract to segment. Use verified
-    // Maple Classic glyphs only when OCR produced no usable candidate; reject
-    // unknown/ambiguous shapes and preserve the game's signed 32-bit ceiling.
-    return results.length === 0 ? recognizeMesoDigits(image) : null;
+    // shared-font glyph matching only when OCR produced no usable candidate.
+    return ocrResults.length === 0 ? glyph : null;
   }
   function choose(readings, kind, native) {
     const valid = readings
