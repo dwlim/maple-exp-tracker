@@ -83,7 +83,10 @@
           box.w >= width * 0.045 &&
           box.w <= width * 0.3 &&
           box.h >= height * 0.025 &&
-          box.h <= height * 0.2 &&
+          // At some window resolutions the map image and blue header join
+          // into one component taller than the old 20% cap. Keep accepting
+          // that top-left panel, then trim it back to the title band below.
+          box.h <= height * 0.3 &&
           count >= width * height * 0.001;
         if (
           // The minimap is pinned to the top-left. Pale-blue shop dialogs
@@ -128,7 +131,7 @@
   function findWorldButton(image, box) {
     if (!image?.data || !box) return null;
     const width = image.width,
-      x0 = Math.max(0, Math.floor(box.x + box.w * 0.68)),
+      x0 = Math.max(0, Math.floor(box.x + box.w * 0.45)),
       x1 = Math.min(width, Math.ceil(box.x + box.w)),
       y0 = Math.max(0, Math.floor(box.y)),
       y1 = Math.min(image.height, Math.ceil(box.y + box.h * 0.42)),
@@ -198,7 +201,7 @@
           candidate.h <= box.h * 0.28 &&
           candidate.w / candidate.h >= 1.4 &&
           candidate.w / candidate.h <= 5.5 &&
-          relativeX >= 0.72 &&
+          relativeX >= 0.45 &&
           relativeY <= 0.3 &&
           count >= candidate.w * candidate.h * 0.18
         )
@@ -233,7 +236,10 @@
         image.width,
         Math.ceil(
           worldButton
-            ? box.x + box.w - controlUnit * 0.1
+            ? Math.min(
+                box.x + box.w,
+                worldButton.x + worldButton.w + controlUnit * 0.25,
+              )
             : box.x + box.w * 0.97,
         ),
       ),
@@ -493,7 +499,7 @@
 
   function splitLabelLines(image) {
     if (!image?.data || image.width < 20 || image.height < 12) return [];
-    const activeRows = [];
+    const inkByRow = [];
     for (let y = 0; y < image.height; y++) {
       const values = [];
       for (let x = 0; x < image.width; x++)
@@ -501,8 +507,16 @@
       values.sort((a, b) => a - b);
       const median = values[Math.floor(values.length / 2)],
         ink = values.filter((value) => Math.abs(value - median) >= 24).length;
-      activeRows.push(ink >= Math.max(3, Math.floor(image.width * 0.035)));
+      inkByRow.push(ink);
     }
+    // Captured map panels can have texture/compression noise across every row.
+    // An absolute fraction of crop width then treats the whole crop as text at
+    // larger scales. Measure the per-row background first and detect rows that
+    // rise above it instead; this keeps line splitting scale independent.
+    const sortedInk = inkByRow.slice().sort((a, b) => a - b),
+      backgroundInk = sortedInk[Math.floor(sortedInk.length / 2)],
+      rowThreshold = backgroundInk + Math.max(3, Math.floor(image.width * 0.025)),
+      activeRows = inkByRow.map((ink) => ink >= rowThreshold);
     const runs = [];
     for (let y = 0; y < activeRows.length; y++) {
       if (!activeRows[y]) continue;
