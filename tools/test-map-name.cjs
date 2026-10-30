@@ -176,6 +176,31 @@ const Reader = require("../reader");
     return { text: result.data.text, confidence: result.data.confidence };
   });
   try {
+    const overlayHeader = PNG.sync.read(
+        fs.readFileSync(path.join(__dirname, "fixtures/map-header-kerning-city-overlay.png")),
+      ),
+      overlayFrame = {
+        width: 1924,
+        height: 1126,
+        data: new Uint8ClampedArray(1924 * 1126 * 4),
+      };
+    for (let i = 0; i < overlayFrame.data.length; i += 4)
+      overlayFrame.data[i + 3] = 255;
+    for (let y = 0; y < overlayHeader.height; y++)
+      overlayFrame.data.set(
+        overlayHeader.data.subarray(y * overlayHeader.width * 4, (y + 1) * overlayHeader.width * 4),
+        44 * overlayFrame.width * 4 + y * overlayFrame.width * 4,
+      );
+    const overlayBox = MapName.findHeader(overlayFrame),
+      overlayCrop = MapName.cropHeaderText(overlayFrame, overlayBox),
+      overlayResult = await reader.read({ mapImage: overlayCrop });
+    assert.ok(overlayBox, "find the minimap header beside a character-stat overlay");
+    assert.equal(
+      overlayResult.map?.text,
+      "Victoria Road · Kerning City",
+      "use the world-button anchor to keep both title lines when another panel touches the minimap",
+    );
+
     const result = await reader.read({ mapImage: mapCrop });
     assert.equal(
       result.map?.text,
@@ -289,6 +314,11 @@ const Reader = require("../reader");
       skyConnectedResult.map?.canonicalized,
       false,
       "keep ambiguous Roman numerals raw instead of choosing the wrong map variant",
+    );
+    assert.equal(
+      MapName.parse("Maple Road\nSnail Hunting Ground 11", 76)?.canonicalized,
+      false,
+      "digit-like OCR for a Roman numeral must not be corrected to a different map variant",
     );
 
     const widerSkyFrame = PNG.sync.read(

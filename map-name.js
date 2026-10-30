@@ -131,9 +131,12 @@
   function findWorldButton(image, box) {
     if (!image?.data || !box) return null;
     const width = image.width,
-      x0 = Math.max(0, Math.floor(box.x + box.w * 0.45)),
+      // Header detection may return only the blue text field below the top
+      // control strip. Search slightly left and above that component so the
+      // minimap's WORLD button can still anchor a complete text crop.
+      x0 = Math.max(0, Math.floor(box.x + box.w * 0.28)),
       x1 = Math.min(width, Math.ceil(box.x + box.w)),
-      y0 = Math.max(0, Math.floor(box.y)),
+      y0 = Math.max(0, Math.floor(box.y - box.h * 0.42)),
       y1 = Math.min(image.height, Math.ceil(box.y + box.h * 0.42)),
       scanWidth = x1 - x0,
       scanHeight = y1 - y0;
@@ -222,7 +225,10 @@
       compactHeader = headerWidthRatio < 0.155,
       // The WORLD button height scales with the minimap text and emblem. Use
       // it to leave the emblem behind while retaining the first title glyph.
-      xOffset = worldButton ? controlUnit * 1.5 : box.h * 0.35,
+      // The detected blue component can begin midway through the title text.
+      // Anchor the left edge near the component's own left edge; the minimap
+      // emblem ends before this point in the scaled header.
+      xOffset = worldButton ? -controlUnit * 0.9 : box.h * 0.35,
       x0 = Math.max(0, Math.floor(box.x + xOffset)),
       y0 = Math.max(
         0,
@@ -270,7 +276,15 @@
     // Mask the emblem through its expected right edge while retaining the
     // original x position of the first text glyph.
     const logoSliver = worldButton
-      ? Math.max(0, Math.min(Math.floor(w * 0.48), Math.ceil(controlUnit * 1.55)))
+      ? Math.max(
+          0,
+          Math.min(
+            Math.floor(w * 0.48),
+            box.x <= image.width * 0.01
+              ? Math.ceil(box.h * 0.75)
+              : Math.ceil(controlUnit * 1.55),
+          ),
+        )
       : Math.max(
       0,
       Math.min(Math.floor(w * 0.48), Math.ceil(box.h * 0.65 - xOffset)),
@@ -379,7 +393,7 @@
           count,
         };
         if (
-          button.x >= width * 0.08 &&
+          button.x >= width * 0.04 &&
           button.x <= width * 0.28 &&
           button.y <= height * 0.08 &&
           button.w >= width * 0.012 &&
@@ -559,10 +573,23 @@
     return previous[b.length];
   }
 
+  function hasExactRomanSuffix(expected, observed) {
+    const match = String(expected || "").match(/(?:^|\s)([IVX]{1,4})$/i);
+    if (!match) return true;
+    const observedToken = String(observed || "")
+      .trim()
+      .match(/([A-Za-z0-9]+)$/)?.[1]
+      .toLowerCase();
+    return observedToken === match[1].toLowerCase();
+  }
+
   function canonicalMap(lines) {
     if (lines.length !== 2 || !Array.isArray(mapNames)) return null;
     const matches = [];
     for (const [street, name] of mapNames) {
+      // OCR often turns a Roman-numeral suffix into 1/l/I. Do not let a
+      // nearby variant win (for example, "11" incorrectly matching "I").
+      if (!hasExactRomanSuffix(name, lines[1])) continue;
       const streetDistance = editDistance(lines[0], street),
         nameDistance = editDistance(lines[1], name),
         normalizedName = normalizeName(name),
@@ -628,6 +655,7 @@
       return { street: exactNameMatches[0][0], name: exactNameMatches[0][1], score: 0 };
     const candidates = [];
     for (const [street, name] of mapNames) {
+      if (!hasExactRomanSuffix(name, line)) continue;
       const streetText = normalizeName(street),
         nameText = normalizeName(name),
         best = { street, name, score: Infinity, streetDistance: Infinity, nameDistance: Infinity };
@@ -650,6 +678,28 @@
     if (!candidates.length || (candidates[1] && candidates[1].score === candidates[0].score))
       return null;
     return candidates[0];
+  }
+
+  function hasConflictingRomanEvidence(candidate, readings) {
+    if (!candidate?.canonicalized) return false;
+    const label = String(candidate.text || "").split("·").at(-1).trim(),
+      match = label.match(/(?:^|\s)([IVX]{1,4})$/i);
+    if (!match) return false;
+    const stem = normalizeName(label.slice(0, match.index).trim()),
+      expected = match[1].toLowerCase();
+    if (!stem) return false;
+    return (readings || []).some((reading) => {
+      const text = typeof reading === "string" ? reading : reading?.text;
+      return String(text || "")
+        .replace(/\r/g, "")
+        .split("\n")
+        .some((line) => {
+          const observed = normalizeName(line);
+          if (!observed.startsWith(stem)) return false;
+          const suffix = observed.slice(stem.length);
+          return !!suffix && suffix !== expected;
+        });
+    });
   }
 
   function parse(text, confidence) {
@@ -703,6 +753,7 @@
     prepare,
     prepareThreshold,
     parse,
+    hasConflictingRomanEvidence,
     hash,
     canonicalMap,
   };

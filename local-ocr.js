@@ -1080,10 +1080,11 @@
       const task = queue.then(async () => {
         const result = {};
         if (input.mapImage) {
-          const mapReadings = input.includeMapDebug ? [] : null;
+          const mapObservations = [],
+            mapReadings = input.includeMapDebug ? mapObservations : null;
           const readMap = async (pixels, kind = "map") => {
             const reading = await recognize(pixels, kind);
-            mapReadings?.push({
+            mapObservations.push({
               kind,
               text: String(reading?.text || "").trim(),
               confidence: Number.isFinite(reading?.confidence) ? reading.confidence : null,
@@ -1142,7 +1143,10 @@
                       Math.min(reading?.confidence ?? 0, name?.confidence ?? 0),
                     ),
                   ].find((candidate) => candidate?.canonicalized);
-                if (corrected) result.map = corrected;
+                if (
+                  corrected &&
+                  !MapName.hasConflictingRomanEvidence(corrected, mapObservations)
+                ) result.map = corrected;
               }
               if (!result.map?.canonicalized) {
                 // The compact pixel font can merge letters at the standard
@@ -1179,9 +1183,15 @@
                             : alternate?.confidence,
                         )
                       : null;
-                if (alternateDirect?.canonicalized)
+                if (
+                  alternateDirect?.canonicalized &&
+                  !MapName.hasConflictingRomanEvidence(alternateDirect, mapObservations)
+                )
                   result.map = alternateDirect;
-                if (alternateCorrection?.canonicalized)
+                if (
+                  alternateCorrection?.canonicalized &&
+                  !MapName.hasConflictingRomanEvidence(alternateCorrection, mapObservations)
+                )
                   result.map = alternateCorrection;
               }
               if (!result.map?.canonicalized) {
@@ -1196,7 +1206,10 @@
                     thresholded?.text,
                     thresholded?.confidence,
                   );
-                if (thresholdedMap?.canonicalized)
+                if (
+                  thresholdedMap?.canonicalized &&
+                  !MapName.hasConflictingRomanEvidence(thresholdedMap, mapObservations)
+                )
                   result.map = thresholdedMap;
               }
             }
