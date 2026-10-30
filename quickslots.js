@@ -65,7 +65,7 @@
             kind,
             Session.create({
               storage,
-              key: "maple-track-items-v1:" + kind,
+              key: Session.KEY + ":" + kind,
               onChange: () => render(),
             }),
           );

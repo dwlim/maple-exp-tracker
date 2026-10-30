@@ -178,9 +178,19 @@
       } catch {}
       let potionState = {};
       try {
-        potionState = JSON.parse(
-          storage.getItem(QuickslotSession.KEY) || "{}",
-        ) || {};
+        const savedStates = QuickslotSession.STORE_KEYS.map((storeKey) =>
+            JSON.parse(storage.getItem(storeKey) || "{}"),
+          ).filter((saved) => saved?.enabled === true);
+        // Session totals are maintained separately for the 8-slot and 12-slot
+        // layouts. Add enabled stores so changing layouts does not discard
+        // money already tracked this session.
+        potionState = savedStates.length
+          ? {
+              enabled: true,
+              totalSpent: savedStates.reduce((sum, saved) => sum + (Number.isFinite(saved.totalSpent) ? saved.totalSpent : 0), 0),
+              spendKnown: savedStates.every((saved) => saved.spendKnown !== false),
+            }
+          : {};
       } catch {}
       const money = moneyTotals(state, potionState),
         compact = (value) => value === null || value === undefined
@@ -222,7 +232,7 @@
     const onStorage = (event) => {
       if (
         event.key === key ||
-        event.key === QuickslotSession.KEY ||
+        QuickslotSession.STORE_KEYS.includes(event.key) ||
         event.key === null
       )
         render();

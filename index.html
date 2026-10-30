@@ -2690,6 +2690,7 @@ return {detect,crop,anchors,percentageRegion};
 })(typeof window === "undefined" ? globalThis : window, function (Costs) {
   "use strict";
   const KEY = "maple-track-items-v1";
+  const STORE_KEYS = [KEY + ":4x2", KEY + ":4x3"];
   function validRegion(r) {
     return (
       r &&
@@ -2949,7 +2950,7 @@ return {detect,crop,anchors,percentageRegion};
     };
   }
 
-  return { create: createStore, validRegion };
+  return { KEY, STORE_KEYS, create: createStore, validRegion };
 });
 </script>
 <!-- QUICKSLOT SESSION END -->
@@ -3134,9 +3135,19 @@ return {detect,crop,anchors,percentageRegion};
       } catch {}
       let potionState = {};
       try {
-        potionState = JSON.parse(
-          storage.getItem(QuickslotSession.KEY) || "{}",
-        ) || {};
+        const savedStates = QuickslotSession.STORE_KEYS.map((storeKey) =>
+            JSON.parse(storage.getItem(storeKey) || "{}"),
+          ).filter((saved) => saved?.enabled === true);
+        // Session totals are maintained separately for the 8-slot and 12-slot
+        // layouts. Add enabled stores so changing layouts does not discard
+        // money already tracked this session.
+        potionState = savedStates.length
+          ? {
+              enabled: true,
+              totalSpent: savedStates.reduce((sum, saved) => sum + (Number.isFinite(saved.totalSpent) ? saved.totalSpent : 0), 0),
+              spendKnown: savedStates.every((saved) => saved.spendKnown !== false),
+            }
+          : {};
       } catch {}
       const money = moneyTotals(state, potionState),
         compact = (value) => value === null || value === undefined
@@ -3178,7 +3189,7 @@ return {detect,crop,anchors,percentageRegion};
     const onStorage = (event) => {
       if (
         event.key === key ||
-        event.key === QuickslotSession.KEY ||
+        QuickslotSession.STORE_KEYS.includes(event.key) ||
         event.key === null
       )
         render();
@@ -5786,7 +5797,7 @@ return {detect,crop,anchors,percentageRegion};
             kind,
             Session.create({
               storage,
-              key: "maple-track-items-v1:" + kind,
+              key: Session.KEY + ":" + kind,
               onChange: () => render(),
             }),
           );

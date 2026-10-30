@@ -158,11 +158,10 @@ assert.equal(
 const nodes = new Map(),
   events = new Map(),
   intervals = [];
-let potionSnapshot = JSON.stringify({
-  enabled: true,
-  totalSpent: 1250,
-  spendKnown: true,
-});
+const potionSnapshots = new Map([
+  ["maple-track-items-v1:4x2", JSON.stringify({ enabled: true, totalSpent: 1250, spendKnown: true })],
+  ["maple-track-items-v1:4x3", JSON.stringify({ enabled: true, totalSpent: 250, spendKnown: true })],
+]);
 let writes = 0,
   stored = JSON.stringify(state);
 const q = (id) => {
@@ -178,8 +177,7 @@ const q = (id) => {
   return nodes.get(id);
 };
 const storage = {
-  getItem: (k) =>
-    k === require("../quickslot-session").KEY ? potionSnapshot : stored,
+  getItem: (k) => potionSnapshots.get(k) ?? stored,
   setItem() {
     writes++;
   },
@@ -225,8 +223,8 @@ assert.equal(q("#cardLevel").textContent, "32");
 assert.equal(q("#cardRate").textContent, "60,000");
 assert.equal(q("#cardMapName").textContent, "MAP · SEARCHING FOR MAP");
 assert.match(q(".app").innerHTML, /<div class="stream-metrics-line">/);
-assert.equal(q("#cardSpent").textContent, "1.3K");
-assert.equal(q("#cardEarned").textContent, "101.3K");
+assert.equal(q("#cardSpent").textContent, "1.5K");
+assert.equal(q("#cardEarned").textContent, "101.5K");
 for (const id of ["cardSpent", "cardEarned"])
   assert.ok(q(".app").innerHTML.includes(`id="${id}"`));
 assert.doesNotMatch(q(".app").innerHTML, /POTION COST\/HR|MESO\/HR/);
@@ -243,16 +241,21 @@ stored = JSON.stringify({ ...state, samples: [], level: 56, running: false });
 events.get("storage")({ key: "maple-track-v1" });
 assert.equal(q("#cardLevel").textContent, "56");
 assert.equal(q("#cardStatus").textContent, "PAUSED");
-potionSnapshot = JSON.stringify({
+potionSnapshots.set("maple-track-items-v1:4x2", JSON.stringify({
   enabled: true,
   totalSpent: 0,
   spendKnown: false,
-});
-events.get("storage")({ key: require("../quickslot-session").KEY });
+}));
+potionSnapshots.set("maple-track-items-v1:4x3", JSON.stringify({
+  enabled: false,
+  totalSpent: 0,
+  spendKnown: true,
+}));
+events.get("storage")({ key: "maple-track-items-v1:4x2" });
 assert.equal(q("#cardSpent").textContent, "—");
 assert.equal(q("#cardEarned").textContent, "—");
-potionSnapshot = "invalid";
-events.get("storage")({ key: require("../quickslot-session").KEY });
+potionSnapshots.set("maple-track-items-v1:4x2", "invalid");
+events.get("storage")({ key: "maple-track-items-v1:4x3" });
 assert.equal(q("#cardSpent").textContent, "—");
 stored = "invalid";
 events.get("storage")({ key: null });

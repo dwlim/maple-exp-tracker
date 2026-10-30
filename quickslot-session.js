@@ -5,6 +5,7 @@
 })(typeof window === "undefined" ? globalThis : window, function (Costs) {
   "use strict";
   const KEY = "maple-track-items-v1";
+  const STORE_KEYS = [KEY + ":4x2", KEY + ":4x3"];
   function validRegion(r) {
     return (
       r &&
@@ -264,5 +265,5 @@
     };
   }
 
-  return { create: createStore, validRegion };
+  return { KEY, STORE_KEYS, create: createStore, validRegion };
 });
