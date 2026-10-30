@@ -65,7 +65,9 @@ const mem = new Map(),
   s = Items.createStore({ storage }),
   region = { x: 0.1, y: 0.9, w: 0.02, h: 0.02 };
 assert.equal(s.add("bad", { ...region, x: -0.1 }, 1000, 1000), null);
-const item = s.add("HP potions", region, 1000, 1000),
+const item = s.add("HP potions", region, 1000, 1000, null, {
+    potionType: "red",
+  }),
   id = item.id,
   read = (n, t, confidence = 99) =>
     s.observe(id, { count: n, confidence }, t * 1000);
@@ -75,6 +77,7 @@ assert.equal(s.rate(item, 20000), null);
 read(996, 20);
 read(995, 30);
 assert.equal(item.used, 5);
+assert.equal(s.state.totalSpent, 250);
 assert.equal(s.rate(item, 30000), 600);
 assert.equal(s.rate(item, 330001), null, "Potion rates use only observations in the trailing five-minute window");
 assert.equal(
@@ -118,8 +121,11 @@ read(0, 1060);
 read(0, 1065);
 assert.equal(item.count, 0);
 assert.equal(item.used, 1007);
+assert.equal(s.state.totalSpent, 50350);
+assert.equal(s.state.spendKnown, true);
 const loaded = Items.createStore({ storage });
 assert.equal(loaded.state.items[0].used, 1007);
+assert.equal(loaded.state.totalSpent, 50350);
 assert.equal(loaded.state.items[0].at, null);
 loaded.observe(
   loaded.state.items[0].id,
@@ -133,6 +139,7 @@ assert.equal(
 );
 loaded.reset();
 assert.equal(loaded.state.items[0].used, 0);
+assert.equal(loaded.state.totalSpent, 0);
 assert.equal(loaded.rate(loaded.state.items[0], 2000000), null);
 for (let i = 0; i < 11; i++) s.add("item" + i, region, 1000, 1000);
 assert.equal(s.add("thirteenth", region, 1000, 1000), null);

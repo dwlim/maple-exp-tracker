@@ -13,6 +13,11 @@ const now = Date.now(),
     running: true,
     updatedAt: now,
     level: 32,
+    mesoStartAmount: 1200000,
+    mesoSamples: [
+      { amount: 1200000, t: now - 60000 },
+      { amount: 1300000, t: now },
+    ],
     samples: [
       { level: 32, exp: 1000, t: now - 60000 },
       { level: 32, exp: 2000, t: now },
@@ -54,33 +59,26 @@ assert.deepEqual(
   { amount: "1,300,000", rate: "+6,000,000", rateValue: 6000000 },
   "Meso balance and trailing hourly rate render independently",
 );
-const currentPotionCosts = {
-  enabled: true,
-  updatedAt: now,
-  items: [
-    { group: "hp", price: 80, rate: 100, lastReadAt: now },
-    { group: "mp", price: 220, rate: 200, lastReadAt: now },
-  ],
-};
-assert.equal(
-  C.netMesoRate(
-    6000000,
-    currentPotionCosts,
-    { hp: 8000, mp: 44000, both: null },
-    now,
+assert.deepEqual(
+  C.moneyTotals(
+    state,
+    { enabled: true, totalSpent: 1250, spendKnown: true },
   ),
-  5948000,
-  "Net meso rate subtracts the observed HP and MP potion costs",
+  { spent: 1250, earned: 101250 },
+  "Session earnings add tracked potion costs back to the balance change",
 );
-assert.equal(
-  C.netMesoRate(
-    6000000,
-    currentPotionCosts,
-    { hp: null, mp: 44000, both: null },
-    now,
+assert.deepEqual(
+  C.moneyTotals(
+    state,
+    { enabled: true, totalSpent: 0, spendKnown: false },
   ),
-  null,
-  "Net meso rate stays unavailable when a tracked potion cost is unknown",
+  { spent: null, earned: null },
+  "Unknown potion prices do not produce false money totals",
+);
+assert.deepEqual(
+  C.moneyTotals(state, { enabled: false, totalSpent: 0, spendKnown: true }),
+  { spent: null, earned: null },
+  "Money totals stay unavailable until potion expenses are tracked",
 );
 assert.equal(
   C.mesoMetrics({ mesoSamples: [{ amount: 1200000, t: now - 180000 }] }, now).amount,
@@ -160,7 +158,11 @@ assert.equal(
 const nodes = new Map(),
   events = new Map(),
   intervals = [];
-let potionSnapshot = null;
+let potionSnapshot = JSON.stringify({
+  enabled: true,
+  totalSpent: 1250,
+  spendKnown: true,
+});
 let writes = 0,
   stored = JSON.stringify(state);
 const q = (id) => {
@@ -177,7 +179,7 @@ const q = (id) => {
 };
 const storage = {
   getItem: (k) =>
-    k === "maple-track-potion-costs-v1" ? potionSnapshot : stored,
+    k === require("../quickslot-session").KEY ? potionSnapshot : stored,
   setItem() {
     writes++;
   },
@@ -223,9 +225,12 @@ assert.equal(q("#cardLevel").textContent, "32");
 assert.equal(q("#cardRate").textContent, "60,000");
 assert.equal(q("#cardMapName").textContent, "MAP · SEARCHING FOR MAP");
 assert.match(q(".app").innerHTML, /<div class="stream-metrics-line">/);
-for (const id of ["cardHpCost", "cardMpCost", "cardMesoRate", "cardNetMesoRate"])
+assert.equal(q("#cardSpent").textContent, "1.3K");
+assert.equal(q("#cardEarned").textContent, "101.3K");
+for (const id of ["cardSpent", "cardEarned"])
   assert.ok(q(".app").innerHTML.includes(`id="${id}"`));
-assert.doesNotMatch(q(".app").innerHTML, /MESO BALANCE|HP COST \/ HOUR|GROSS MESOS \/ HOUR/);
+assert.doesNotMatch(q(".app").innerHTML, /POTION COST\/HR|MESO\/HR/);
+assert.match(fs.readFileSync("dashboard.js", "utf8"), /#netMesoRate/);
 stored = JSON.stringify({ ...state, mapName: "Kerning City Subway · Line 1 Area 1" });
 events.get("storage")({ key: "maple-track-v1" });
 assert.equal(
@@ -239,18 +244,16 @@ events.get("storage")({ key: "maple-track-v1" });
 assert.equal(q("#cardLevel").textContent, "56");
 assert.equal(q("#cardStatus").textContent, "PAUSED");
 potionSnapshot = JSON.stringify({
-  updatedAt: Date.now(),
   enabled: true,
-  items: [
-    { group: "hp", price: 80, rate: 100, lastReadAt: Date.now() },
-    { group: "mp", price: 220, rate: 200, lastReadAt: Date.now() },
-  ],
+  totalSpent: 0,
+  spendKnown: false,
 });
-events.get("storage")({ key: "maple-track-potion-costs-v1" });
-assert.equal(q("#cardNetMesoRate").textContent, "—");
+events.get("storage")({ key: require("../quickslot-session").KEY });
+assert.equal(q("#cardSpent").textContent, "—");
+assert.equal(q("#cardEarned").textContent, "—");
 potionSnapshot = "invalid";
-events.get("storage")({ key: "maple-track-potion-costs-v1" });
-assert.equal(q("#cardHpCost").textContent, "—");
+events.get("storage")({ key: require("../quickslot-session").KEY });
+assert.equal(q("#cardSpent").textContent, "—");
 stored = "invalid";
 events.get("storage")({ key: null });
 assert.equal(
@@ -265,7 +268,7 @@ assert.ok(
   "Embedded stream card must match tested source",
 );
 console.log(
-  "Stream card: rates, level-ups, ETA, stale/offline state, local storage sync, malformed storage, read-only startup and cleanup passed.",
+  "Stream card: EXP rate, level-ups, ETA, cumulative money totals, storage sync, read-only startup and cleanup passed.",
 );
 
 // Thirty-second normalization, level-up totals, gaps, invalid readings and percentage precision.

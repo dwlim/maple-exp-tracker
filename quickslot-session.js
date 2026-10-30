@@ -1,7 +1,8 @@
 (function (root, factory) {
-  if (typeof module === "object" && module.exports) module.exports = factory();
-  else root.MapleQuickslotSession = factory();
-})(typeof window === "undefined" ? globalThis : window, function () {
+  if (typeof module === "object" && module.exports)
+    module.exports = factory(require("./potion-costs"));
+  else root.MapleQuickslotSession = factory(root.MaplePotionCosts);
+})(typeof window === "undefined" ? globalThis : window, function (Costs) {
   "use strict";
   const KEY = "maple-track-items-v1";
   function validRegion(r) {
@@ -21,7 +22,27 @@
     try {
       saved = JSON.parse(storage?.getItem(key) || "null");
     } catch {}
-    const state = { enabled: saved?.enabled === true, items: [] },
+    let legacySpent = 0,
+      legacySpendKnown = true;
+    for (const item of Array.isArray(saved?.items) ? saved.items : []) {
+      const used = Number.isFinite(item?.used) && item.used > 0 ? item.used : 0,
+        unitCost = Costs.price(item);
+      if (!used) continue;
+      if (unitCost === null) legacySpendKnown = false;
+      else legacySpent += used * unitCost;
+    }
+    const state = {
+      enabled: saved?.enabled === true,
+      items: [],
+      totalSpent:
+        Number.isFinite(saved?.totalSpent) && saved.totalSpent >= 0
+          ? saved.totalSpent
+          : legacySpent,
+      spendKnown:
+        typeof saved?.spendKnown === "boolean"
+          ? saved.spendKnown
+          : legacySpendKnown,
+    },
       seen = new Map();
     let serial = 0;
     for (const v of Array.isArray(saved?.items)
@@ -72,6 +93,8 @@
           key,
           JSON.stringify({
             enabled: state.enabled,
+            totalSpent: state.totalSpent,
+            spendKnown: state.spendKnown,
             items: state.items.map(({ at, pending, status, ...v }) => v),
           }),
         );
@@ -171,6 +194,11 @@
         item.seconds += dt;
         const used = Math.max(0, item.count - count);
         item.used += used;
+        if (used) {
+          const unitCost = Costs.price(item);
+          if (unitCost === null) state.spendKnown = false;
+          else state.totalSpent += used * unitCost;
+        }
         item.usageSamples ||= [];
         item.usageSamples.push({ t, seconds: dt, used });
         item.usageSamples = item.usageSamples.filter((s) => s.t > t - 300000).slice(-200);
@@ -207,6 +235,8 @@
         changed();
       },
       reset() {
+        state.totalSpent = 0;
+        state.spendKnown = true;
         for (const i of state.items) {
           i.used = 0;
           i.seconds = 0;

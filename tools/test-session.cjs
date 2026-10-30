@@ -31,6 +31,7 @@ assert.equal(session.state.level, 39);
 assert.equal(session.addSample(39, S.required(39) + 1), false);
 assert.equal(session.addSample(39, 1100), true);
 assert.equal(session.addMesoSample(120000, clock), true);
+assert.equal(session.state.mesoStartAmount, 120000);
 assert.equal(session.addMesoSample(120000, clock), false);
 session.save();
 assert.equal(saved.samples.length, 2);
@@ -46,6 +47,7 @@ session.reset();
 assert.equal(session.state.level, null);
 assert.equal(session.state.samples.length, 0);
 assert.equal(session.state.mesoSamples.length, 0);
+assert.equal(session.state.mesoStartAmount, null);
 assert.equal(session.state.startAt, clock);
 assert.equal(
   session.state.calibration.auto,

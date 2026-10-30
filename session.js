@@ -50,6 +50,7 @@
     const defaults = {
       samples: [],
       mesoSamples: [],
+      mesoStartAmount: null,
       mesoStatus: "Searching for the inventory balance automatically",
       mapName: "",
       mapUpdatedAt: null,
@@ -70,6 +71,13 @@
       source: null,
       paused: false,
     };
+    if (
+      !Number.isSafeInteger(state.mesoStartAmount) ||
+      state.mesoStartAmount < 0
+    ) {
+      state.mesoStartAmount =
+        state.mesoSamples?.find((sample) => Number.isSafeInteger(sample?.amount) && sample.amount >= 0)?.amount ?? null;
+    }
     state.calibration ||= { level: null, exp: null };
     if (
       state.calibration.auto === undefined &&
@@ -123,6 +131,7 @@
     function reset() {
       state.samples = [];
       state.mesoSamples = [];
+      state.mesoStartAmount = null;
       state.mesoStatus = "Searching for the inventory balance automatically";
       state.level = null;
       state.startAt = now();
@@ -134,6 +143,7 @@
         return false;
       const last = state.mesoSamples.at(-1);
       if (last && last.t === t) return false;
+      if (state.mesoStartAmount === null) state.mesoStartAmount = amount;
       state.mesoSamples.push({ t, amount });
       if (state.mesoSamples.length > 720)
         state.mesoSamples = state.mesoSamples.slice(-720);
