@@ -585,6 +585,17 @@
 
   function canonicalMap(lines) {
     if (lines.length !== 2 || !Array.isArray(mapNames)) return null;
+    // The street line is frequently damaged by the tiny minimap font, while
+    // the map-name line can still be exact. Use it as a strong anchor only
+    // when that complete name identifies exactly one map in the vocabulary.
+    const observedName = normalizeName(lines[1]),
+      exactNameMatches = mapNames.filter(
+        ([, name]) => normalizeName(name) === observedName,
+      );
+    if (exactNameMatches.length === 1) {
+      const [street, name] = exactNameMatches[0];
+      return { street, name, score: editDistance(lines[0], street) };
+    }
     const matches = [];
     for (const [street, name] of mapNames) {
       // OCR often turns a Roman-numeral suffix into 1/l/I. Do not let a
@@ -721,14 +732,20 @@
     const lines = rawLines.slice(0, 2);
     if (!lines.length || lines.some((line) => line.length > 38)) return null;
     const canonical = canonicalMap(lines);
+    const uniqueExactName =
+      canonical &&
+      normalizeName(lines[1]) === normalizeName(canonical.name) &&
+      mapNames.filter(([, name]) => normalizeName(name) === normalizeName(lines[1]))
+        .length === 1;
     // Some tiny minimap labels score below Tesseract's usual confidence gate
     // even when both recognized lines exactly match one unique map entry. Keep
     // low-confidence fuzzy reads rejected; only allow this exact vocabulary
     // match through the gate.
     const exactCanonical =
       canonical &&
-      normalizeName(lines[0]) === normalizeName(canonical.street) &&
-      normalizeName(lines[1]) === normalizeName(canonical.name);
+      (uniqueExactName ||
+        (normalizeName(lines[0]) === normalizeName(canonical.street) &&
+          normalizeName(lines[1]) === normalizeName(canonical.name)));
     if (confidence < 40 && !exactCanonical) return null;
     return {
       text: canonical ? `${canonical.street} · ${canonical.name}` : lines.join(" · "),

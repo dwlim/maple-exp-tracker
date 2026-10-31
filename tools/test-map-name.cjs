@@ -138,6 +138,18 @@ const Reader = require("../reader");
     "an exact, unique map-list match survives low aggregate OCR confidence",
   );
   assert.equal(exactLowConfidence.canonicalized, true);
+  const uniqueNameAnchor = MapName.parse("Lmgeon\nAnt Tunnel IV", 18);
+  assert.equal(
+    uniqueNameAnchor?.text,
+    "Dungeon · Ant Tunnel IV",
+    "a unique exact map-name line can recover a corrupted street line at low OCR confidence",
+  );
+  assert.equal(uniqueNameAnchor?.canonicalized, true);
+  assert.equal(
+    MapName.parse("Unclear\nMushroom Garden", 18),
+    null,
+    "a duplicate map name cannot be chosen without a readable street anchor",
+  );
   assert.equal(
     MapName.parse("Hidden Street\nFree Marker 3", 35),
     null,
