@@ -1,7 +1,7 @@
 (function (root, factory) {
-  if (typeof module === "object" && module.exports) module.exports = factory(require("./potion-costs"));
-  else root.MapleDashboard = factory(root.MaplePotionCosts);
-})(typeof window === "undefined" ? globalThis : window, function (PotionCosts) {
+  if (typeof module === "object" && module.exports) module.exports = factory(require("./potion-costs"), require("./map-sessions"));
+  else root.MapleDashboard = factory(root.MaplePotionCosts, root.MapleMapSessions);
+})(typeof window === "undefined" ? globalThis : window, function (PotionCosts, MapSessions) {
   "use strict";
   function create({
     document,
@@ -97,7 +97,7 @@
       if (q("#hpPotionCost")) q("#hpPotionCost").textContent = costText(potionMetrics.hp);
       if (q("#mpPotionCost")) q("#mpPotionCost").textContent = costText(potionMetrics.mp);
       if (q("#bothPotionCost")) q("#bothPotionCost").textContent = costText(potionMetrics.both);
-      let netMesoRate = null;
+      let estimatedGrossMesoRate = null;
       if (
         mesoRate !== null && potionState.enabled === true && trackedGroups.size &&
         Number.isFinite(potionState.updatedAt) && potionState.updatedAt <= now &&
@@ -111,12 +111,13 @@
           }
           spend += potionMetrics[group];
         }
-        if (known) netMesoRate = mesoRate - spend;
+        if (known) estimatedGrossMesoRate = mesoRate + spend;
       }
-      if (q("#netMesoRate"))
-        q("#netMesoRate").textContent = netMesoRate === null
+      if (q("#estimatedGrossMesoRate"))
+        q("#estimatedGrossMesoRate").textContent = estimatedGrossMesoRate === null
           ? "—"
-          : (netMesoRate > 0 ? "+" : netMesoRate < 0 ? "−" : "") + fmt(Math.abs(netMesoRate));
+          : (estimatedGrossMesoRate > 0 ? "+" : estimatedGrossMesoRate < 0 ? "−" : "") + fmt(Math.abs(estimatedGrossMesoRate));
+      renderMapSessions(MapSessions.create(state, now, totalExp), now);
       const lvl = state.level,
         req = lvl ? required(lvl) : 0,
         expIn = latest ? latest.exp || 0 : 0,
@@ -200,6 +201,69 @@
       drawLog(ss);
       updateRateHint(ss);
       save();
+    }
+    function renderMapSessions(visits, now) {
+      const root = q("#mapSessions");
+      if (!root) return;
+      root.innerHTML = "";
+      if (!visits.length) {
+        const empty = document.createElement("p");
+        empty.className = "subtle";
+        empty.textContent = "Map-specific readings will appear after the tracker recognizes your map.";
+        root.appendChild(empty);
+        return;
+      }
+      const signed = (value) => (value > 0 ? "+" : value < 0 ? "−" : "") + fmt(Math.abs(value)),
+        duration = (ms) => {
+          const minutes = Math.max(0, Math.floor(ms / 60000));
+          return minutes < 60 ? minutes + " min" : Math.floor(minutes / 60) + "h " + (minutes % 60) + "m";
+        };
+      for (const visit of visits) {
+        const section = document.createElement("section"),
+          heading = document.createElement("div"),
+          title = document.createElement("strong"),
+          status = document.createElement("span"),
+          grid = document.createElement("div");
+        section.className = "map-session";
+        section.style.cssText = "padding:12px 0;border-top:1px solid var(--line)";
+        heading.className = "map-session-head";
+        heading.style.cssText = "display:flex;align-items:center;justify-content:space-between;gap:10px";
+        title.textContent = visit.name;
+        status.className = "tag";
+        status.textContent = visit.active ? "CURRENT MAP" : "MAP VISIT";
+        heading.appendChild(title);
+        heading.appendChild(status);
+        grid.className = "map-session-grid";
+        grid.style.cssText = "display:grid;grid-template-columns:repeat(auto-fit,minmax(115px,1fr));gap:8px;margin-top:10px";
+        const elapsed = Math.max(0, Math.min(now, visit.end) - visit.start),
+          xpRate = visit.expElapsed >= 30000 ? visit.expGain * 3600000 / visit.expElapsed : null,
+          mesoRate = visit.mesoElapsed >= 60000 ? visit.mesoChange * 3600000 / visit.mesoElapsed : null,
+          addStat = (label, value, hint = "") => {
+            const item = document.createElement("div"), key = document.createElement("div"), val = document.createElement("div");
+            item.className = "stat";
+            item.style.minHeight = "72px";
+            key.className = "k";
+            key.textContent = label;
+            val.className = "v";
+            val.textContent = value;
+            item.append(key, val);
+            if (hint) {
+              const note = document.createElement("div");
+              note.className = "hint";
+              note.textContent = hint;
+              item.appendChild(note);
+            }
+            grid.appendChild(item);
+          };
+        addStat("EXP gained", visit.expSamples ? (visit.expEstimated ? "~" : "") + fmt(visit.expGain) : "—");
+        addStat("EXP / hour", xpRate === null ? "—" : (visit.expEstimated ? "~" : "") + fmt(xpRate));
+        addStat("Meso balance change", visit.mesoSamples ? signed(visit.mesoChange) : "—");
+        addStat("Mesos / hour", mesoRate === null ? "—" : signed(mesoRate));
+        addStat("Map time", duration(elapsed));
+        section.appendChild(heading);
+        section.appendChild(grid);
+        root.appendChild(section);
+      }
     }
     function updateRateHint(ss = samples()) {
       const captureStream = getCapture()?.stream;

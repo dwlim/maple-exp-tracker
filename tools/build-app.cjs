@@ -9,6 +9,7 @@ const modules = [
   ["MAP NAME", "map-name.js"],
   ["LOCAL OCR", "local-ocr.js"],
   ["POTION COSTS", "potion-costs.js"],
+  ["MAP SESSIONS", "map-sessions.js"],
   ["QUICKSLOT SESSION", "quickslot-session.js"],
   ["STREAM CARD", "stream-card.js"],
   ["SESSION", "session.js"],

@@ -54,6 +54,7 @@
       mesoStatus: "Searching for the inventory balance automatically",
       mapName: "",
       mapUpdatedAt: null,
+      mapHistory: [],
       level: null,
       source: null,
       running: false,
@@ -71,6 +72,15 @@
       source: null,
       paused: false,
     };
+    state.mapHistory = Array.isArray(state.mapHistory)
+      ? state.mapHistory
+          .filter((entry) => typeof entry?.name === "string" && entry.name.trim() && Number.isFinite(entry.t))
+          .map((entry) => ({ t: entry.t, name: entry.name.trim() }))
+          .sort((a, b) => a.t - b.t)
+          .slice(-1000)
+      : [];
+    if (!state.mapHistory.length && state.mapName && Number.isFinite(state.mapUpdatedAt))
+      state.mapHistory.push({ t: state.mapUpdatedAt, name: state.mapName });
     if (
       !Number.isSafeInteger(state.mesoStartAmount) ||
       state.mesoStartAmount < 0
@@ -129,12 +139,15 @@
       return true;
     }
     function reset() {
+      const t = now();
       state.samples = [];
       state.mesoSamples = [];
       state.mesoStartAmount = null;
       state.mesoStatus = "Searching for the inventory balance automatically";
       state.level = null;
-      state.startAt = now();
+      state.startAt = t;
+      state.mapHistory = state.mapName ? [{ t, name: state.mapName }] : [];
+      state.mapUpdatedAt = state.mapName ? t : null;
       clearPending();
       onChange();
     }
@@ -157,9 +170,23 @@
     }
     function setMapName(name, t = now()) {
       const value = String(name || "").trim();
-      if (!value || value === state.mapName) return false;
+      if (!value) return false;
+      const timestamp = Number.isFinite(t) ? t : now(),
+        before = state.mapHistory.filter((entry) => entry.t < timestamp).at(-1),
+        exact = state.mapHistory.find((entry) => entry.t === timestamp && entry.name === value);
+      if (!exact && before?.name !== value) {
+        state.mapHistory.push({ t: timestamp, name: value });
+        state.mapHistory.sort((a, b) => a.t - b.t);
+        if (state.mapHistory.length > 1000) state.mapHistory = state.mapHistory.slice(-1000);
+      }
+      if (state.mapUpdatedAt !== null && timestamp < state.mapUpdatedAt) {
+        save();
+        onChange();
+        return !exact;
+      }
+      if (value === state.mapName && state.mapUpdatedAt === timestamp) return false;
       state.mapName = value;
-      state.mapUpdatedAt = Number.isFinite(t) ? t : now();
+      state.mapUpdatedAt = timestamp;
       save();
       onChange();
       return true;

@@ -225,7 +225,7 @@ assert.match(q(".app").innerHTML, /HP \/ MP POTIONS \/ HOUR · LAST 5 MIN/);
 assert.match(q(".app").innerHTML, /MESOS \/ HOUR · LAST 5 MIN/);
 assert.doesNotMatch(q(".app").innerHTML, /POTION SPENT/);
 assert.doesNotMatch(q(".app").innerHTML, /HP\+MP/);
-assert.match(fs.readFileSync("dashboard.js", "utf8"), /#netMesoRate/);
+assert.match(fs.readFileSync("dashboard.js", "utf8"), /#estimatedGrossMesoRate/);
 stored = JSON.stringify({ ...state, mapName: "Kerning City Subway · Line 1 Area 1" });
 events.get("storage")({ key: "maple-track-v1" });
 assert.equal(
