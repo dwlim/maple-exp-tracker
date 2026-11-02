@@ -168,18 +168,18 @@
       };
       return { levelResult, expResult };
     }
-    async function decodeFrame(frame) {
+    async function decodeFrame(frame, { forceAuto = false } = {}) {
       const pixels = frame
           .getContext("2d")
           .getImageData(0, 0, frame.width, frame.height),
         regions = {
-          ...(state.calibration.auto === false
+          ...(state.calibration.auto === false && !forceAuto
             ? state.calibration
             : hudRegions.detect(
                 pixels,
                 levelOcr,
                 hudOcr,
-                getImage()._trackedHud,
+                forceAuto ? null : getImage()._trackedHud,
               )),
         };
       frame._pixels = pixels;

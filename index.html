@@ -2845,6 +2845,8 @@ return {detect,crop,anchors,percentageRegion};
             ? v.count
             : null,
         used: Number.isFinite(v.used) && v.used >= 0 ? v.used : 0,
+        restocked: Number.isFinite(v.restocked) && v.restocked >= 0 ? v.restocked : 0,
+        paidStock: Number.isFinite(v.paidStock) && v.paidStock >= 0 ? v.paidStock : 0,
         seconds: Number.isFinite(v.seconds) && v.seconds >= 0 ? v.seconds : 0,
         usageSamples: Array.isArray(v.usageSamples)
           ? v.usageSamples.filter((s) => Number.isFinite(s?.t) && Number.isFinite(s?.seconds) && s.seconds > 0 && s.seconds <= 25 && Number.isFinite(s?.used) && s.used >= 0).slice(-200)
@@ -2891,7 +2893,7 @@ return {detect,crop,anchors,percentageRegion};
       let item = state.items.find((v) => v.id === id);
       if (!item) {
         if (state.items.length >= 12) return null;
-        item = { id: ++serial, used: 0, seconds: 0, usageSamples: [] };
+        item = { id: ++serial, used: 0, restocked: 0, paidStock: 0, seconds: 0, usageSamples: [] };
         state.items.push(item);
       }
       Object.assign(item, {
@@ -2917,10 +2919,10 @@ return {detect,crop,anchors,percentageRegion};
       changed();
       return item;
     }
-    function observe(id, result, t) {
+    function applyObservation(id, result, t) {
       const item = state.items.find((v) => v.id === id);
       if (!item || !Number.isFinite(t) || (seen.has(id) && t <= seen.get(id)))
-        return false;
+        return { accepted: false, changed: false, persisted: false };
       seen.set(id, t);
       if (
         !result ||
@@ -2932,8 +2934,7 @@ return {detect,crop,anchors,percentageRegion};
       ) {
         item.pending = null;
         item.status = "Unreadable · keeping last count";
-        onChange();
-        return false;
+        return { accepted: false, changed: true, persisted: false };
       }
       const count = result.count,
         dt = item.at === null ? null : (t - item.at) / 1000;
@@ -2953,31 +2954,55 @@ return {detect,crop,anchors,percentageRegion};
         if (!confirmed) {
           item.pending = { count, t };
           item.status = "Confirming count change";
-          onChange();
-          return false;
+          return { accepted: false, changed: true, persisted: false };
         }
       }
       if (dt !== null && dt <= 25) {
-        item.seconds += dt;
         const used = Math.max(0, item.count - count);
+        const restocked = Math.max(0, count - item.count);
         item.used += used;
-        if (used) {
+        item.restocked = (item.restocked || 0) + restocked;
+        const prepaidUsed = Math.min(used, item.paidStock || 0);
+        item.paidStock = Math.max(0, (item.paidStock || 0) - prepaidUsed) + restocked;
+        const billable = used - prepaidUsed;
+        if (billable || restocked) {
           const unitCost = Costs.price(item);
           if (unitCost === null) state.spendKnown = false;
-          else state.totalSpent += used * unitCost;
+          else state.totalSpent += (billable + restocked) * unitCost;
         }
         item.usageSamples ||= [];
-        item.usageSamples.push({ t, seconds: dt, used });
-        item.usageSamples = item.usageSamples.filter((s) => s.t > t - 300000).slice(-200);
+        if (restocked) {
+          // The interval containing a refill has an unknown use/refill order.
+          // Start a fresh rate window so replenishment cannot dilute usage/hour.
+          item.usageSamples = [];
+        } else {
+          item.seconds += dt;
+          item.usageSamples.push({ t, seconds: dt, used });
+          item.usageSamples = item.usageSamples.filter((s) => s.t > t - 300000).slice(-200);
+        }
       }
       Object.assign(item, { count, at: t, pending: null, status: "Reading" });
-      changed();
-      return true;
+      return { accepted: true, changed: true, persisted: true };
+    }
+    function observe(id, result, t) {
+      const outcome = applyObservation(id, result, t);
+      if (outcome.persisted) changed();
+      else if (outcome.changed) onChange();
+      return outcome.accepted;
+    }
+    function observeBatch(updates) {
+      const outcomes = updates.map(({ id, result, t }) =>
+        applyObservation(id, result, t),
+      );
+      if (outcomes.some((v) => v.persisted)) changed();
+      else if (outcomes.some((v) => v.changed)) onChange();
+      return outcomes.map((v) => v.accepted);
     }
     return {
       state,
       add,
       observe,
+      observeBatch,
       setUnitCost(id, value) {
         const item = state.items.find((i) => i.id === id);
         if (
@@ -3006,6 +3031,8 @@ return {detect,crop,anchors,percentageRegion};
         state.spendKnown = true;
         for (const i of state.items) {
           i.used = 0;
+          i.restocked = 0;
+          i.paidStock = 0;
           i.seconds = 0;
           i.usageSamples = [];
         }
@@ -3762,18 +3789,18 @@ return {detect,crop,anchors,percentageRegion};
       };
       return { levelResult, expResult };
     }
-    async function decodeFrame(frame) {
+    async function decodeFrame(frame, { forceAuto = false } = {}) {
       const pixels = frame
           .getContext("2d")
           .getImageData(0, 0, frame.width, frame.height),
         regions = {
-          ...(state.calibration.auto === false
+          ...(state.calibration.auto === false && !forceAuto
             ? state.calibration
             : hudRegions.detect(
                 pixels,
                 levelOcr,
                 hudOcr,
-                getImage()._trackedHud,
+                forceAuto ? null : getImage()._trackedHud,
               )),
         };
       frame._pixels = pixels;
@@ -4575,11 +4602,85 @@ return {detect,crop,anchors,percentageRegion};
   }) {
     let busy = false,
       mesoReading = false,
+      customRegionFailureStreak = 0,
+      lastCustomRegionFailureAt = null,
+      lastAutoRegionRecoveryAt = null,
       lastMesoReadAt = 0,
       lastMapDetectAt = 0,
       lastMapAttemptAt = 0,
       lastMapCropHash = null,
       lastMapFailureHash = null;
+    async function recoverAutoRegions(frame, readAt, generation, result) {
+      if (session.state.calibration?.auto !== false) {
+        customRegionFailureStreak = 0;
+        lastCustomRegionFailureAt = readAt;
+        return null;
+      }
+      const reason = result?.rejectionReason || "",
+        regionFailure =
+          !frame._hudRegions?.exp ||
+          frame._reading?.expResult?.uncertain === true ||
+          !Number.isFinite(result?.exp) ||
+          (result?.pct !== null &&
+            result?.pct !== undefined &&
+            Number.isFinite(result?.computedPct) &&
+            Math.abs(result.computedPct - result.pct) > 0.03) ||
+          /EXP characters are unclear|No readable EXP amount or percentage|EXP amount and percentage disagree/.test(
+            reason,
+          );
+      if (!regionFailure) {
+        customRegionFailureStreak = 0;
+        lastCustomRegionFailureAt = readAt;
+        return null;
+      }
+      if (lastCustomRegionFailureAt !== readAt) {
+        lastCustomRegionFailureAt = readAt;
+        customRegionFailureStreak++;
+      }
+      if (customRegionFailureStreak < 3 || lastAutoRegionRecoveryAt === readAt)
+        return null;
+      lastAutoRegionRecoveryAt = readAt;
+
+      const previousRegions = frame._hudRegions,
+        previousReading = frame._reading;
+      await recognition.decodeFrame(frame, { forceAuto: true });
+      if (
+        session.state.paused ||
+        generation !== getCapture().generation ||
+        !getCapture().stream
+      ) {
+        frame._hudRegions = previousRegions;
+        frame._reading = previousReading;
+        return null;
+      }
+      const detected = frame._reading;
+      if (frame._hudRegions?.exp && detected) {
+        const { levelResult, expResult } = detected,
+          recovered = session.validate(
+            levelResult,
+            expResult,
+            levelResult.expectedDigits,
+            readAt,
+          );
+        if (recovered.valid) {
+          session.state.calibration = { level: null, exp: null, auto: true };
+          session.save();
+          customRegionFailureStreak = 0;
+          view.updateRegionStatus?.();
+          view.drawRegions?.();
+          view.notice?.(
+            "Repeated HUD read failures detected. Switched to auto regions; normal OCR checks still apply.",
+          );
+          return { levelResult, expResult, result: recovered };
+        }
+      }
+      frame._hudRegions = previousRegions;
+      frame._reading = previousReading;
+      recognition.reset?.();
+      session.clearPending();
+      customRegionFailureStreak = 0;
+      return null;
+    }
     function reportMapFailure(frame, readAt, failureHash, reason) {
       if (!debug || !debugTools?.rejectFrame || failureHash === lastMapFailureHash)
         return;
@@ -4757,6 +4858,23 @@ return {detect,crop,anchors,percentageRegion};
         // the independent meso read; it never changes EXP acceptance.
         readMapName(frame, readAt, generation);
         if (!frame._hudRegions?.exp) {
+          const recovered = await recoverAutoRegions(frame, readAt, generation, null);
+          if (recovered) {
+            view.renderReading(
+              recovered.result,
+              recovered.levelResult,
+              recovered.expResult,
+              readAt,
+            );
+            session.addSample(
+              recovered.result.level,
+              recovered.result.exp,
+              readAt,
+              recovered.expResult.percentageOnly || {},
+            );
+            view.saved(readAt);
+            return { accepted: true, retry: false };
+          }
           session.clearPending();
           view.status("waiting", "Looking for the EXP readout");
           view.output(
@@ -4766,13 +4884,22 @@ return {detect,crop,anchors,percentageRegion};
             await debugTools.rejectFrame(frame, readAt, "exp-readout-not-found");
           return { accepted: false, retry: true };
         }
-        const { levelResult, expResult } = frame._reading,
+        let { levelResult, expResult } = frame._reading,
           result = session.validate(
             levelResult,
             expResult,
             levelResult.expectedDigits,
             readAt,
           );
+        if (!result.valid) {
+          const recovered = await recoverAutoRegions(frame, readAt, generation, result);
+          if (recovered) {
+            ({ levelResult, expResult, result } = recovered);
+          }
+        } else {
+          customRegionFailureStreak = 0;
+          lastCustomRegionFailureAt = readAt;
+        }
         view.renderReading(result, levelResult, expResult, readAt);
         const confirmation =
           result.continuity.reason ===
@@ -5847,6 +5974,20 @@ return {detect,crop,anchors,percentageRegion};
       ["both", "HP + MP potion"],
       ["other", "Other consumable"],
     ].map(([value, label]) => ({ value, label }));
+    function hashCrop(image, box) {
+      const x = Math.max(0, Math.floor(box.x)),
+        y = Math.max(0, Math.floor(box.y)),
+        width = Math.max(1, Math.min(image.width - x, Math.ceil(box.w))),
+        height = Math.max(1, Math.min(image.height - y, Math.ceil(box.h)));
+      let hash = 2166136261;
+      for (let row = 0; row < height; row++) {
+        const start = ((y + row) * image.width + x) * 4,
+          end = start + width * 4;
+        for (let i = start; i < end; i++)
+          hash = Math.imul(hash ^ image.data[i], 16777619);
+      }
+      return width + ":" + height + ":" + hash;
+    }
     function mount({
       document,
       window,
@@ -6116,6 +6257,8 @@ return {detect,crop,anchors,percentageRegion};
           c.usage.textContent = item
             ? "Used " +
               number(item.used) +
+              " · Restocked " +
+              number(item.restocked || 0) +
               " · " +
               number(store.rate(item, now())) +
               " / hour · 5m"
@@ -6222,7 +6365,8 @@ return {detect,crop,anchors,percentageRegion};
             store.remove(item.id);
           }
           if (!store.state.enabled) return;
-          const unreadableSlots = [];
+          const unreadableSlots = [],
+            observations = [];
           for (const item of [...store.state.items]) {
             if (stopped() || !store.state.enabled) return;
             const slot = found.slots[item.slot];
@@ -6235,24 +6379,25 @@ return {detect,crop,anchors,percentageRegion};
             item.height = image.height;
             item.region = slot.quantity;
             const r = slot.quantity,
-              crop = Regions.crop(image, {
+              box = {
                 x: r.x * image.width,
                 y: r.y * image.height,
                 w: r.w * image.width,
                 h: r.h * image.height,
-              });
-            let hash = 2166136261;
-            for (const v of crop.data) hash = Math.imul(hash ^ v, 16777619);
-            const key = crop.width + ":" + crop.height + ":" + hash,
+              },
+              key = hashCrop(image, box),
               prior = cache.get(item.id),
               result =
-                prior?.key === key ? prior.result : await job("slot", crop);
+                prior?.key === key
+                  ? prior.result
+                  : await job("slot", Regions.crop(image, box));
             if (stopped() || !store.state.enabled) return;
             cache.set(item.id, { key, result });
-            store.observe(item.id, result, t);
+            observations.push({ id: item.id, result, t });
             if (!Number.isInteger(result?.count) || result.confidence < 90)
               unreadableSlots.push(item.slot + 1);
           }
+          store.observeBatch(observations);
           if (unreadableSlots.length && !stopped()) {
             try {
               await onRejectedFrame?.(

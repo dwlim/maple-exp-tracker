@@ -34,6 +34,20 @@
       ["both", "HP + MP potion"],
       ["other", "Other consumable"],
     ].map(([value, label]) => ({ value, label }));
+    function hashCrop(image, box) {
+      const x = Math.max(0, Math.floor(box.x)),
+        y = Math.max(0, Math.floor(box.y)),
+        width = Math.max(1, Math.min(image.width - x, Math.ceil(box.w))),
+        height = Math.max(1, Math.min(image.height - y, Math.ceil(box.h)));
+      let hash = 2166136261;
+      for (let row = 0; row < height; row++) {
+        const start = ((y + row) * image.width + x) * 4,
+          end = start + width * 4;
+        for (let i = start; i < end; i++)
+          hash = Math.imul(hash ^ image.data[i], 16777619);
+      }
+      return width + ":" + height + ":" + hash;
+    }
     function mount({
       document,
       window,
@@ -303,6 +317,8 @@
           c.usage.textContent = item
             ? "Used " +
               number(item.used) +
+              " · Restocked " +
+              number(item.restocked || 0) +
               " · " +
               number(store.rate(item, now())) +
               " / hour · 5m"
@@ -409,7 +425,8 @@
             store.remove(item.id);
           }
           if (!store.state.enabled) return;
-          const unreadableSlots = [];
+          const unreadableSlots = [],
+            observations = [];
           for (const item of [...store.state.items]) {
             if (stopped() || !store.state.enabled) return;
             const slot = found.slots[item.slot];
@@ -422,24 +439,25 @@
             item.height = image.height;
             item.region = slot.quantity;
             const r = slot.quantity,
-              crop = Regions.crop(image, {
+              box = {
                 x: r.x * image.width,
                 y: r.y * image.height,
                 w: r.w * image.width,
                 h: r.h * image.height,
-              });
-            let hash = 2166136261;
-            for (const v of crop.data) hash = Math.imul(hash ^ v, 16777619);
-            const key = crop.width + ":" + crop.height + ":" + hash,
+              },
+              key = hashCrop(image, box),
               prior = cache.get(item.id),
               result =
-                prior?.key === key ? prior.result : await job("slot", crop);
+                prior?.key === key
+                  ? prior.result
+                  : await job("slot", Regions.crop(image, box));
             if (stopped() || !store.state.enabled) return;
             cache.set(item.id, { key, result });
-            store.observe(item.id, result, t);
+            observations.push({ id: item.id, result, t });
             if (!Number.isInteger(result?.count) || result.confidence < 90)
               unreadableSlots.push(item.slot + 1);
           }
+          store.observeBatch(observations);
           if (unreadableSlots.length && !stopped()) {
             try {
               await onRejectedFrame?.(

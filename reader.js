@@ -37,11 +37,85 @@
   }) {
     let busy = false,
       mesoReading = false,
+      customRegionFailureStreak = 0,
+      lastCustomRegionFailureAt = null,
+      lastAutoRegionRecoveryAt = null,
       lastMesoReadAt = 0,
       lastMapDetectAt = 0,
       lastMapAttemptAt = 0,
       lastMapCropHash = null,
       lastMapFailureHash = null;
+    async function recoverAutoRegions(frame, readAt, generation, result) {
+      if (session.state.calibration?.auto !== false) {
+        customRegionFailureStreak = 0;
+        lastCustomRegionFailureAt = readAt;
+        return null;
+      }
+      const reason = result?.rejectionReason || "",
+        regionFailure =
+          !frame._hudRegions?.exp ||
+          frame._reading?.expResult?.uncertain === true ||
+          !Number.isFinite(result?.exp) ||
+          (result?.pct !== null &&
+            result?.pct !== undefined &&
+            Number.isFinite(result?.computedPct) &&
+            Math.abs(result.computedPct - result.pct) > 0.03) ||
+          /EXP characters are unclear|No readable EXP amount or percentage|EXP amount and percentage disagree/.test(
+            reason,
+          );
+      if (!regionFailure) {
+        customRegionFailureStreak = 0;
+        lastCustomRegionFailureAt = readAt;
+        return null;
+      }
+      if (lastCustomRegionFailureAt !== readAt) {
+        lastCustomRegionFailureAt = readAt;
+        customRegionFailureStreak++;
+      }
+      if (customRegionFailureStreak < 3 || lastAutoRegionRecoveryAt === readAt)
+        return null;
+      lastAutoRegionRecoveryAt = readAt;
+
+      const previousRegions = frame._hudRegions,
+        previousReading = frame._reading;
+      await recognition.decodeFrame(frame, { forceAuto: true });
+      if (
+        session.state.paused ||
+        generation !== getCapture().generation ||
+        !getCapture().stream
+      ) {
+        frame._hudRegions = previousRegions;
+        frame._reading = previousReading;
+        return null;
+      }
+      const detected = frame._reading;
+      if (frame._hudRegions?.exp && detected) {
+        const { levelResult, expResult } = detected,
+          recovered = session.validate(
+            levelResult,
+            expResult,
+            levelResult.expectedDigits,
+            readAt,
+          );
+        if (recovered.valid) {
+          session.state.calibration = { level: null, exp: null, auto: true };
+          session.save();
+          customRegionFailureStreak = 0;
+          view.updateRegionStatus?.();
+          view.drawRegions?.();
+          view.notice?.(
+            "Repeated HUD read failures detected. Switched to auto regions; normal OCR checks still apply.",
+          );
+          return { levelResult, expResult, result: recovered };
+        }
+      }
+      frame._hudRegions = previousRegions;
+      frame._reading = previousReading;
+      recognition.reset?.();
+      session.clearPending();
+      customRegionFailureStreak = 0;
+      return null;
+    }
     function reportMapFailure(frame, readAt, failureHash, reason) {
       if (!debug || !debugTools?.rejectFrame || failureHash === lastMapFailureHash)
         return;
@@ -219,6 +293,23 @@
         // the independent meso read; it never changes EXP acceptance.
         readMapName(frame, readAt, generation);
         if (!frame._hudRegions?.exp) {
+          const recovered = await recoverAutoRegions(frame, readAt, generation, null);
+          if (recovered) {
+            view.renderReading(
+              recovered.result,
+              recovered.levelResult,
+              recovered.expResult,
+              readAt,
+            );
+            session.addSample(
+              recovered.result.level,
+              recovered.result.exp,
+              readAt,
+              recovered.expResult.percentageOnly || {},
+            );
+            view.saved(readAt);
+            return { accepted: true, retry: false };
+          }
           session.clearPending();
           view.status("waiting", "Looking for the EXP readout");
           view.output(
@@ -228,13 +319,22 @@
             await debugTools.rejectFrame(frame, readAt, "exp-readout-not-found");
           return { accepted: false, retry: true };
         }
-        const { levelResult, expResult } = frame._reading,
+        let { levelResult, expResult } = frame._reading,
           result = session.validate(
             levelResult,
             expResult,
             levelResult.expectedDigits,
             readAt,
           );
+        if (!result.valid) {
+          const recovered = await recoverAutoRegions(frame, readAt, generation, result);
+          if (recovered) {
+            ({ levelResult, expResult, result } = recovered);
+          }
+        } else {
+          customRegionFailureStreak = 0;
+          lastCustomRegionFailureAt = readAt;
+        }
         view.renderReading(result, levelResult, expResult, readAt);
         const confirmation =
           result.continuity.reason ===

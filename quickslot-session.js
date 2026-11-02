@@ -79,6 +79,8 @@
             ? v.count
             : null,
         used: Number.isFinite(v.used) && v.used >= 0 ? v.used : 0,
+        restocked: Number.isFinite(v.restocked) && v.restocked >= 0 ? v.restocked : 0,
+        paidStock: Number.isFinite(v.paidStock) && v.paidStock >= 0 ? v.paidStock : 0,
         seconds: Number.isFinite(v.seconds) && v.seconds >= 0 ? v.seconds : 0,
         usageSamples: Array.isArray(v.usageSamples)
           ? v.usageSamples.filter((s) => Number.isFinite(s?.t) && Number.isFinite(s?.seconds) && s.seconds > 0 && s.seconds <= 25 && Number.isFinite(s?.used) && s.used >= 0).slice(-200)
@@ -125,7 +127,7 @@
       let item = state.items.find((v) => v.id === id);
       if (!item) {
         if (state.items.length >= 12) return null;
-        item = { id: ++serial, used: 0, seconds: 0, usageSamples: [] };
+        item = { id: ++serial, used: 0, restocked: 0, paidStock: 0, seconds: 0, usageSamples: [] };
         state.items.push(item);
       }
       Object.assign(item, {
@@ -151,10 +153,10 @@
       changed();
       return item;
     }
-    function observe(id, result, t) {
+    function applyObservation(id, result, t) {
       const item = state.items.find((v) => v.id === id);
       if (!item || !Number.isFinite(t) || (seen.has(id) && t <= seen.get(id)))
-        return false;
+        return { accepted: false, changed: false, persisted: false };
       seen.set(id, t);
       if (
         !result ||
@@ -166,8 +168,7 @@
       ) {
         item.pending = null;
         item.status = "Unreadable · keeping last count";
-        onChange();
-        return false;
+        return { accepted: false, changed: true, persisted: false };
       }
       const count = result.count,
         dt = item.at === null ? null : (t - item.at) / 1000;
@@ -187,31 +188,55 @@
         if (!confirmed) {
           item.pending = { count, t };
           item.status = "Confirming count change";
-          onChange();
-          return false;
+          return { accepted: false, changed: true, persisted: false };
         }
       }
       if (dt !== null && dt <= 25) {
-        item.seconds += dt;
         const used = Math.max(0, item.count - count);
+        const restocked = Math.max(0, count - item.count);
         item.used += used;
-        if (used) {
+        item.restocked = (item.restocked || 0) + restocked;
+        const prepaidUsed = Math.min(used, item.paidStock || 0);
+        item.paidStock = Math.max(0, (item.paidStock || 0) - prepaidUsed) + restocked;
+        const billable = used - prepaidUsed;
+        if (billable || restocked) {
           const unitCost = Costs.price(item);
           if (unitCost === null) state.spendKnown = false;
-          else state.totalSpent += used * unitCost;
+          else state.totalSpent += (billable + restocked) * unitCost;
         }
         item.usageSamples ||= [];
-        item.usageSamples.push({ t, seconds: dt, used });
-        item.usageSamples = item.usageSamples.filter((s) => s.t > t - 300000).slice(-200);
+        if (restocked) {
+          // The interval containing a refill has an unknown use/refill order.
+          // Start a fresh rate window so replenishment cannot dilute usage/hour.
+          item.usageSamples = [];
+        } else {
+          item.seconds += dt;
+          item.usageSamples.push({ t, seconds: dt, used });
+          item.usageSamples = item.usageSamples.filter((s) => s.t > t - 300000).slice(-200);
+        }
       }
       Object.assign(item, { count, at: t, pending: null, status: "Reading" });
-      changed();
-      return true;
+      return { accepted: true, changed: true, persisted: true };
+    }
+    function observe(id, result, t) {
+      const outcome = applyObservation(id, result, t);
+      if (outcome.persisted) changed();
+      else if (outcome.changed) onChange();
+      return outcome.accepted;
+    }
+    function observeBatch(updates) {
+      const outcomes = updates.map(({ id, result, t }) =>
+        applyObservation(id, result, t),
+      );
+      if (outcomes.some((v) => v.persisted)) changed();
+      else if (outcomes.some((v) => v.changed)) onChange();
+      return outcomes.map((v) => v.accepted);
     }
     return {
       state,
       add,
       observe,
+      observeBatch,
       setUnitCost(id, value) {
         const item = state.items.find((i) => i.id === id);
         if (
@@ -240,6 +265,8 @@
         state.spendKnown = true;
         for (const i of state.items) {
           i.used = 0;
+          i.restocked = 0;
+          i.paidStock = 0;
           i.seconds = 0;
           i.usageSamples = [];
         }
