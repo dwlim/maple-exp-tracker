@@ -2,11 +2,14 @@
   const api = factory(
     typeof module === "object" && module.exports
       ? require("./quickslot-session")
-      : root.MapleQuickslotSession,
+        : root.MapleQuickslotSession,
+    typeof module === "object" && module.exports
+      ? require("./potion-costs")
+      : root.MaplePotionCosts,
   );
   if (typeof module === "object" && module.exports) module.exports = api;
   else root.MapleStreamCard = api;
-})(typeof window === "undefined" ? globalThis : window, function (QuickslotSession) {
+})(typeof window === "undefined" ? globalThis : window, function (QuickslotSession, PotionCosts) {
   function metrics(state, now, required, totalExp) {
     const samples = (Array.isArray(state.samples) ? state.samples : [])
         .filter(
@@ -99,6 +102,28 @@
     if (!Number.isFinite(earned) || earned < 0) earned = null;
     return { spent, earned };
   }
+  function potionUseRates(savedStates, now) {
+    const totals = { hp: 0, mp: 0, both: 0 },
+      seen = { hp: false, mp: false, both: false },
+      complete = { hp: true, mp: true, both: true };
+    for (const saved of savedStates || []) {
+      if (saved?.enabled !== true) continue;
+      for (const item of Array.isArray(saved.items) ? saved.items : []) {
+        const group = PotionCosts.catalog[item?.potionType]?.group;
+        if (!group || !Object.hasOwn(totals, group)) continue;
+        seen[group] = true;
+        const itemRate = QuickslotSession.rate(item, now);
+        if (!Number.isFinite(itemRate)) complete[group] = false;
+        else totals[group] += itemRate;
+      }
+    }
+    return Object.fromEntries(
+      Object.keys(totals).map((group) => [
+        group,
+        seen[group] && complete[group] ? totals[group] : null,
+      ]),
+    );
+  }
   function mesoMetrics(state, now) {
     const samples = (Array.isArray(state.mesoSamples) ? state.mesoSamples : [])
         .filter((s) => Number.isSafeInteger(s.amount) && s.amount >= 0 && Number.isFinite(s.t) && s.t <= now)
@@ -169,16 +194,17 @@
     document.title = "Maple Track · Stream card";
     document.body.classList.add("stream-card");
     document.querySelector(".app").innerHTML =
-      '<section class="stream-panel" aria-label="Maple Track live stream card"><header><span>MAPLE TRACK</span><span id="cardStatus">CONNECTING</span></header><div class="stream-values"><div><span>LEVEL</span><strong id="cardLevel">—</strong></div><div><span>EXP / HOUR</span><strong id="cardRate">—</strong></div></div><div class="stream-progress"><i id="cardFill"></i></div><footer><span id="cardPercent">0.00%</span><span id="cardEta">Waiting for EXP</span></footer><div id="cardMapName" style="margin-top:7px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;color:#93949f;font:8px monospace"></div><div class="stream-metrics-line"><div><span>POTION SPENT</span><strong id="cardSpent">—</strong></div><div><span>MESOS EARNED</span><strong id="cardEarned" title="Balance increase plus tracked potion costs this session">—</strong></div></div><div class="stream-chart"><div class="stream-chart-label"><span>EXP / 30 SEC · LAST 5 MIN</span><span id="cardGraphPeak">—</span></div><svg viewBox="0 0 342 76" role="img" aria-label="EXP gained per thirty seconds over the last five minutes"><g fill="#93949f" font-size="8" font-family="monospace" text-anchor="end"><text id="cardAxisTop" x="35" y="9">1</text><text id="cardAxisMid" x="35" y="40">0.5</text><text x="35" y="71">0</text></g><g transform="translate(42 0)"><path d="M0,6H300M0,37H300M0,68H300M0,6V68" stroke="#34353e" stroke-width="0.7" fill="none"/><path id="cardGraph" fill="none" stroke="#c7f36b" stroke-width="2" stroke-linejoin="round" stroke-linecap="round"/></g></svg><span id="cardGraphHint">Waiting for readings</span></div></section>';
+      '<section class="stream-panel" aria-label="Maple Track live stream card"><header><span>MAPLE TRACK</span><span id="cardStatus">CONNECTING</span></header><div class="stream-values"><div><span>LEVEL</span><strong id="cardLevel">—</strong></div><div><span>EXP / HOUR</span><strong id="cardRate">—</strong></div></div><div class="stream-progress"><i id="cardFill"></i></div><footer><span id="cardPercent">0.00%</span><span id="cardEta">Waiting for EXP</span></footer><div id="cardMapName" style="margin-top:7px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;color:#93949f;font:8px monospace"></div><div class="stream-metrics-line"><div><span>HP / MP / HP+MP POTIONS · PER HOUR · LAST 5 MIN</span><strong id="cardPotionUse" title="Observed potion use per hour over the trailing five minutes; HP, MP, then HP+MP">— / — / —</strong></div><div><span>MESOS EARNED</span><strong id="cardEarned" title="Balance increase plus tracked potion costs this session">—</strong></div></div><div class="stream-chart"><div class="stream-chart-label"><span>EXP / 30 SEC · LAST 5 MIN</span><span id="cardGraphPeak">—</span></div><svg viewBox="0 0 342 76" role="img" aria-label="EXP gained per thirty seconds over the last five minutes"><g fill="#93949f" font-size="8" font-family="monospace" text-anchor="end"><text id="cardAxisTop" x="35" y="9">1</text><text id="cardAxisMid" x="35" y="40">0.5</text><text x="35" y="71">0</text></g><g transform="translate(42 0)"><path d="M0,6H300M0,37H300M0,68H300M0,6V68" stroke="#34353e" stroke-width="0.7" fill="none"/><path id="cardGraph" fill="none" stroke="#c7f36b" stroke-width="2" stroke-linejoin="round" stroke-linecap="round"/></g></svg><span id="cardGraphHint">Waiting for readings</span></div></section>';
     const q = (id) => document.querySelector(id);
     function render() {
       let state = {};
       try {
         state = JSON.parse(storage.getItem(key) || "{}") || {};
       } catch {}
-      let potionState = {};
+      let potionState = {},
+        savedStates = [];
       try {
-        const savedStates = QuickslotSession.STORE_KEYS.map((storeKey) =>
+        savedStates = QuickslotSession.STORE_KEYS.map((storeKey) =>
             JSON.parse(storage.getItem(storeKey) || "{}"),
           ).filter((saved) => saved?.enabled === true);
         // Session totals are maintained separately for the 8-slot and 12-slot
@@ -193,10 +219,13 @@
           : {};
       } catch {}
       const money = moneyTotals(state, potionState),
+        potionRates = potionUseRates(savedStates, now()),
         compact = (value) => value === null || value === undefined
           ? "—"
           : Intl.NumberFormat("en-US", { notation: "compact", maximumFractionDigits: 1 }).format(Math.round(value));
-      q("#cardSpent").textContent = compact(money.spent);
+      q("#cardPotionUse").textContent = [potionRates.hp, potionRates.mp, potionRates.both]
+        .map(compact)
+        .join(" / ");
       q("#cardEarned").textContent = compact(money.earned);
       const m = metrics(state, now(), required, totalExp);
       q("#cardLevel").textContent = m.level;
@@ -249,5 +278,5 @@
     );
     render();
   }
-  return { metrics, mesoMetrics, moneyTotals, graph, mount };
+  return { metrics, mesoMetrics, moneyTotals, potionUseRates, graph, mount };
 });

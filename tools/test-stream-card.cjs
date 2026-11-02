@@ -23,6 +23,21 @@ const now = Date.now(),
       { level: 32, exp: 2000, t: now },
     ],
   };
+const useSamples = (used) => [
+  { t: now - 15000, seconds: 15, used: Math.floor(used / 2) },
+  { t: now, seconds: 15, used: used - Math.floor(used / 2) },
+];
+assert.deepEqual(
+  C.potionUseRates(
+    [
+      { enabled: true, items: [{ potionType: "red", usageSamples: useSamples(3) }, { potionType: "blue", usageSamples: useSamples(2) }, { potionType: "both", usageSamples: useSamples(1) }] },
+      { enabled: true, items: [{ potionType: "orange", usageSamples: useSamples(1) }] },
+    ],
+    now,
+  ),
+  { hp: 480, mp: 240, both: 120 },
+  "Potion use rates sum HP, MP and combined potion use across layouts over five minutes",
+);
 let m = C.metrics(state, now, required, totalExp);
 assert.equal(m.level, "32");
 assert.equal(m.rate, "60,000");
@@ -159,8 +174,8 @@ const nodes = new Map(),
   events = new Map(),
   intervals = [];
 const potionSnapshots = new Map([
-  ["maple-track-items-v1:4x2", JSON.stringify({ enabled: true, totalSpent: 1250, spendKnown: true })],
-  ["maple-track-items-v1:4x3", JSON.stringify({ enabled: true, totalSpent: 250, spendKnown: true })],
+  ["maple-track-items-v1:4x2", JSON.stringify({ enabled: true, totalSpent: 1250, spendKnown: true, items: [{ potionType: "red", usageSamples: useSamples(3) }, { potionType: "blue", usageSamples: useSamples(2) }, { potionType: "both", usageSamples: useSamples(1) }] })],
+  ["maple-track-items-v1:4x3", JSON.stringify({ enabled: true, totalSpent: 250, spendKnown: true, items: [{ potionType: "orange", usageSamples: useSamples(1) }] })],
 ]);
 let writes = 0,
   stored = JSON.stringify(state);
@@ -223,11 +238,12 @@ assert.equal(q("#cardLevel").textContent, "32");
 assert.equal(q("#cardRate").textContent, "60,000");
 assert.equal(q("#cardMapName").textContent, "MAP · SEARCHING FOR MAP");
 assert.match(q(".app").innerHTML, /<div class="stream-metrics-line">/);
-assert.equal(q("#cardSpent").textContent, "1.5K");
+assert.equal(q("#cardPotionUse").textContent, "480 / 240 / 120");
 assert.equal(q("#cardEarned").textContent, "101.5K");
-for (const id of ["cardSpent", "cardEarned"])
+for (const id of ["cardPotionUse", "cardEarned"])
   assert.ok(q(".app").innerHTML.includes(`id="${id}"`));
-assert.doesNotMatch(q(".app").innerHTML, /POTION COST\/HR|MESO\/HR/);
+assert.match(q(".app").innerHTML, /HP \/ MP \/ HP\+MP POTIONS · PER HOUR · LAST 5 MIN/);
+assert.doesNotMatch(q(".app").innerHTML, /POTION SPENT/);
 assert.match(fs.readFileSync("dashboard.js", "utf8"), /#netMesoRate/);
 stored = JSON.stringify({ ...state, mapName: "Kerning City Subway · Line 1 Area 1" });
 events.get("storage")({ key: "maple-track-v1" });
@@ -252,11 +268,11 @@ potionSnapshots.set("maple-track-items-v1:4x3", JSON.stringify({
   spendKnown: true,
 }));
 events.get("storage")({ key: "maple-track-items-v1:4x2" });
-assert.equal(q("#cardSpent").textContent, "—");
+assert.equal(q("#cardPotionUse").textContent, "— / — / —");
 assert.equal(q("#cardEarned").textContent, "—");
 potionSnapshots.set("maple-track-items-v1:4x2", "invalid");
 events.get("storage")({ key: "maple-track-items-v1:4x3" });
-assert.equal(q("#cardSpent").textContent, "—");
+assert.equal(q("#cardPotionUse").textContent, "— / — / —");
 stored = "invalid";
 events.get("storage")({ key: null });
 assert.equal(

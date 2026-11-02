@@ -6,6 +6,22 @@
   "use strict";
   const KEY = "maple-track-items-v1";
   const STORE_KEYS = [KEY + ":4x2", KEY + ":4x3"];
+  function rate(item, now = Date.now()) {
+    if (!item || !Number.isFinite(now)) return null;
+    const cutoff = now - 300000;
+    let used = 0,
+      seconds = 0;
+    for (const sample of item.usageSamples || []) {
+      if (!Number.isFinite(sample.t) || sample.t > now || sample.t <= cutoff || !Number.isFinite(sample.seconds) || sample.seconds <= 0 || sample.seconds > 25 || !Number.isFinite(sample.used) || sample.used < 0) continue;
+      const observedStart = sample.t - sample.seconds * 1000,
+        overlapMs = sample.t - Math.max(cutoff, observedStart);
+      if (overlapMs <= 0) continue;
+      const fraction = overlapMs / (sample.seconds * 1000);
+      seconds += overlapMs / 1000;
+      used += sample.used * fraction;
+    }
+    return seconds >= 30 ? (used / seconds) * 3600 : null;
+  }
   function validRegion(r) {
     return (
       r &&
@@ -274,23 +290,10 @@
         changed();
       },
       rate(item, now = Date.now()) {
-        if (!item || !Number.isFinite(now)) return null;
-        const cutoff = now - 300000;
-        let used = 0,
-          seconds = 0;
-        for (const sample of item.usageSamples || []) {
-          if (!Number.isFinite(sample.t) || sample.t > now || sample.t <= cutoff || !Number.isFinite(sample.seconds) || sample.seconds <= 0 || sample.seconds > 25 || !Number.isFinite(sample.used) || sample.used < 0) continue;
-          const observedStart = sample.t - sample.seconds * 1000,
-            overlapMs = sample.t - Math.max(cutoff, observedStart);
-          if (overlapMs <= 0) continue;
-          const fraction = overlapMs / (sample.seconds * 1000);
-          seconds += overlapMs / 1000;
-          used += sample.used * fraction;
-        }
-        return seconds >= 30 ? (used / seconds) * 3600 : null;
+        return rate(item, now);
       },
     };
   }
 
-  return { KEY, STORE_KEYS, create: createStore, validRegion };
+  return { KEY, STORE_KEYS, create: createStore, rate, validRegion };
 });
