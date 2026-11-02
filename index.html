@@ -5711,33 +5711,62 @@ return {detect,crop,anchors,percentageRegion};
       ? previous.anchor
       : Regions.anchors(image, "cash-shop")[0];
     if (!a) return null;
+    const previousGrid =
+      previous?.box &&
+      previous.anchor?.kind === "cash-shop" &&
+      (previous.rows === 2 || previous.rows === 3)
+        ? {
+            rows: previous.rows,
+            box: {
+              x:
+                a.x +
+                (previous.box.x - previous.anchor.x) * (a.w / previous.anchor.w),
+              y:
+                a.y +
+                (previous.box.y - previous.anchor.y) * (a.h / previous.anchor.h),
+              w: previous.box.w * (a.w / previous.anchor.w),
+              h: previous.box.h * (a.h / previous.anchor.h),
+            },
+          }
+        : null;
     const x = Math.max(0, Math.floor(a.x + a.w * 0.72)),
       y = Math.max(0, Math.floor(a.y - a.h * 4.7)),
       patch = Regions.crop(image, { x, y, w: a.w * 2.6, h: a.h * 4.35 });
     return {
       patch,
       anchor: a,
+      previousGrid,
       origin: { x, y },
       width: image.width,
       height: image.height,
     };
   }
-  function scan({ patch, anchor: a, origin, width, height }) {
-    const light = new Float32Array(patch.width * patch.height);
-    for (let p = 0; p < light.length; p++) {
+  function scan({ patch, anchor: a, origin, width, height, previousGrid }) {
+    let light = null;
+    function buildLightMap() {
+      if (light) return;
+      light = new Float32Array(patch.width * patch.height);
+      for (let p = 0; p < light.length; p++) {
+        const i = p * 4,
+          r = patch.data[i],
+          g = patch.data[i + 1],
+          b = patch.data[i + 2],
+          mn = Math.min(r, g, b);
+        light[p] = Math.max(r, g, b) - mn > 80 ? 0 : mn / 255;
+      }
+    }
+    const value = (x, y) => {
+      x = Math.round(x - origin.x);
+      y = Math.round(y - origin.y);
+      if (x < 0 || y < 0 || x >= patch.width || y >= patch.height) return 0;
+      const p = y * patch.width + x;
+      if (light) return light[p];
       const i = p * 4,
         r = patch.data[i],
         g = patch.data[i + 1],
         b = patch.data[i + 2],
         mn = Math.min(r, g, b);
-      light[p] = Math.max(r, g, b) - mn > 80 ? 0 : mn / 255;
-    }
-    const value = (x, y) => {
-      x = Math.round(x - origin.x);
-      y = Math.round(y - origin.y);
-      return x >= 0 && y >= 0 && x < patch.width && y < patch.height
-        ? light[y * patch.width + x]
-        : 0;
+      return Math.max(r, g, b) - mn > 80 ? 0 : mn / 255;
     };
     function edge(x, y, vertical) {
       let peak = 0;
@@ -5777,42 +5806,19 @@ return {detect,crop,anchors,percentageRegion};
         sides,
       };
     }
-    const best = [];
-    for (const rows of [2, 3]) {
-      for (const wf of [1.94, 1.98, 2.02, 2.06, 2.1])
-        for (const dx of [
-          -0.12, -0.08, -0.04, -0.02, 0, 0.02, 0.04, 0.08, 0.12,
-        ])
-          for (const dy of [
-            -0.24, -0.18, -0.12, -0.08, -0.06, -0.04, 0, 0.04, 0.06, 0.08, 0.12,
-            0.18, 0.24,
-          ])
-            for (const hf of [0.97, 1, 1.03]) {
-              const w = a.w * wf,
-                h = ((w * rows) / 4) * hf,
-                x = a.x + a.w * (3.06 + dx) - w,
-                y = a.y - a.h * (1 + dy) - h,
-                box = { x, y, w, h };
-              if (x < 0 || y < 0 || x + w > width || y + h > height) continue;
-              const result = score(box);
-              if (result.quality >= 0.6 && Math.min(...result.sides) >= 0.4)
-                best.push({ ...box, ...result, rows });
-            }
-    }
-    best.sort((a, b) => b.quality - a.quality);
-    for (const b of best) {
+    function layoutFor(box, rows, result) {
       const crossbar = [0.25, 0.5, 0.75].map((u) =>
-        edge(b.x + b.w * u, b.y, false),
+        edge(box.x + box.w * u, box.y, false),
       );
-      if (crossbar.filter((v) => v > 0.45).length < 2) continue;
+      if (crossbar.filter((v) => v > 0.45).length < 2) return null;
       const cols = 4,
         slots = [];
-      for (let row = 0; row < b.rows; row++)
+      for (let row = 0; row < rows; row++)
         for (let col = 0; col < cols; col++) {
-          const pitchX = (b.w - a.h * 0.18) / 4,
-            pitchY = (b.h - a.h * 0.2) / b.rows,
-            x = b.x + a.h * 0.1 + pitchX * col,
-            y = b.y + a.h * 0.1 + pitchY * row;
+          const pitchX = (box.w - a.h * 0.18) / 4,
+            pitchY = (box.h - a.h * 0.2) / rows,
+            x = box.x + a.h * 0.1 + pitchX * col,
+            y = box.y + a.h * 0.1 + pitchY * row;
           slots.push({
             index: row * 4 + col,
             row,
@@ -5844,20 +5850,55 @@ return {detect,crop,anchors,percentageRegion};
           );
         if (ink > 0.35 && ink - gap > 0.08) verified++;
       }
-      if (verified < Math.ceil(slots.length * 0.6)) continue;
+      if (verified < Math.ceil(slots.length * 0.6)) return null;
       return {
         verified,
-        rows: b.rows,
+        rows,
         cols,
-        count: b.rows * 4,
-        kind: "4x" + b.rows,
+        count: rows * 4,
+        kind: "4x" + rows,
         slots,
-        box: { x: b.x, y: b.y, w: b.w, h: b.h },
-        quality: b.quality,
+        box,
+        quality: result.quality,
         anchor: a,
         width,
         height,
       };
+    }
+    if (previousGrid) {
+      const result = score(previousGrid.box);
+      if (result.quality >= 0.6 && Math.min(...result.sides) >= 0.4) {
+        const layout = layoutFor(previousGrid.box, previousGrid.rows, result);
+        if (layout) return layout;
+      }
+    }
+    buildLightMap();
+    const best = [];
+    for (const rows of [2, 3]) {
+      for (const wf of [1.94, 1.98, 2.02, 2.06, 2.1])
+        for (const dx of [
+          -0.12, -0.08, -0.04, -0.02, 0, 0.02, 0.04, 0.08, 0.12,
+        ])
+          for (const dy of [
+            -0.24, -0.18, -0.12, -0.08, -0.06, -0.04, 0, 0.04, 0.06, 0.08, 0.12,
+            0.18, 0.24,
+          ])
+            for (const hf of [0.97, 1, 1.03]) {
+              const w = a.w * wf,
+                h = ((w * rows) / 4) * hf,
+                x = a.x + a.w * (3.06 + dx) - w,
+                y = a.y - a.h * (1 + dy) - h,
+                box = { x, y, w, h };
+              if (x < 0 || y < 0 || x + w > width || y + h > height) continue;
+              const result = score(box);
+              if (result.quality >= 0.6 && Math.min(...result.sides) >= 0.4)
+                best.push({ ...box, ...result, rows });
+            }
+    }
+    best.sort((a, b) => b.quality - a.quality);
+    for (const b of best) {
+      const layout = layoutFor(b, b.rows, b);
+      if (layout) return layout;
     }
     return null;
   }
