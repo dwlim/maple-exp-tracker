@@ -17,8 +17,40 @@ function fixture(getDisplayMedia) {
   });
   let captured = 0,
     status,
-    intervalMs,
-    cleared = false;
+    processedItems = 0,
+    intervals = [],
+    cleared = [];
+  const probePixels = {
+    width: 400,
+    height: 300,
+    data: new Uint8ClampedArray(400 * 300 * 4),
+  };
+  for (let i = 0; i < probePixels.data.length; i += 4) {
+    probePixels.data[i] = 40;
+    probePixels.data[i + 1] = 90;
+    probePixels.data[i + 2] = 170;
+    probePixels.data[i + 3] = 255;
+  }
+  const makeCanvas = () => {
+    let width = 0, height = 0;
+    return {
+      set width(value) { width = value; },
+      get width() { return width; },
+      set height(value) { height = value; },
+      get height() { return height; },
+      getContext: () => ({ drawImage() {}, getImageData: () => probePixels }),
+    };
+  };
+  d.document.createElement = (kind) => kind === "canvas" ? makeCanvas() : d.document.querySelector(kind);
+  const mapProbeReads = [], reader = {
+    read: async (frame, timestamp, options) => {
+      mapProbeReads.push(options);
+      return { accepted: true };
+    },
+    observeMapProbe() { return ++probeCount === 2; },
+    resetMapProbe() {},
+  };
+  let probeCount = 0;
   const c = Capture.create({
     navigator: { mediaDevices: { getDisplayMedia } },
     video,
@@ -30,7 +62,8 @@ function fixture(getDisplayMedia) {
         captured++;
       },
     },
-    reader: { read: async () => ({ accepted: true }) },
+    reader,
+    onFrame: async () => { processedItems++; },
     view: {
       update() {},
       status(kind, text) {
@@ -45,11 +78,11 @@ function fixture(getDisplayMedia) {
     timers: {
       setTimeout: (fn) => fn(),
       setInterval(fn, ms) {
-        intervalMs = ms;
-        return 1;
+        intervals.push({ fn, ms });
+        return intervals.length;
       },
-      clearInterval() {
-        cleared = true;
+      clearInterval(id) {
+        cleared.push(id);
       },
     },
   });
@@ -61,8 +94,14 @@ function fixture(getDisplayMedia) {
     get status() {
       return status;
     },
-    get intervalMs() {
-      return intervalMs;
+    get intervals() {
+      return intervals;
+    },
+    get mapProbeReads() {
+      return mapProbeReads;
+    },
+    get processedItems() {
+      return processedItems;
     },
     get captured() {
       return captured;
@@ -92,14 +131,34 @@ function fixture(getDisplayMedia) {
   });
   await f.c.connect();
   assert.equal(f.session.state.running, true);
-  assert.equal(f.intervalMs, 10000);
+  assert.deepEqual(f.intervals.map(({ ms }) => ms), [10000, 2000]);
   assert.equal(f.captured, 1);
+  assert.deepEqual(f.mapProbeReads[0], { report: false, forceMap: false });
+  const flush = () => new Promise((resolve) => setTimeout(resolve, 0));
+  await flush();
+  assert.equal(f.processedItems, 1, "the regular full scan continues quickslot reads");
+  f.intervals[1].fn();
+  await flush();
+  assert.equal(f.captured, 1, "the first changed probe only begins the stability check");
+  f.intervals[1].fn();
+  await flush();
+  await flush();
+  assert.equal(f.captured, 2, "a stable map-header change requests one full-resolution read");
+  assert.deepEqual(f.mapProbeReads[1], { report: false, forceMap: true });
+  assert.equal(f.processedItems, 1, "a map-change read skips unrelated quickslot OCR");
+  f.intervals[1].fn();
+  await flush();
+  assert.equal(f.captured, 2, "the probe does not continuously request OCR after a change");
   assert.equal(f.c.stream, stream);
   ended();
   assert.equal(stopped, 1);
   assert.equal(f.c.stream, null);
   assert.equal(f.session.state.samples[0].exp, 123);
-  assert.ok(f.cleared);
+  assert.deepEqual(
+    f.cleared.filter((id) => id !== null),
+    [1, 2],
+    "stop clears both bounded scan timers",
+  );
   const cancelled = fixture(async () => {
     throw Object.assign(Error("cancelled"), { name: "NotAllowedError" });
   });
@@ -140,16 +199,13 @@ function fixture(getDisplayMedia) {
     assert.ok(d.events.has("#shareGameBtn:click"));
     assert.equal(d.node(".app").innerHTML, "");
     assert.equal(d.node("#liveState").textContent, "READY");
-    assert.deepEqual(
-      d.timers.map((t) => t.ms),
-      [5000],
-    );
+    assert.deepEqual(d.timers.map((t) => t.ms), [5000]);
     assert.ok(stored.has("maple-track-v1"));
     app.dispose();
     assert.ok(!d.events.has("window:pagehide"));
   }
   console.log(
-    "Browser capture: direct startup, ten-second scheduling, permissions, cleanup, cancellation, app boot and disposal passed.",
+    "Browser capture: direct startup, ten-second full scans, two-second map probes, permissions, cleanup, cancellation, app boot and disposal passed.",
   );
 })().catch((e) => {
   console.error(e);

@@ -18,8 +18,15 @@
     now = Date.now,
     timers = { setTimeout, setInterval, clearInterval },
   }) {
+    const FULL_SCAN_INTERVAL_MS = 10000,
+      MAP_HEADER_POLL_INTERVAL_MS = 2000,
+      MAP_PROBE_SCALE = 0.5;
     let stream = null,
       timer = null,
+      mapTimer = null,
+      mapProbeCanvas = null,
+      mapProbeWidth = 0,
+      mapProbeHeight = 0,
       generation = 0,
       busy = false,
       connecting = false,
@@ -29,12 +36,21 @@
     function invalidate() {
       generation++;
       session.clearPending();
+      reader.resetMapProbe?.();
       onInvalidate();
     }
     function stop() {
       invalidate();
       timers.clearInterval(timer);
+      timers.clearInterval(mapTimer);
       timer = null;
+      mapTimer = null;
+      if (mapProbeCanvas) {
+        mapProbeCanvas.width = 0;
+        mapProbeCanvas.height = 0;
+      }
+      mapProbeCanvas = null;
+      mapProbeWidth = mapProbeHeight = 0;
       const prior = stream;
       stream = null;
       if (prior) prior.getTracks().forEach((track) => track.stop());
@@ -50,7 +66,7 @@
       );
       view.update();
     }
-    async function captureFrame(force = false) {
+    async function captureFrame(force = false, forceMap = false, skipItems = false) {
       if (
         session.state.paused ||
         busy ||
@@ -92,6 +108,7 @@
           if (cancelled()) return;
           result = await reader.read(frame, frame._capturedAt, {
             report: false,
+            forceMap,
           });
           if (cancelled()) return;
           if (result?.retry) {
@@ -121,7 +138,7 @@
         }
         if (automatic && !result?.accepted)
           await reader.read(frame, frame._capturedAt);
-        if (automatic && onFrame && !itemTask && !cancelled()) {
+        if (automatic && onFrame && !skipItems && !itemTask && !cancelled()) {
           // Item OCR owns this frame until it finishes. It never holds the EXP
           // scheduler or changes an EXP result, even if its worker fails/stalls.
           canvases.splice(canvases.indexOf(frame), 1);
@@ -171,6 +188,50 @@
         if (debug && run === generation)
           view.timing(now() - started, capturedCount);
       }
+    }
+    function pollMapHeader() {
+      if (
+        session.state.paused ||
+        busy ||
+        reader.busy ||
+        !stream ||
+        video.readyState < 2 ||
+        !video.videoWidth ||
+        !view.isAutomatic?.() ||
+        !reader.observeMapProbe
+      ) return;
+      const run = generation,
+        width = Math.max(1, Math.round(video.videoWidth * MAP_PROBE_SCALE)),
+        height = Math.max(1, Math.round(video.videoHeight * MAP_PROBE_SCALE));
+      if (!mapProbeCanvas) mapProbeCanvas = document.createElement("canvas");
+      if (width !== mapProbeWidth || height !== mapProbeHeight) {
+        mapProbeCanvas.width = mapProbeWidth = width;
+        mapProbeCanvas.height = mapProbeHeight = height;
+      }
+      let pixels;
+      try {
+        const context = mapProbeCanvas.getContext("2d");
+        context.drawImage(
+          video,
+          0,
+          0,
+          video.videoWidth,
+          video.videoHeight,
+          0,
+          0,
+          width,
+          height,
+        );
+        pixels = context.getImageData(0, 0, width, height);
+      } catch {
+        return;
+      }
+      if (
+        run === generation &&
+        reader.observeMapProbe(pixels) &&
+        !busy &&
+        !reader.busy
+      ) void captureFrame(false, true, true);
     }
     async function downloadCurrentFrame() {
       if (!debug) return false;
@@ -243,7 +304,9 @@
         session.state.startAt ||= now();
         view.status("waiting", "Reading your game window…");
         view.update();
-        timer = timers.setInterval(captureFrame, 10000);
+        timer = timers.setInterval(captureFrame, FULL_SCAN_INTERVAL_MS);
+        // The small visual probe only triggers OCR after a stable title change.
+        mapTimer = timers.setInterval(pollMapHeader, MAP_HEADER_POLL_INTERVAL_MS);
         await captureFrame();
       } catch (error) {
         if (pending) stop();

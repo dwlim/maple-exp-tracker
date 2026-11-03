@@ -4829,6 +4829,7 @@ return {detect,crop,anchors,percentageRegion};
     localOcr,
     getMesoReference,
     debug = false,
+    mapNameApi = MapName,
     onMesoPreview = () => {},
     onMapPreview = () => {},
   }) {
@@ -4841,7 +4842,96 @@ return {detect,crop,anchors,percentageRegion};
       lastMapDetectAt = 0,
       lastMapAttemptAt = 0,
       lastMapCropHash = null,
-      lastMapFailureHash = null;
+      lastMapFailureHash = null,
+      mapProbeBaseline = null,
+      mapProbeCandidate = null,
+      mapProbeCandidateCount = 0,
+      mapProbeTriggered = false;
+    function mapProbeFingerprint(image) {
+      const crop = mapNameApi?.cropHeaderText?.(image);
+      if (!crop?.data || !crop.width || !crop.height) return null;
+      const columns = 64,
+        rows = 12,
+        fingerprint = new Uint8Array(columns * rows);
+      for (let row = 0; row < rows; row++)
+        for (let column = 0; column < columns; column++) {
+          const x0 = Math.floor((column * crop.width) / columns),
+            x1 = Math.max(x0 + 1, Math.floor(((column + 1) * crop.width) / columns)),
+            y0 = Math.floor((row * crop.height) / rows),
+            y1 = Math.max(y0 + 1, Math.floor(((row + 1) * crop.height) / rows));
+          let dark = 0,
+            total = 0;
+          for (let y = y0; y < Math.min(y1, crop.height); y++)
+            for (let x = x0; x < Math.min(x1, crop.width); x++) {
+              const index = (y * crop.width + x) * 4,
+                luminance =
+                  0.2126 * crop.data[index] +
+                  0.7152 * crop.data[index + 1] +
+                  0.0722 * crop.data[index + 2];
+              if (luminance < 105) dark++;
+              total++;
+            }
+          fingerprint[row * columns + column] = total
+            ? Math.round((dark / total) * 15)
+            : 0;
+        }
+      return fingerprint;
+    }
+    function mapProbeDistance(left, right) {
+      if (!left || !right || left.length !== right.length) return 1;
+      let changed = 0;
+      for (let i = 0; i < left.length; i++)
+        if (Math.abs(left[i] - right[i]) >= 2) changed++;
+      return changed / left.length;
+    }
+    function observeMapProbe(image) {
+      if (!localOcr || !mapNameApi || mapProbeTriggered || !image?.data) return false;
+      let fingerprint;
+      try {
+        fingerprint = mapProbeFingerprint(image);
+      } catch {
+        return false;
+      }
+      if (!fingerprint) {
+        mapProbeCandidate = null;
+        mapProbeCandidateCount = 0;
+        return false;
+      }
+      if (!mapProbeBaseline) {
+        mapProbeBaseline = fingerprint;
+        return false;
+      }
+      if (mapProbeDistance(fingerprint, mapProbeBaseline) < 0.012) {
+        mapProbeCandidate = null;
+        mapProbeCandidateCount = 0;
+        return false;
+      }
+      if (
+        mapProbeCandidate &&
+        mapProbeDistance(fingerprint, mapProbeCandidate) < 0.008
+      ) mapProbeCandidateCount++;
+      else {
+        mapProbeCandidate = fingerprint;
+        mapProbeCandidateCount = 1;
+      }
+      // The first changed probe starts the debounce. A second consecutive
+      // changed probe confirms it before requesting the full-resolution OCR.
+      if (mapProbeCandidateCount < 2) return false;
+      mapProbeTriggered = true;
+      return true;
+    }
+    function resolveMapProbe(accepted) {
+      if (accepted && mapProbeCandidate) mapProbeBaseline = mapProbeCandidate;
+      mapProbeCandidate = null;
+      mapProbeCandidateCount = 0;
+      mapProbeTriggered = false;
+    }
+    function resetMapProbe() {
+      mapProbeBaseline = null;
+      mapProbeCandidate = null;
+      mapProbeCandidateCount = 0;
+      mapProbeTriggered = false;
+    }
     async function recoverAutoRegions(frame, readAt, generation, result) {
       if (session.state.calibration?.auto !== false) {
         customRegionFailureStreak = 0;
@@ -4926,13 +5016,13 @@ return {detect,crop,anchors,percentageRegion};
           .catch(() => {});
       } catch {}
     }
-    function readMapName(frame, readAt, generation) {
-      if (!localOcr || !MapName || !frame?._pixels || readAt - lastMapDetectAt < 9000)
+    function readMapName(frame, readAt, generation, force = false) {
+      if (!localOcr || !mapNameApi || !frame?._pixels || (!force && readAt - lastMapDetectAt < 9000))
         return;
       lastMapDetectAt = readAt;
       let mapImage;
       try {
-        mapImage = MapName.cropHeaderText(frame._pixels);
+        mapImage = mapNameApi.cropHeaderText(frame._pixels);
       } catch {
         return;
       }
@@ -4943,13 +5033,14 @@ return {detect,crop,anchors,percentageRegion};
         return;
       }
       if (debug)
-        try { onMapPreview(MapName.prepare(mapImage)); } catch {}
-      const hash = MapName.hash(mapImage);
+        try { onMapPreview(mapNameApi.prepare(mapImage)); } catch {}
+      const hash = mapNameApi.hash(mapImage);
       // Keep retrying an unrecognized header at the normal capture cadence.
       // A one-minute same-crop throttle can leave the stream card blank after
       // a single transient OCR miss. Once a name is known, recheck unchanged
       // headers only once per minute while still detecting map changes fast.
       if (
+        !force &&
         hash === lastMapCropHash &&
         session.state.mapName &&
         readAt - lastMapAttemptAt < 60000
@@ -4979,17 +5070,20 @@ return {detect,crop,anchors,percentageRegion};
           }
           if (result?.map?.canonicalized && result.map.text) {
             lastMapFailureHash = null;
+            if (force) resolveMapProbe(true);
             session.setMapName?.(result.map.text, readAt);
           } else {
+            if (force) resolveMapProbe(false);
             reportMapFailure(frame, readAt, hash, "map-name-not-found");
           }
         })
         .catch((error) => {
+          if (force) resolveMapProbe(false);
           if (debug) view.showMapStatus?.(`OCR error: ${String(error?.message || error).slice(0, 100)}`);
           reportMapFailure(frame, readAt, hash, "map-name-ocr-error");
         });
     }
-    async function read(frame, timestamp, { report = true } = {}) {
+    async function read(frame, timestamp, { report = true, forceMap = false } = {}) {
       if (session.state.paused || busy) return;
       const generation = getCapture().generation;
       busy = true;
@@ -5088,7 +5182,7 @@ return {detect,crop,anchors,percentageRegion};
         }
         // Map recognition is optional and runs asynchronously after scheduling
         // the independent meso read; it never changes EXP acceptance.
-        readMapName(frame, readAt, generation);
+        readMapName(frame, readAt, generation, forceMap);
         if (!frame._hudRegions?.exp) {
           const recovered = await recoverAutoRegions(frame, readAt, generation, null);
           if (recovered) {
@@ -5169,6 +5263,9 @@ return {detect,crop,anchors,percentageRegion};
     }
     return {
       read,
+      observeMapProbe,
+      resetMapProbe,
+      resolveMapProbe,
       get busy() {
         return busy;
       },
@@ -5199,8 +5296,15 @@ return {detect,crop,anchors,percentageRegion};
     now = Date.now,
     timers = { setTimeout, setInterval, clearInterval },
   }) {
+    const FULL_SCAN_INTERVAL_MS = 10000,
+      MAP_HEADER_POLL_INTERVAL_MS = 2000,
+      MAP_PROBE_SCALE = 0.5;
     let stream = null,
       timer = null,
+      mapTimer = null,
+      mapProbeCanvas = null,
+      mapProbeWidth = 0,
+      mapProbeHeight = 0,
       generation = 0,
       busy = false,
       connecting = false,
@@ -5210,12 +5314,21 @@ return {detect,crop,anchors,percentageRegion};
     function invalidate() {
       generation++;
       session.clearPending();
+      reader.resetMapProbe?.();
       onInvalidate();
     }
     function stop() {
       invalidate();
       timers.clearInterval(timer);
+      timers.clearInterval(mapTimer);
       timer = null;
+      mapTimer = null;
+      if (mapProbeCanvas) {
+        mapProbeCanvas.width = 0;
+        mapProbeCanvas.height = 0;
+      }
+      mapProbeCanvas = null;
+      mapProbeWidth = mapProbeHeight = 0;
       const prior = stream;
       stream = null;
       if (prior) prior.getTracks().forEach((track) => track.stop());
@@ -5231,7 +5344,7 @@ return {detect,crop,anchors,percentageRegion};
       );
       view.update();
     }
-    async function captureFrame(force = false) {
+    async function captureFrame(force = false, forceMap = false, skipItems = false) {
       if (
         session.state.paused ||
         busy ||
@@ -5273,6 +5386,7 @@ return {detect,crop,anchors,percentageRegion};
           if (cancelled()) return;
           result = await reader.read(frame, frame._capturedAt, {
             report: false,
+            forceMap,
           });
           if (cancelled()) return;
           if (result?.retry) {
@@ -5302,7 +5416,7 @@ return {detect,crop,anchors,percentageRegion};
         }
         if (automatic && !result?.accepted)
           await reader.read(frame, frame._capturedAt);
-        if (automatic && onFrame && !itemTask && !cancelled()) {
+        if (automatic && onFrame && !skipItems && !itemTask && !cancelled()) {
           // Item OCR owns this frame until it finishes. It never holds the EXP
           // scheduler or changes an EXP result, even if its worker fails/stalls.
           canvases.splice(canvases.indexOf(frame), 1);
@@ -5352,6 +5466,50 @@ return {detect,crop,anchors,percentageRegion};
         if (debug && run === generation)
           view.timing(now() - started, capturedCount);
       }
+    }
+    function pollMapHeader() {
+      if (
+        session.state.paused ||
+        busy ||
+        reader.busy ||
+        !stream ||
+        video.readyState < 2 ||
+        !video.videoWidth ||
+        !view.isAutomatic?.() ||
+        !reader.observeMapProbe
+      ) return;
+      const run = generation,
+        width = Math.max(1, Math.round(video.videoWidth * MAP_PROBE_SCALE)),
+        height = Math.max(1, Math.round(video.videoHeight * MAP_PROBE_SCALE));
+      if (!mapProbeCanvas) mapProbeCanvas = document.createElement("canvas");
+      if (width !== mapProbeWidth || height !== mapProbeHeight) {
+        mapProbeCanvas.width = mapProbeWidth = width;
+        mapProbeCanvas.height = mapProbeHeight = height;
+      }
+      let pixels;
+      try {
+        const context = mapProbeCanvas.getContext("2d");
+        context.drawImage(
+          video,
+          0,
+          0,
+          video.videoWidth,
+          video.videoHeight,
+          0,
+          0,
+          width,
+          height,
+        );
+        pixels = context.getImageData(0, 0, width, height);
+      } catch {
+        return;
+      }
+      if (
+        run === generation &&
+        reader.observeMapProbe(pixels) &&
+        !busy &&
+        !reader.busy
+      ) void captureFrame(false, true, true);
     }
     async function downloadCurrentFrame() {
       if (!debug) return false;
@@ -5424,7 +5582,9 @@ return {detect,crop,anchors,percentageRegion};
         session.state.startAt ||= now();
         view.status("waiting", "Reading your game window…");
         view.update();
-        timer = timers.setInterval(captureFrame, 10000);
+        timer = timers.setInterval(captureFrame, FULL_SCAN_INTERVAL_MS);
+        // The small visual probe only triggers OCR after a stable title change.
+        mapTimer = timers.setInterval(pollMapHeader, MAP_HEADER_POLL_INTERVAL_MS);
         await captureFrame();
       } catch (error) {
         if (pending) stop();
