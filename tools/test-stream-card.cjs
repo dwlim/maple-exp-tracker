@@ -71,7 +71,7 @@ assert.deepEqual(
     { mesoSamples: [{ amount: 1200000, t: now - 60000 }, { amount: 1300000, t: now }] },
     now,
   ),
-  { amount: "1,300,000", rate: "+6,000,000", rateValue: 6000000 },
+  { amount: "1,300,000", rate: "+6M", rateValue: 6000000 },
   "Meso balance and trailing hourly rate render independently",
 );
 assert.equal(
@@ -218,12 +218,13 @@ assert.equal(q("#cardMapName").textContent, "MAP · SEARCHING FOR MAP");
 assert.match(q(".app").innerHTML, /<div class="stream-metrics-line">/);
 assert.equal(q("#cardHpPotionCost").textContent, "24K");
 assert.equal(q("#cardMpPotionCost").textContent, "52.8K");
-assert.equal(q("#cardMesoRate").textContent, "+6,000,000");
+assert.equal(q("#cardMesoRate").textContent, "+6M");
 for (const id of ["cardHpPotionCost", "cardMpPotionCost", "cardMesoRate"])
   assert.ok(q(".app").innerHTML.includes(`id="${id}"`));
-assert.match(q(".app").innerHTML, /HP MESOS \/ HOUR · LAST 5 MIN/);
-assert.match(q(".app").innerHTML, /MP MESOS \/ HOUR · LAST 5 MIN/);
-assert.match(q(".app").innerHTML, /MESO BALANCE CHANGE \/ HOUR · LAST 5 MIN/);
+assert.match(q(".app").innerHTML, /TRAILING 5 MIN/);
+assert.match(q(".app").innerHTML, /HP COST \/ HR/);
+assert.match(q(".app").innerHTML, /MP COST \/ HR/);
+assert.match(q(".app").innerHTML, /MESO CHANGE \/ HR/);
 assert.doesNotMatch(q(".app").innerHTML, /POTION SPENT/);
 assert.doesNotMatch(q(".app").innerHTML, /HP\+MP/);
 assert.match(fs.readFileSync("dashboard.js", "utf8"), /#estimatedGrossMesoRate/);
@@ -243,7 +244,7 @@ potionSnapshots.set("maple-track-potion-costs-v1", JSON.stringify({ enabled: fal
 events.get("storage")({ key: "maple-track-potion-costs-v1" });
 assert.equal(q("#cardHpPotionCost").textContent, "—");
 assert.equal(q("#cardMpPotionCost").textContent, "—");
-assert.equal(q("#cardMesoRate").textContent, "+6,000,000");
+assert.equal(q("#cardMesoRate").textContent, "+6M");
 potionSnapshots.set("maple-track-potion-costs-v1", "invalid");
 events.get("storage")({ key: "maple-track-potion-costs-v1" });
 assert.equal(q("#cardHpPotionCost").textContent, "—");
