@@ -176,6 +176,28 @@ const Reader = require("../reader");
     false,
     "a digit-like Roman numeral suffix remains ambiguous even for a close long-title match",
   );
+  const lowercaseRomanOne = MapName.parse("Hidden Street\nMonkey Forest l", 52);
+  assert.equal(
+    lowercaseRomanOne?.text,
+    "Hidden Street · Monkey Forest I",
+    "a lowercase l OCR glyph is corrected when the unique map suffix is Roman I",
+  );
+  assert.equal(lowercaseRomanOne?.canonicalized, true);
+  assert.equal(
+    MapName.parse("Hidden Street Monkey Forestl", 55)?.text,
+    "Hidden Street · Monkey Forest I",
+    "the same single-glyph correction works when OCR returns the label on one line",
+  );
+  assert.equal(
+    MapName.parse("Hidden Street\nMonkey Forest 1", 52)?.canonicalized,
+    false,
+    "a digit 1 is not guessed as Roman I",
+  );
+  assert.equal(
+    MapName.parse("Hidden Street\nMonkey Forest ll", 52)?.canonicalized,
+    false,
+    "multiple lowercase l glyphs are not guessed as Roman II",
+  );
   const corrected = MapName.parse("Dungeon\nCamp Forest", 51);
   assert.equal(
     corrected.text,

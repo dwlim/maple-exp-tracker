@@ -1073,7 +1073,18 @@ return {detect,crop,anchors,percentageRegion};
       .trim()
       .match(/([A-Za-z0-9]+)$/)?.[1]
       .toLowerCase();
-    return observedToken === match[1].toLowerCase();
+    const expectedToken = match[1].toLowerCase();
+    // In the minimap font, a single Roman I is often recognized as a
+    // lowercase l. Accept only that one glyph substitution; digits and
+    // multi-character suffixes remain ambiguous and must match exactly.
+    return observedToken === expectedToken || (expectedToken === "i" && observedToken === "l");
+  }
+
+  function hasInlineRomanSuffix(expected, observed) {
+    if (hasExactRomanSuffix(expected, observed)) return true;
+    // Inline OCR can join the final lowercase l to the preceding word, as in
+    // "Monkey Forestl". Permit that only for the single Roman I suffix.
+    return /(?:^|\s)I$/i.test(String(expected || "")) && /l$/.test(String(observed || "").trim());
   }
 
   function canonicalMap(lines) {
@@ -1163,13 +1174,13 @@ return {detect,crop,anchors,percentageRegion};
       return { street: exactNameMatches[0][0], name: exactNameMatches[0][1], score: 0 };
     const candidates = [];
     for (const [street, name] of mapNames) {
-      if (!hasExactRomanSuffix(name, line)) continue;
+      if (!hasInlineRomanSuffix(name, line)) continue;
       const streetText = normalizeName(street),
         nameText = normalizeName(name),
         exactLongRomanSuffix =
           nameText.length >= 25 &&
           /(?:^|\s)[IVX]{1,4}$/i.test(name) &&
-          hasExactRomanSuffix(name, line),
+          hasInlineRomanSuffix(name, line),
         best = { street, name, score: Infinity, streetDistance: Infinity, nameDistance: Infinity };
       for (let offset = 0; offset <= 4; offset++)
         for (let split = Math.max(1, streetText.length - 1); split <= streetText.length + 1; split++) {
