@@ -67,5 +67,12 @@
       .reverse();
   }
 
-  return { create };
+  function samplesForVisit(samples, visit, now) {
+    return (Array.isArray(samples) ? samples : []).filter((sample) =>
+      Number.isFinite(sample?.t) && sample.t <= now &&
+      (!visit || (sample.t >= visit.start && sample.t <= now)),
+    );
+  }
+
+  return { create, samplesForVisit };
 });

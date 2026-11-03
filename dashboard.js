@@ -24,9 +24,12 @@
       dragStart = null,
       dragCurrent = null;
     function update() {
-      const captureStream = getCapture()?.stream;
-      const ss = samples(),
+      const captureStream = getCapture()?.stream,
         now = clock(),
+        allSamples = samples(),
+        mapVisits = MapSessions.create(state, now, totalExp),
+        activeMapVisit = mapVisits.find((visit) => visit.active),
+        ss = MapSessions.samplesForVisit(allSamples, activeMapVisit, now),
         old = ss[0],
         latest = ss[ss.length - 1];
       let base = ss.filter((s) => s.t >= now - 300000)[0];
@@ -63,8 +66,11 @@
         if (gained) q("#gained").textContent = "~" + fmt(gained);
         q("#rateHint").textContent = "Estimated from rounded HUD percentages";
       }
-      const mesoSamples = (state.mesoSamples || [])
-          .filter((s) => Number.isSafeInteger(s.amount) && Number.isFinite(s.t) && s.t <= now)
+      const mesoSamples = MapSessions.samplesForVisit(
+          (state.mesoSamples || []).filter((s) => Number.isSafeInteger(s.amount)),
+          activeMapVisit,
+          now,
+        )
           .sort((a, b) => a.t - b.t),
         firstMeso = mesoSamples[0],
         latestMeso = mesoSamples.at(-1),
@@ -99,7 +105,8 @@
       if (q("#bothPotionCost")) q("#bothPotionCost").textContent = costText(potionMetrics.both);
       let estimatedGrossMesoRate = null;
       if (
-        mesoRate !== null && potionState.enabled === true && trackedGroups.size &&
+        mesoRate !== null && activeMapVisit && now - activeMapVisit.start >= 300000 &&
+        potionState.enabled === true && trackedGroups.size &&
         Number.isFinite(potionState.updatedAt) && potionState.updatedAt <= now &&
         now - potionState.updatedAt <= 25000
       ) {
@@ -117,7 +124,7 @@
         q("#estimatedGrossMesoRate").textContent = estimatedGrossMesoRate === null
           ? "—"
           : (estimatedGrossMesoRate > 0 ? "+" : estimatedGrossMesoRate < 0 ? "−" : "") + fmt(Math.abs(estimatedGrossMesoRate));
-      renderMapSessions(MapSessions.create(state, now, totalExp), now);
+      renderMapSessions(mapVisits, now);
       const lvl = state.level,
         req = lvl ? required(lvl) : 0,
         expIn = latest ? latest.exp || 0 : 0,
@@ -179,8 +186,9 @@
           : "READY";
       q("#sourceState").textContent = state.source || "NOT CONNECTED";
       q("#sourceState").style.color = state.source ? "var(--lime)" : "";
-      if (state.startAt) {
-        let sec = Math.floor((now - state.startAt) / 1000);
+      const displayStart = activeMapVisit?.start ?? state.startAt;
+      if (displayStart) {
+        let sec = Math.floor((now - displayStart) / 1000);
         q("#sessionTime").textContent = [
           Math.floor(sec / 3600),
           Math.floor((sec % 3600) / 60),

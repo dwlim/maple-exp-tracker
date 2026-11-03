@@ -34,6 +34,11 @@ assert.deepEqual(visits.map((visit) => visit.expGain), [200, 250, 200]);
 assert.deepEqual(visits.map((visit) => visit.mesoChange), [-100, -50, -100]);
 assert.equal(visits[0].active, true);
 assert.equal(visits[2].active, false);
+assert.deepEqual(
+  MapSessions.samplesForVisit(state.samples, visits[0], 8000).map((sample) => sample.t),
+  [7000, 8000],
+  "The live dashboard starts from the latest map visit while preserving earlier visits",
+);
 
 let now = 1000;
 const saved = new Map();
