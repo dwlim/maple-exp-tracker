@@ -1219,7 +1219,8 @@
             if (mapReadings) result.mapDebugError = String(error?.message || error);
           }
         }
-        if (result.map && !result.map.canonicalized) result.map = null;
+        if (result.map && !MapName.isCanonicalName(result.map.text))
+          result.map = null;
         for (const kind of ["level", "exp"]) {
           const native = kind === "level" ? input.nativeLevel : input.nativeExp;
           const prefix =

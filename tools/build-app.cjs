@@ -6,6 +6,7 @@ const modules = [
   ["HUD FONT", "hud-ocr.js"],
   ["HUD REGIONS", "hud-regions.js"],
   ["MAP NAMES", "map-name-data.js"],
+  ["MAP MONSTERS", "map-monster-data.js"],
   ["MAP NAME", "map-name.js"],
   ["LOCAL OCR", "local-ocr.js"],
   ["POTION COSTS", "potion-costs.js"],

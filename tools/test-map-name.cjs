@@ -36,6 +36,15 @@ const Reader = require("../reader");
     null,
     "high-confidence OCR text that does not match a catalog map is rejected",
   );
+  const townOnly = LocalOcr.createReader(async () => ({
+    text: "Victoria Road\nHenesys",
+    confidence: 95,
+  }));
+  assert.equal(
+    (await townOnly.read({ mapImage: mapCrop })).map,
+    null,
+    "a recognized map with no monster spawn points is not trackable",
+  );
 
   // The minimap logo anchors the two-line label. A larger pale-blue panel
   // farther right must not steal detection from the top-left minimap.
@@ -122,7 +131,17 @@ const Reader = require("../reader");
     MapName.parse("Victoria Road\nHenesys", 70).text,
     "Victoria Road · Henesys",
   );
-  assert.equal(MapName.isCanonicalName("Victoria Road · Henesys"), true);
+  assert.equal(MapName.isCanonicalName("Maple Road · Snail Hunting Ground II"), true);
+  assert.equal(
+    MapName.isCanonicalName("Victoria Road · Tree Dungeon, Forest Up North IX"),
+    true,
+    "the properly cataloged monster map remains trackable despite the earlier OCR typo",
+  );
+  assert.equal(
+    MapName.isCanonicalName("Victoria Road · Henesys"),
+    false,
+    "a canonical town name without monster spawns is excluded from tracking",
+  );
   assert.equal(
     MapName.isCanonicalName("Victoria Road · Tree lnmgeon, Forest Up North IX"),
     false,
@@ -220,34 +239,40 @@ const Reader = require("../reader");
       );
     const overlayBox = MapName.findHeader(overlayFrame),
       overlayCrop = MapName.cropHeaderText(overlayFrame, overlayBox),
-      overlayResult = await reader.read({ mapImage: overlayCrop });
+      overlayResult = await reader.read({ mapImage: overlayCrop, includeMapDebug: true });
     assert.ok(overlayBox, "find the minimap header beside a character-stat overlay");
     assert.equal(
-      overlayResult.map?.text,
-      "Victoria Road · Kerning City",
-      "use the world-button anchor to keep both title lines when another panel touches the minimap",
+      overlayResult.map,
+      null,
+      "a town map stays untracked even when OCR reads its label correctly",
+    );
+    assert.equal(
+      overlayResult.mapDebug?.some((reading) => /Victoria Road|Kerning City/.test(reading.text)),
+      true,
+      "OCR diagnostics retain the town label reading",
     );
 
     const result = await reader.read({ mapImage: mapCrop });
     assert.equal(
-      result.map?.text,
-      "Victoria Road · Henesys",
-      "bundled OCR reads both lines of the minimap label",
+      result.map,
+      null,
+      "a town with no monster spawns is not accepted as a tracked map",
     );
     const debugResult = await reader.read({ mapImage: mapCrop, includeMapDebug: true });
-    assert.equal(debugResult.map?.text, result.map.text);
+    assert.equal(debugResult.map, null);
     assert.ok(debugResult.mapDebug?.length, "debug reads retain the browser OCR attempts");
     assert.match(debugResult.mapDebug[0].text, /Victoria Road|Henesys/);
     assert.ok(debugResult.mapDebug[0].confidence >= 0);
     assert.ok(debugResult.mapDebug[0].confidence <= 100);
     assert.equal(result.mapDebug, undefined, "normal reads do not retain debug OCR text");
 
-    const anchoredResult = await reader.read({ mapImage: anchoredCrop });
+    const anchoredResult = await reader.read({ mapImage: anchoredCrop, includeMapDebug: true });
     assert.equal(
-      anchoredResult.map?.text,
-      "Hidden Street · Free Market <14>",
-      "line-by-line OCR and exact numeric suffix recover a noisy map-name read",
+      anchoredResult.map,
+      null,
+      "a no-monster Free Market map is not a trackable map",
     );
+    assert.ok(anchoredResult.mapDebug?.length, "the excluded map remains available in OCR diagnostics");
 
     const dampResult = await reader.read({ mapImage: dampCrop });
     assert.equal(
@@ -257,12 +282,14 @@ const Reader = require("../reader");
     );
 
     for (const { filename, expected, crop } of compactHeaderCases) {
-      const compactResult = await reader.read({ mapImage: crop });
+      const compactResult = await reader.read({ mapImage: crop, includeMapDebug: true });
       assert.equal(
-        compactResult.map?.text,
-        expected,
-        `the bundled OCR reads the compact minimap title in ${filename}`,
+        compactResult.map,
+        null,
+        `the no-monster map in ${filename} is excluded from tracking`,
       );
+      assert.ok(compactResult.mapDebug?.length, `keep OCR readings for ${filename} diagnostics`);
+      assert.equal(MapName.isCanonicalName(expected), false, `${filename} is not a monster map`);
     }
 
     const freeMarketThree = PNG.sync.read(
@@ -270,24 +297,26 @@ const Reader = require("../reader");
         path.join(__dirname, "fixtures/map-header-free-market-3-low-confidence.png"),
       ),
     );
-    const freeMarketThreeResult = await reader.read({ mapImage: freeMarketThree });
+    const freeMarketThreeResult = await reader.read({ mapImage: freeMarketThree, includeMapDebug: true });
     assert.equal(
-      freeMarketThreeResult.map?.text,
-      "Hidden Street · Free Market <3>",
-      "the real OCR pipeline accepts the exact map-list match from a low-confidence HUD crop",
+      freeMarketThreeResult.map,
+      null,
+      "a no-monster Free Market map is rejected by the real OCR pipeline",
     );
+    assert.ok(freeMarketThreeResult.mapDebug?.length);
 
     const freeMarketSeven = PNG.sync.read(
       fs.readFileSync(
         path.join(__dirname, "fixtures/map-header-free-market-7-fuzzy.png"),
       ),
     );
-    const freeMarketSevenResult = await reader.read({ mapImage: freeMarketSeven });
+    const freeMarketSevenResult = await reader.read({ mapImage: freeMarketSeven, includeMapDebug: true });
     assert.equal(
-      freeMarketSevenResult.map?.text,
-      "Hidden Street · Free Market <7>",
-      "an alternate scale recovers a fuzzy map line from the exact recognized street",
+      freeMarketSevenResult.map,
+      null,
+      "a no-monster Free Market map stays excluded after alternate-scale OCR",
     );
+    assert.ok(freeMarketSevenResult.mapDebug?.length);
 
     const dimmedFrame = PNG.sync.read(
       fs.readFileSync(path.join(__dirname, "fixtures/map-header-dimmed-panel.png")),
@@ -296,12 +325,13 @@ const Reader = require("../reader");
     assert.ok(dimmedHeader, "find the merged minimap header on a dimmed frame");
     assert.equal(dimmedHeader.h, 64, "trim a merged minimap panel to the header band");
     const dimmedCrop = MapName.cropHeaderText(dimmedFrame, dimmedHeader);
-    const dimmedResult = await reader.read({ mapImage: dimmedCrop });
+    const dimmedResult = await reader.read({ mapImage: dimmedCrop, includeMapDebug: true });
     assert.equal(
-      dimmedResult.map?.text,
-      "Hidden Street · Free Market Entrance",
-      "thresholded OCR recovers the map label in a dimmed capture",
+      dimmedResult.map,
+      null,
+      "a no-monster Free Market map stays excluded after thresholded OCR",
     );
+    assert.ok(dimmedResult.mapDebug?.length);
 
     // Regression for the compact, dimmed window capture: ensure the detector
     // finds its header and the OCR crop preserves the first map-name glyph.
