@@ -623,7 +623,11 @@
         hasExactNumericSuffix =
           !!numericSuffix && observedName.endsWith(numericSuffix),
         maxNameDistance =
-          streetDistance === 0 && hasExactNumericSuffix
+          streetDistance === 0 &&
+          (hasExactNumericSuffix ||
+            (normalizedName.length >= 25 &&
+              /(?:^|\s)[IVX]{1,4}$/i.test(name) &&
+              hasExactRomanSuffix(name, lines[1])))
             ? 3
             : Math.min(2, Math.max(1, Math.floor(normalizedName.length * 0.08)));
       // Require at least one exact line as a strong anchor. This lets the
@@ -683,6 +687,10 @@
       if (!hasExactRomanSuffix(name, line)) continue;
       const streetText = normalizeName(street),
         nameText = normalizeName(name),
+        exactLongRomanSuffix =
+          nameText.length >= 25 &&
+          /(?:^|\s)[IVX]{1,4}$/i.test(name) &&
+          hasExactRomanSuffix(name, line),
         best = { street, name, score: Infinity, streetDistance: Infinity, nameDistance: Infinity };
       for (let offset = 0; offset <= 4; offset++)
         for (let split = Math.max(1, streetText.length - 1); split <= streetText.length + 1; split++) {
@@ -694,7 +702,7 @@
         }
       if (
         best.streetDistance <= 1 &&
-        best.nameDistance <= 2 &&
+        best.nameDistance <= (exactLongRomanSuffix && best.streetDistance === 0 ? 3 : 2) &&
         (best.streetDistance === 0 || best.nameDistance === 0)
       )
         candidates.push(best);

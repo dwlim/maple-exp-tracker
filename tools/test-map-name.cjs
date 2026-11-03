@@ -27,8 +27,17 @@ const Reader = require("../reader");
     mapCrop = MapName.cropHeaderText(frame, header);
   assert.ok(header, "find the blue minimap header in a full game frame");
   assert.ok(mapCrop, "crop the map-name text area, excluding the icon");
-  const unrecognizedOnly = LocalOcr.createReader(async () => ({
+  const noisyTreeReading = LocalOcr.createReader(async () => ({
     text: "Victoria Road Tree lnmgeon Forest Up North IX",
+    confidence: 95,
+  }));
+  assert.equal(
+    (await noisyTreeReading.read({ mapImage: mapCrop })).map?.text,
+    "Victoria Road · Tree Dungeon, Forest Up North IX",
+    "high-confidence OCR errors in a long title recover from its exact street and Roman suffix",
+  );
+  const unrecognizedOnly = LocalOcr.createReader(async () => ({
+    text: "Victoria Road Impossible Place With No Matching Map",
     confidence: 95,
   }));
   assert.equal(
@@ -146,6 +155,26 @@ const Reader = require("../reader");
     MapName.isCanonicalName("Victoria Road · Tree lnmgeon, Forest Up North IX"),
     false,
     "OCR text outside the shipped map catalog is not a canonical map name",
+  );
+  const inlineTreeDungeon = MapName.parse(
+    "Victoria Road Tree lnmgeon, Forest Up North IX",
+    70,
+  );
+  assert.equal(
+    inlineTreeDungeon?.text,
+    "Victoria Road · Tree Dungeon, Forest Up North IX",
+    "an exact street and Roman numeral anchor recover a few OCR errors in a long inline map title",
+  );
+  assert.equal(inlineTreeDungeon.canonicalized, true);
+  const splitTreeDungeon = MapName.parse(
+    "Victoria Road\nTree lnmgeon, Forest Up North IX",
+    70,
+  );
+  assert.equal(splitTreeDungeon?.text, inlineTreeDungeon.text);
+  assert.equal(
+    MapName.parse("Victoria Road\nTree lnmgeon, Forest Up North 1X", 70)?.canonicalized,
+    false,
+    "a digit-like Roman numeral suffix remains ambiguous even for a close long-title match",
   );
   const corrected = MapName.parse("Dungeon\nCamp Forest", 51);
   assert.equal(
