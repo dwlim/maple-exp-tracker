@@ -180,7 +180,7 @@
                 : `No match · ${result?.mapDebugError || raw.join(" → ") || "No OCR output"}`,
             );
           }
-          if (result?.map?.text) {
+          if (result?.map?.canonicalized && result.map.text) {
             lastMapFailureHash = null;
             session.setMapName?.(result.map.text, readAt);
           } else {

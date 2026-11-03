@@ -1,6 +1,7 @@
 (function (root, factory) {
   if (typeof module === "object" && module.exports)
     module.exports = factory(
+      require("./map-name"),
       require("./session"),
       require("./recognition"),
       require("./reader"),
@@ -12,6 +13,7 @@
     );
   else
     root.MapleApp = factory(
+      root.MapleMapName,
       root.MapleSession,
       root.MapleRecognition,
       root.MapleReader,
@@ -24,6 +26,7 @@
 })(
   typeof window === "undefined" ? globalThis : window,
   function (
+    MapName,
     Session,
     Recognition,
     Reader,
@@ -70,6 +73,7 @@
         storage,
         key,
         levelOcr,
+        isCanonicalMapName: MapName.isCanonicalName,
         onChange: () => view?.update(),
       });
       const recognition = Recognition.create({

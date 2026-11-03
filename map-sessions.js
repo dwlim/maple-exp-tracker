@@ -6,7 +6,7 @@
 
   function create(state, now, totalExp) {
     const history = (Array.isArray(state.mapHistory) ? state.mapHistory : [])
-        .filter((entry) => typeof entry?.name === "string" && entry.name && Number.isFinite(entry.t) && entry.t <= now)
+        .filter((entry) => (typeof entry?.name === "string" && entry.name || entry?.name === null) && Number.isFinite(entry.t) && entry.t <= now)
         .sort((a, b) => a.t - b.t),
       expSamples = (Array.isArray(state.samples) ? state.samples : [])
         .filter((sample) => Number.isFinite(sample?.t) && sample.t <= now && Number.isInteger(sample.level) && sample.level >= 1 && sample.level <= 100 && Number.isFinite(sample.exp) && sample.exp >= 0)
@@ -42,7 +42,7 @@
           low = mid + 1;
         } else high = mid - 1;
       }
-      return found >= 0 ? visits[found] : null;
+      return found >= 0 && visits[found]?.name ? visits[found] : null;
     }
 
     for (let i = 1; i < expSamples.length; i++) {
@@ -63,7 +63,7 @@
       visit.mesoSamples++;
     }
     return visits
-      .filter((visit) => visit.expSamples || visit.mesoSamples || visit.active)
+      .filter((visit) => visit.name && (visit.expSamples || visit.mesoSamples || visit.active))
       .reverse();
   }
 

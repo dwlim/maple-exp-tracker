@@ -44,6 +44,7 @@
     storage,
     key = "maple-track-v1",
     levelOcr,
+    isCanonicalMapName = () => true,
     now = Date.now,
     onChange = () => {},
   } = {}) {
@@ -74,11 +75,21 @@
     };
     state.mapHistory = Array.isArray(state.mapHistory)
       ? state.mapHistory
-          .filter((entry) => typeof entry?.name === "string" && entry.name.trim() && Number.isFinite(entry.t))
-          .map((entry) => ({ t: entry.t, name: entry.name.trim() }))
+          .filter((entry) => (typeof entry?.name === "string" || entry?.name === null) && Number.isFinite(entry.t))
+          .map((entry) => ({
+            t: entry.t,
+            name: typeof entry.name === "string" && isCanonicalMapName(entry.name.trim())
+              ? entry.name.trim()
+              : null,
+          }))
           .sort((a, b) => a.t - b.t)
           .slice(-1000)
       : [];
+    if (state.mapName && !isCanonicalMapName(state.mapName)) {
+      state.mapName = "";
+      if (Number.isFinite(state.mapUpdatedAt) && !state.mapHistory.some((entry) => entry.t === state.mapUpdatedAt && entry.name === null))
+        state.mapHistory.push({ t: state.mapUpdatedAt, name: null });
+    }
     if (!state.mapHistory.length && state.mapName && Number.isFinite(state.mapUpdatedAt))
       state.mapHistory.push({ t: state.mapUpdatedAt, name: state.mapName });
     if (
@@ -170,7 +181,7 @@
     }
     function setMapName(name, t = now()) {
       const value = String(name || "").trim();
-      if (!value) return false;
+      if (!value || !isCanonicalMapName(value)) return false;
       const timestamp = Number.isFinite(t) ? t : now(),
         before = state.mapHistory.filter((entry) => entry.t < timestamp).at(-1),
         exact = state.mapHistory.find((entry) => entry.t === timestamp && entry.name === value);

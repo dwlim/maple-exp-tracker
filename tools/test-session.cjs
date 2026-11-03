@@ -59,6 +59,33 @@ assert.equal(
     .length,
   0,
 );
+const canonicalOnly = new Set(["Maple Road · Pig Beach"]),
+  sanitized = S.create({
+    storage: {
+      getItem: () => JSON.stringify({
+        mapName: "Victoria Road · Tree lnmgeon, Forest Up North IX",
+        mapUpdatedAt: clock - 5000,
+        mapHistory: [
+          { t: clock - 10000, name: "Maple Road · Pig Beach" },
+          { t: clock - 5000, name: "Victoria Road · Tree lnmgeon, Forest Up North IX" },
+        ],
+      }),
+      setItem() {},
+    },
+    isCanonicalMapName: (name) => canonicalOnly.has(name),
+    now: () => clock,
+  });
+assert.equal(sanitized.state.mapName, "", "discard a persisted map label outside the catalog");
+assert.deepEqual(
+  sanitized.state.mapHistory,
+  [
+    { t: clock - 10000, name: "Maple Road · Pig Beach" },
+    { t: clock - 5000, name: null },
+  ],
+  "keep a boundary where an invalid persisted map was observed",
+);
+assert.equal(sanitized.setMapName("Victoria Road · Tree lnmgeon, Forest Up North IX"), false);
+assert.equal(sanitized.setMapName("Maple Road · Pig Beach"), true);
 assert.equal(S.required(70), 2062925);
 assert.equal(S.levelStartExp(32) + 100, S.totalExp({ level: 32, exp: 100 }));
 assert.equal(

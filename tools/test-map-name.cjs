@@ -27,6 +27,15 @@ const Reader = require("../reader");
     mapCrop = MapName.cropHeaderText(frame, header);
   assert.ok(header, "find the blue minimap header in a full game frame");
   assert.ok(mapCrop, "crop the map-name text area, excluding the icon");
+  const unrecognizedOnly = LocalOcr.createReader(async () => ({
+    text: "Victoria Road Tree lnmgeon Forest Up North IX",
+    confidence: 95,
+  }));
+  assert.equal(
+    (await unrecognizedOnly.read({ mapImage: mapCrop })).map,
+    null,
+    "high-confidence OCR text that does not match a catalog map is rejected",
+  );
 
   // The minimap logo anchors the two-line label. A larger pale-blue panel
   // farther right must not steal detection from the top-left minimap.
@@ -112,6 +121,12 @@ const Reader = require("../reader");
   assert.equal(
     MapName.parse("Victoria Road\nHenesys", 70).text,
     "Victoria Road · Henesys",
+  );
+  assert.equal(MapName.isCanonicalName("Victoria Road · Henesys"), true);
+  assert.equal(
+    MapName.isCanonicalName("Victoria Road · Tree lnmgeon, Forest Up North IX"),
+    false,
+    "OCR text outside the shipped map catalog is not a canonical map name",
   );
   const corrected = MapName.parse("Dungeon\nCamp Forest", 51);
   assert.equal(
@@ -320,12 +335,16 @@ const Reader = require("../reader");
     assert.ok(skyConnectedHeader, "find the title panel when blue sky connects to it");
     assert.ok(skyConnectedHeader.y < 20, "prefer the top-left title over the minimap image");
     const skyConnectedCrop = MapName.cropHeaderText(skyConnectedFrame, skyConnectedHeader);
-    const skyConnectedResult = await reader.read({ mapImage: skyConnectedCrop });
-    assert.ok(skyConnectedResult.map?.text, "read a map label when blue sky connects to its header");
+    const skyConnectedResult = await reader.read({ mapImage: skyConnectedCrop, includeMapDebug: true });
     assert.equal(
-      skyConnectedResult.map?.canonicalized,
-      false,
-      "keep ambiguous Roman numerals raw instead of choosing the wrong map variant",
+      skyConnectedResult.map,
+      null,
+      "reject an ambiguous map label when blue sky connects to its header",
+    );
+    assert.equal(
+      skyConnectedResult.mapDebug?.some((reading) => reading.text),
+      true,
+      "retain OCR evidence for debugging while rejecting the raw map label",
     );
     assert.equal(
       MapName.parse("Maple Road\nSnail Hunting Ground 11", 76)?.canonicalized,
@@ -352,12 +371,17 @@ const Reader = require("../reader");
     assert.ok(romanAmbiguousHeader, "locate the title above blue sky on a busy frame");
     const romanAmbiguousResult = await reader.read({
       mapImage: MapName.cropHeaderText(romanAmbiguousFrame, romanAmbiguousHeader),
+      includeMapDebug: true,
     });
-    assert.ok(romanAmbiguousResult.map?.text, "preserve a readable raw label");
     assert.equal(
-      romanAmbiguousResult.map?.canonicalized,
-      false,
-      "do not guess between similar Roman-numeral map names",
+      romanAmbiguousResult.map,
+      null,
+      "do not use an unverified raw label when Roman numerals are ambiguous",
+    );
+    assert.equal(
+      romanAmbiguousResult.mapDebug?.some((reading) => reading.text),
+      true,
+      "retain raw OCR readings for diagnostics",
     );
 
     let attempts = 0;
@@ -409,7 +433,7 @@ const Reader = require("../reader");
                   map: null,
                   mapDebug: [{ kind: "map", text: "Victoria Road", confidence: 83 }],
                 }
-              : { map: { text: "Kerning City Subway · Line 1 Area 1" } };
+              : { map: { text: "Kerning City Subway · Line 1 <Area 1>", canonicalized: true } };
           },
         },
       }),
@@ -439,7 +463,7 @@ const Reader = require("../reader");
     assert.equal(attempts, 3, "map OCR keeps retrying after its one diagnostic download");
     assert.equal(
       retrySession.state.mapName,
-      "Kerning City Subway · Line 1 Area 1",
+      "Kerning City Subway · Line 1 <Area 1>",
       "the next successful map OCR updates the session state",
     );
   } finally {

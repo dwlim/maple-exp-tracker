@@ -554,6 +554,17 @@
       .replace(/[^a-z0-9]/g, "");
   }
 
+  function isCanonicalName(text) {
+    const value = String(text || ""),
+      separator = value.indexOf(" · ");
+    if (separator < 0) return false;
+    const street = value.slice(0, separator),
+      name = value.slice(separator + 3);
+    return mapNames.some(([knownStreet, knownName]) =>
+      knownStreet === street && knownName === name,
+    );
+  }
+
   function editDistance(left, right) {
     const a = normalizeName(left),
       b = normalizeName(right);
@@ -770,6 +781,7 @@
     prepare,
     prepareThreshold,
     parse,
+    isCanonicalName,
     hasConflictingRomanEvidence,
     hash,
     canonicalMap,

@@ -1023,6 +1023,17 @@ return {detect,crop,anchors,percentageRegion};
       .replace(/[^a-z0-9]/g, "");
   }
 
+  function isCanonicalName(text) {
+    const value = String(text || ""),
+      separator = value.indexOf(" · ");
+    if (separator < 0) return false;
+    const street = value.slice(0, separator),
+      name = value.slice(separator + 3);
+    return mapNames.some(([knownStreet, knownName]) =>
+      knownStreet === street && knownName === name,
+    );
+  }
+
   function editDistance(left, right) {
     const a = normalizeName(left),
       b = normalizeName(right);
@@ -1239,6 +1250,7 @@ return {detect,crop,anchors,percentageRegion};
     prepare,
     prepareThreshold,
     parse,
+    isCanonicalName,
     hasConflictingRomanEvidence,
     hash,
     canonicalMap,
@@ -2468,6 +2480,7 @@ return {detect,crop,anchors,percentageRegion};
             if (mapReadings) result.mapDebugError = String(error?.message || error);
           }
         }
+        if (result.map && !result.map.canonicalized) result.map = null;
         for (const kind of ["level", "exp"]) {
           const native = kind === "level" ? input.nativeLevel : input.nativeExp;
           const prefix =
@@ -2772,7 +2785,7 @@ return {detect,crop,anchors,percentageRegion};
 
   function create(state, now, totalExp) {
     const history = (Array.isArray(state.mapHistory) ? state.mapHistory : [])
-        .filter((entry) => typeof entry?.name === "string" && entry.name && Number.isFinite(entry.t) && entry.t <= now)
+        .filter((entry) => (typeof entry?.name === "string" && entry.name || entry?.name === null) && Number.isFinite(entry.t) && entry.t <= now)
         .sort((a, b) => a.t - b.t),
       expSamples = (Array.isArray(state.samples) ? state.samples : [])
         .filter((sample) => Number.isFinite(sample?.t) && sample.t <= now && Number.isInteger(sample.level) && sample.level >= 1 && sample.level <= 100 && Number.isFinite(sample.exp) && sample.exp >= 0)
@@ -2808,7 +2821,7 @@ return {detect,crop,anchors,percentageRegion};
           low = mid + 1;
         } else high = mid - 1;
       }
-      return found >= 0 ? visits[found] : null;
+      return found >= 0 && visits[found]?.name ? visits[found] : null;
     }
 
     for (let i = 1; i < expSamples.length; i++) {
@@ -2829,7 +2842,7 @@ return {detect,crop,anchors,percentageRegion};
       visit.mesoSamples++;
     }
     return visits
-      .filter((visit) => visit.expSamples || visit.mesoSamples || visit.active)
+      .filter((visit) => visit.name && (visit.expSamples || visit.mesoSamples || visit.active))
       .reverse();
   }
 
@@ -3441,6 +3454,7 @@ return {detect,crop,anchors,percentageRegion};
     storage,
     key = "maple-track-v1",
     levelOcr,
+    isCanonicalMapName = () => true,
     now = Date.now,
     onChange = () => {},
   } = {}) {
@@ -3471,11 +3485,21 @@ return {detect,crop,anchors,percentageRegion};
     };
     state.mapHistory = Array.isArray(state.mapHistory)
       ? state.mapHistory
-          .filter((entry) => typeof entry?.name === "string" && entry.name.trim() && Number.isFinite(entry.t))
-          .map((entry) => ({ t: entry.t, name: entry.name.trim() }))
+          .filter((entry) => (typeof entry?.name === "string" || entry?.name === null) && Number.isFinite(entry.t))
+          .map((entry) => ({
+            t: entry.t,
+            name: typeof entry.name === "string" && isCanonicalMapName(entry.name.trim())
+              ? entry.name.trim()
+              : null,
+          }))
           .sort((a, b) => a.t - b.t)
           .slice(-1000)
       : [];
+    if (state.mapName && !isCanonicalMapName(state.mapName)) {
+      state.mapName = "";
+      if (Number.isFinite(state.mapUpdatedAt) && !state.mapHistory.some((entry) => entry.t === state.mapUpdatedAt && entry.name === null))
+        state.mapHistory.push({ t: state.mapUpdatedAt, name: null });
+    }
     if (!state.mapHistory.length && state.mapName && Number.isFinite(state.mapUpdatedAt))
       state.mapHistory.push({ t: state.mapUpdatedAt, name: state.mapName });
     if (
@@ -3567,7 +3591,7 @@ return {detect,crop,anchors,percentageRegion};
     }
     function setMapName(name, t = now()) {
       const value = String(name || "").trim();
-      if (!value) return false;
+      if (!value || !isCanonicalMapName(value)) return false;
       const timestamp = Number.isFinite(t) ? t : now(),
         before = state.mapHistory.filter((entry) => entry.t < timestamp).at(-1),
         exact = state.mapHistory.find((entry) => entry.t === timestamp && entry.name === value);
@@ -4920,7 +4944,7 @@ return {detect,crop,anchors,percentageRegion};
                 : `No match · ${result?.mapDebugError || raw.join(" → ") || "No OCR output"}`,
             );
           }
-          if (result?.map?.text) {
+          if (result?.map?.canonicalized && result.map.text) {
             lastMapFailureHash = null;
             session.setMapName?.(result.map.text, readAt);
           } else {
@@ -6677,6 +6701,7 @@ return {detect,crop,anchors,percentageRegion};
 <script>(function (root, factory) {
   if (typeof module === "object" && module.exports)
     module.exports = factory(
+      require("./map-name"),
       require("./session"),
       require("./recognition"),
       require("./reader"),
@@ -6688,6 +6713,7 @@ return {detect,crop,anchors,percentageRegion};
     );
   else
     root.MapleApp = factory(
+      root.MapleMapName,
       root.MapleSession,
       root.MapleRecognition,
       root.MapleReader,
@@ -6700,6 +6726,7 @@ return {detect,crop,anchors,percentageRegion};
 })(
   typeof window === "undefined" ? globalThis : window,
   function (
+    MapName,
     Session,
     Recognition,
     Reader,
@@ -6746,6 +6773,7 @@ return {detect,crop,anchors,percentageRegion};
         storage,
         key,
         levelOcr,
+        isCanonicalMapName: MapName.isCanonicalName,
         onChange: () => view?.update(),
       });
       const recognition = Recognition.create({
