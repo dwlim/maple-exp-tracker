@@ -69,18 +69,9 @@
             : "PAUSED",
     };
   }
-  function potionCostRate(state, now) {
-    const groups = new Set((Array.isArray(state?.items) ? state.items : [])
-      .map((item) => item?.group)
-      .filter((group) => ["hp", "mp", "both"].includes(group)));
-    if (!groups.size) return null;
+  function potionCostRates(state, now) {
     const costs = PotionCosts.metrics(state, now);
-    let total = 0;
-    for (const group of groups) {
-      if (!Number.isFinite(costs[group])) return null;
-      total += costs[group];
-    }
-    return Number.isFinite(total) ? total : null;
+    return { hp: costs.hp, mp: costs.mp };
   }
   function mesoMetrics(state, now) {
     const samples = (Array.isArray(state.mesoSamples) ? state.mesoSamples : [])
@@ -152,7 +143,7 @@
     document.title = "Maple Track · Stream card";
     document.body.classList.add("stream-card");
     document.querySelector(".app").innerHTML =
-      '<section class="stream-panel" aria-label="Maple Track live stream card"><header><span>MAPLE TRACK</span><span id="cardStatus">CONNECTING</span></header><div class="stream-values"><div><span>LEVEL</span><strong id="cardLevel">—</strong></div><div><span>EXP / HOUR</span><strong id="cardRate">—</strong></div></div><div class="stream-progress"><i id="cardFill"></i></div><footer><span id="cardPercent">0.00%</span><span id="cardEta">Waiting for EXP</span></footer><div id="cardMapName" style="margin-top:7px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;color:#93949f;font:8px monospace"></div><div class="stream-metrics-line"><div><span>POTION COST · MESOS / HOUR · LAST 5 MIN</span><strong id="cardPotionCost" title="Estimated combined potion cost in mesos per hour over the trailing five minutes">—</strong></div><div><span>MESO BALANCE CHANGE / HOUR · LAST 5 MIN</span><strong id="cardMesoRate" title="Meso balance change extrapolated from the trailing five minutes">—</strong></div></div><div class="stream-chart"><div class="stream-chart-label"><span>EXP / 30 SEC · LAST 5 MIN</span><span id="cardGraphPeak">—</span></div><svg viewBox="0 0 342 76" role="img" aria-label="EXP gained per thirty seconds over the last five minutes"><g fill="#93949f" font-size="8" font-family="monospace" text-anchor="end"><text id="cardAxisTop" x="35" y="9">1</text><text id="cardAxisMid" x="35" y="40">0.5</text><text x="35" y="71">0</text></g><g transform="translate(42 0)"><path d="M0,6H300M0,37H300M0,68H300M0,6V68" stroke="#34353e" stroke-width="0.7" fill="none"/><path id="cardGraph" fill="none" stroke="#c7f36b" stroke-width="2" stroke-linejoin="round" stroke-linecap="round"/></g></svg><span id="cardGraphHint">Waiting for readings</span></div></section>';
+      '<section class="stream-panel" aria-label="Maple Track live stream card"><header><span>MAPLE TRACK</span><span id="cardStatus">CONNECTING</span></header><div class="stream-values"><div><span>LEVEL</span><strong id="cardLevel">—</strong></div><div><span>EXP / HOUR</span><strong id="cardRate">—</strong></div></div><div class="stream-progress"><i id="cardFill"></i></div><footer><span id="cardPercent">0.00%</span><span id="cardEta">Waiting for EXP</span></footer><div id="cardMapName" style="margin-top:7px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;color:#93949f;font:8px monospace"></div><div class="stream-metrics-line"><div><span>HP MESOS / HOUR · LAST 5 MIN</span><strong id="cardHpPotionCost" title="Estimated HP potion cost in mesos per hour over the trailing five minutes">—</strong></div><div><span>MP MESOS / HOUR · LAST 5 MIN</span><strong id="cardMpPotionCost" title="Estimated MP potion cost in mesos per hour over the trailing five minutes">—</strong></div><div><span>MESO BALANCE CHANGE / HOUR · LAST 5 MIN</span><strong id="cardMesoRate" title="Meso balance change extrapolated from the trailing five minutes">—</strong></div></div><div class="stream-chart"><div class="stream-chart-label"><span>EXP / 30 SEC · LAST 5 MIN</span><span id="cardGraphPeak">—</span></div><svg viewBox="0 0 342 76" role="img" aria-label="EXP gained per thirty seconds over the last five minutes"><g fill="#93949f" font-size="8" font-family="monospace" text-anchor="end"><text id="cardAxisTop" x="35" y="9">1</text><text id="cardAxisMid" x="35" y="40">0.5</text><text x="35" y="71">0</text></g><g transform="translate(42 0)"><path d="M0,6H300M0,37H300M0,68H300M0,6V68" stroke="#34353e" stroke-width="0.7" fill="none"/><path id="cardGraph" fill="none" stroke="#c7f36b" stroke-width="2" stroke-linejoin="round" stroke-linecap="round"/></g></svg><span id="cardGraphHint">Waiting for readings</span></div></section>';
     const q = (id) => document.querySelector(id);
     function render() {
       let state = {};
@@ -164,11 +155,12 @@
         potionState = JSON.parse(storage.getItem(PotionCosts.KEY) || "{}") || {};
       } catch {}
       const time = now(),
-        potionCost = potionCostRate(potionState, time),
+        potionCosts = potionCostRates(potionState, time),
         compact = (value) => value === null || value === undefined
           ? "—"
           : Intl.NumberFormat("en-US", { notation: "compact", maximumFractionDigits: 1 }).format(Math.round(value));
-      q("#cardPotionCost").textContent = compact(potionCost);
+      q("#cardHpPotionCost").textContent = compact(potionCosts.hp);
+      q("#cardMpPotionCost").textContent = compact(potionCosts.mp);
       q("#cardMesoRate").textContent = mesoMetrics(state, time).rate;
       const m = metrics(state, time, required, totalExp);
       q("#cardLevel").textContent = m.level;
@@ -221,5 +213,5 @@
     );
     render();
   }
-  return { metrics, mesoMetrics, potionCostRate, graph, mount };
+  return { metrics, mesoMetrics, potionCostRates, graph, mount };
 });

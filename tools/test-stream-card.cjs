@@ -31,13 +31,13 @@ const knownPotionCosts = {
     { group: "mp", price: 220, rate: 240, lastReadAt: now },
   ],
 };
-assert.equal(C.potionCostRate(knownPotionCosts, now), 76800);
+assert.deepEqual(C.potionCostRates(knownPotionCosts, now), { hp: 24000, mp: 52800 });
 assert.equal(
-  C.potionCostRate({ ...knownPotionCosts, items: [...knownPotionCosts.items, { group: "both", price: null, rate: 1, lastReadAt: now }] }, now),
+  C.potionCostRates({ ...knownPotionCosts, items: [...knownPotionCosts.items, { group: "hp", price: null, rate: 1, lastReadAt: now }] }, now).hp,
   null,
-  "Unknown tracked prices must not understate combined potion cost",
+  "Unknown tracked prices must not understate an HP cost total",
 );
-assert.equal(C.potionCostRate({ ...knownPotionCosts, updatedAt: now - 26000 }, now), null);
+assert.deepEqual(C.potionCostRates({ ...knownPotionCosts, updatedAt: now - 26000 }, now), { hp: null, mp: null });
 let m = C.metrics(state, now, required, totalExp);
 assert.equal(m.level, "32");
 assert.equal(m.rate, "60,000");
@@ -216,11 +216,13 @@ assert.equal(q("#cardLevel").textContent, "32");
 assert.equal(q("#cardRate").textContent, "60,000");
 assert.equal(q("#cardMapName").textContent, "MAP · SEARCHING FOR MAP");
 assert.match(q(".app").innerHTML, /<div class="stream-metrics-line">/);
-assert.equal(q("#cardPotionCost").textContent, "76.8K");
+assert.equal(q("#cardHpPotionCost").textContent, "24K");
+assert.equal(q("#cardMpPotionCost").textContent, "52.8K");
 assert.equal(q("#cardMesoRate").textContent, "+6,000,000");
-for (const id of ["cardPotionCost", "cardMesoRate"])
+for (const id of ["cardHpPotionCost", "cardMpPotionCost", "cardMesoRate"])
   assert.ok(q(".app").innerHTML.includes(`id="${id}"`));
-assert.match(q(".app").innerHTML, /POTION COST · MESOS \/ HOUR · LAST 5 MIN/);
+assert.match(q(".app").innerHTML, /HP MESOS \/ HOUR · LAST 5 MIN/);
+assert.match(q(".app").innerHTML, /MP MESOS \/ HOUR · LAST 5 MIN/);
 assert.match(q(".app").innerHTML, /MESO BALANCE CHANGE \/ HOUR · LAST 5 MIN/);
 assert.doesNotMatch(q(".app").innerHTML, /POTION SPENT/);
 assert.doesNotMatch(q(".app").innerHTML, /HP\+MP/);
@@ -239,11 +241,13 @@ assert.equal(q("#cardLevel").textContent, "56");
 assert.equal(q("#cardStatus").textContent, "PAUSED");
 potionSnapshots.set("maple-track-potion-costs-v1", JSON.stringify({ enabled: false, updatedAt: now, items: knownPotionCosts.items }));
 events.get("storage")({ key: "maple-track-potion-costs-v1" });
-assert.equal(q("#cardPotionCost").textContent, "—");
+assert.equal(q("#cardHpPotionCost").textContent, "—");
+assert.equal(q("#cardMpPotionCost").textContent, "—");
 assert.equal(q("#cardMesoRate").textContent, "+6,000,000");
 potionSnapshots.set("maple-track-potion-costs-v1", "invalid");
 events.get("storage")({ key: "maple-track-potion-costs-v1" });
-assert.equal(q("#cardPotionCost").textContent, "—");
+assert.equal(q("#cardHpPotionCost").textContent, "—");
+assert.equal(q("#cardMpPotionCost").textContent, "—");
 stored = "invalid";
 events.get("storage")({ key: null });
 assert.equal(
@@ -258,7 +262,7 @@ assert.ok(
   "Embedded stream card must match tested source",
 );
 console.log(
-  "Stream card: EXP and meso rates, estimated potion costs, level-ups, ETA, storage sync, read-only startup and cleanup passed.",
+  "Stream card: EXP and meso rates, split estimated HP/MP potion costs, level-ups, ETA, storage sync, read-only startup and cleanup passed.",
 );
 
 // Thirty-second normalization, level-up totals, gaps, invalid readings and percentage precision.
