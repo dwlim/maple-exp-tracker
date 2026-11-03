@@ -23,21 +23,21 @@ const now = Date.now(),
       { level: 32, exp: 2000, t: now },
     ],
   };
-const useSamples = (used) => [
-  { t: now - 15000, seconds: 15, used: Math.floor(used / 2) },
-  { t: now, seconds: 15, used: used - Math.floor(used / 2) },
-];
-assert.deepEqual(
-  C.potionUseRates(
-    [
-      { enabled: true, items: [{ potionType: "red", usageSamples: useSamples(3) }, { potionType: "blue", usageSamples: useSamples(2) }, { potionType: "both", usageSamples: useSamples(1) }] },
-      { enabled: true, items: [{ potionType: "orange", usageSamples: useSamples(1) }] },
-    ],
-    now,
-  ),
-  { hp: 480, mp: 240 },
-  "HP and MP use rates sum across layouts over five minutes; combined potions stay separate",
+const knownPotionCosts = {
+  enabled: true,
+  updatedAt: now,
+  items: [
+    { group: "hp", price: 50, rate: 480, lastReadAt: now },
+    { group: "mp", price: 220, rate: 240, lastReadAt: now },
+  ],
+};
+assert.equal(C.potionCostRate(knownPotionCosts, now), 76800);
+assert.equal(
+  C.potionCostRate({ ...knownPotionCosts, items: [...knownPotionCosts.items, { group: "both", price: null, rate: 1, lastReadAt: now }] }, now),
+  null,
+  "Unknown tracked prices must not understate combined potion cost",
 );
+assert.equal(C.potionCostRate({ ...knownPotionCosts, updatedAt: now - 26000 }, now), null);
 let m = C.metrics(state, now, required, totalExp);
 assert.equal(m.level, "32");
 assert.equal(m.rate, "60,000");
@@ -153,8 +153,7 @@ const nodes = new Map(),
   events = new Map(),
   intervals = [];
 const potionSnapshots = new Map([
-  ["maple-track-items-v1:4x2", JSON.stringify({ enabled: true, totalSpent: 1250, spendKnown: true, items: [{ potionType: "red", usageSamples: useSamples(3) }, { potionType: "blue", usageSamples: useSamples(2) }, { potionType: "both", usageSamples: useSamples(1) }] })],
-  ["maple-track-items-v1:4x3", JSON.stringify({ enabled: true, totalSpent: 250, spendKnown: true, items: [{ potionType: "orange", usageSamples: useSamples(1) }] })],
+  ["maple-track-potion-costs-v1", JSON.stringify(knownPotionCosts)],
 ]);
 let writes = 0,
   stored = JSON.stringify(state);
@@ -217,12 +216,12 @@ assert.equal(q("#cardLevel").textContent, "32");
 assert.equal(q("#cardRate").textContent, "60,000");
 assert.equal(q("#cardMapName").textContent, "MAP · SEARCHING FOR MAP");
 assert.match(q(".app").innerHTML, /<div class="stream-metrics-line">/);
-assert.equal(q("#cardPotionUse").textContent, "480 / 240");
+assert.equal(q("#cardPotionCost").textContent, "76.8K");
 assert.equal(q("#cardMesoRate").textContent, "+6,000,000");
-for (const id of ["cardPotionUse", "cardMesoRate"])
+for (const id of ["cardPotionCost", "cardMesoRate"])
   assert.ok(q(".app").innerHTML.includes(`id="${id}"`));
-assert.match(q(".app").innerHTML, /HP \/ MP POTIONS \/ HOUR · LAST 5 MIN/);
-assert.match(q(".app").innerHTML, /MESOS \/ HOUR · LAST 5 MIN/);
+assert.match(q(".app").innerHTML, /POTION COST · MESOS \/ HOUR · LAST 5 MIN/);
+assert.match(q(".app").innerHTML, /MESO BALANCE CHANGE \/ HOUR · LAST 5 MIN/);
 assert.doesNotMatch(q(".app").innerHTML, /POTION SPENT/);
 assert.doesNotMatch(q(".app").innerHTML, /HP\+MP/);
 assert.match(fs.readFileSync("dashboard.js", "utf8"), /#estimatedGrossMesoRate/);
@@ -238,22 +237,13 @@ stored = JSON.stringify({ ...state, samples: [], level: 56, running: false });
 events.get("storage")({ key: "maple-track-v1" });
 assert.equal(q("#cardLevel").textContent, "56");
 assert.equal(q("#cardStatus").textContent, "PAUSED");
-potionSnapshots.set("maple-track-items-v1:4x2", JSON.stringify({
-  enabled: true,
-  totalSpent: 0,
-  spendKnown: false,
-}));
-potionSnapshots.set("maple-track-items-v1:4x3", JSON.stringify({
-  enabled: false,
-  totalSpent: 0,
-  spendKnown: true,
-}));
-events.get("storage")({ key: "maple-track-items-v1:4x2" });
-assert.equal(q("#cardPotionUse").textContent, "— / —");
+potionSnapshots.set("maple-track-potion-costs-v1", JSON.stringify({ enabled: false, updatedAt: now, items: knownPotionCosts.items }));
+events.get("storage")({ key: "maple-track-potion-costs-v1" });
+assert.equal(q("#cardPotionCost").textContent, "—");
 assert.equal(q("#cardMesoRate").textContent, "+6,000,000");
-potionSnapshots.set("maple-track-items-v1:4x2", "invalid");
-events.get("storage")({ key: "maple-track-items-v1:4x3" });
-assert.equal(q("#cardPotionUse").textContent, "— / —");
+potionSnapshots.set("maple-track-potion-costs-v1", "invalid");
+events.get("storage")({ key: "maple-track-potion-costs-v1" });
+assert.equal(q("#cardPotionCost").textContent, "—");
 stored = "invalid";
 events.get("storage")({ key: null });
 assert.equal(
@@ -268,7 +258,7 @@ assert.ok(
   "Embedded stream card must match tested source",
 );
 console.log(
-  "Stream card: EXP and trailing meso rates, HP/MP use, level-ups, ETA, storage sync, read-only startup and cleanup passed.",
+  "Stream card: EXP and meso rates, estimated potion costs, level-ups, ETA, storage sync, read-only startup and cleanup passed.",
 );
 
 // Thirty-second normalization, level-up totals, gaps, invalid readings and percentage precision.
