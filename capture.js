@@ -20,13 +20,22 @@
   }) {
     const FULL_SCAN_INTERVAL_MS = 10000,
       MAP_HEADER_POLL_INTERVAL_MS = 2000,
+      DROP_FEED_POLL_INTERVAL_MS = 100,
+      DROP_FEED_SCALE = 0.5,
+      DROP_FEED_REGION = { x: 0.87, y: 0.82, w: 0.13, h: 0.08 },
       MAP_PROBE_SCALE = 0.5;
     let stream = null,
       timer = null,
       mapTimer = null,
+      dropFeedTimer = null,
       mapProbeCanvas = null,
       mapProbeWidth = 0,
       mapProbeHeight = 0,
+      dropProbeCanvas = null,
+      dropProbeWidth = 0,
+      dropProbeHeight = 0,
+      dropImageCanvas = null,
+      lastDropVideoTime = null,
       generation = 0,
       busy = false,
       connecting = false,
@@ -37,20 +46,32 @@
       generation++;
       session.clearPending();
       reader.resetMapProbe?.();
+      reader.resetDropProbe?.();
       onInvalidate();
     }
     function stop() {
       invalidate();
       timers.clearInterval(timer);
       timers.clearInterval(mapTimer);
-      timer = null;
-      mapTimer = null;
+      timers.clearInterval(dropFeedTimer);
+      timer = mapTimer = dropFeedTimer = null;
       if (mapProbeCanvas) {
         mapProbeCanvas.width = 0;
         mapProbeCanvas.height = 0;
       }
       mapProbeCanvas = null;
       mapProbeWidth = mapProbeHeight = 0;
+      if (dropProbeCanvas) {
+        dropProbeCanvas.width = 0;
+        dropProbeCanvas.height = 0;
+      }
+      if (dropImageCanvas) {
+        dropImageCanvas.width = 0;
+        dropImageCanvas.height = 0;
+      }
+      dropProbeCanvas = dropImageCanvas = null;
+      dropProbeWidth = dropProbeHeight = 0;
+      lastDropVideoTime = null;
       const prior = stream;
       stream = null;
       if (prior) prior.getTracks().forEach((track) => track.stop());
@@ -233,6 +254,91 @@
         !reader.busy
       ) void captureFrame(false, true, true);
     }
+    function pollDropFeed() {
+      if (
+        session.state.paused ||
+        !stream ||
+        video.readyState < 2 ||
+        !video.videoWidth ||
+        !view.isAutomatic?.() ||
+        !reader.observeDropProbe ||
+        !reader.readDropNotice ||
+        video.currentTime === lastDropVideoTime
+      ) return;
+      lastDropVideoTime = video.currentTime;
+      const sourceX = Math.round(video.videoWidth * DROP_FEED_REGION.x),
+        sourceY = Math.round(video.videoHeight * DROP_FEED_REGION.y),
+        sourceWidth = Math.max(
+          1,
+          Math.min(
+            video.videoWidth - sourceX,
+            Math.round(video.videoWidth * DROP_FEED_REGION.w),
+          ),
+        ),
+        sourceHeight = Math.max(
+          1,
+          Math.min(
+            video.videoHeight - sourceY,
+            Math.round(video.videoHeight * DROP_FEED_REGION.h),
+          ),
+        ),
+        width = Math.max(1, Math.round(sourceWidth * DROP_FEED_SCALE)),
+        height = Math.max(1, Math.round(sourceHeight * DROP_FEED_SCALE));
+      if (!dropProbeCanvas) dropProbeCanvas = document.createElement("canvas");
+      if (width !== dropProbeWidth || height !== dropProbeHeight) {
+        dropProbeCanvas.width = dropProbeWidth = width;
+        dropProbeCanvas.height = dropProbeHeight = height;
+      }
+      let probe;
+      try {
+        const context = dropProbeCanvas.getContext("2d", {
+          willReadFrequently: true,
+        });
+        context.drawImage(
+          video,
+          sourceX,
+          sourceY,
+          sourceWidth,
+          sourceHeight,
+          0,
+          0,
+          width,
+          height,
+        );
+        probe = context.getImageData(0, 0, width, height);
+      } catch {
+        return;
+      }
+      if (!reader.observeDropProbe(probe)) return;
+      if (!dropImageCanvas) dropImageCanvas = document.createElement("canvas");
+      if (
+        dropImageCanvas.width !== sourceWidth ||
+        dropImageCanvas.height !== sourceHeight
+      ) {
+        dropImageCanvas.width = sourceWidth;
+        dropImageCanvas.height = sourceHeight;
+      }
+      try {
+        const context = dropImageCanvas.getContext("2d", {
+          willReadFrequently: true,
+        });
+        context.drawImage(
+          video,
+          sourceX,
+          sourceY,
+          sourceWidth,
+          sourceHeight,
+          0,
+          0,
+          sourceWidth,
+          sourceHeight,
+        );
+        const image = context.getImageData(0, 0, sourceWidth, sourceHeight);
+        void reader.readDropNotice(image, now());
+      } catch {
+        /* A drop-feed probe never interrupts EXP or map recognition. */
+      }
+    }
     async function downloadCurrentFrame() {
       if (!debug) return false;
       if (!stream || video.readyState < 2 || !video.videoWidth) {
@@ -307,6 +413,10 @@
         timer = timers.setInterval(captureFrame, FULL_SCAN_INTERVAL_MS);
         // The small visual probe only triggers OCR after a stable title change.
         mapTimer = timers.setInterval(pollMapHeader, MAP_HEADER_POLL_INTERVAL_MS);
+        dropFeedTimer = timers.setInterval(
+          pollDropFeed,
+          DROP_FEED_POLL_INTERVAL_MS,
+        );
         await captureFrame();
       } catch (error) {
         if (pending) stop();

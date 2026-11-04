@@ -5,6 +5,7 @@ const checks = [
   ["tools/test-session.cjs"],
   ["tools/test-browser-capture.cjs"],
   ["tools/test-map-probe.cjs"],
+  ["tools/test-drop-feed.cjs"],
   ["tools/test-burst-capture.cjs"],
   ["tools/test-stream-card.cjs"],
   ["tools/test-quickslots.cjs"],

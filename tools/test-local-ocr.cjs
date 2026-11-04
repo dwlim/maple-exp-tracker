@@ -4,7 +4,8 @@ const { PNG } = require("pngjs"),
   { createWorker } = require("tesseract.js"),
   R = require("../hud-regions"),
   L = require("../level-ocr"),
-  N = require("../local-ocr");
+  N = require("../local-ocr"),
+  DropProbe = require("../drop-feed-probe");
 require("../hud-ocr");
 (async () => {
   assert.equal(
@@ -58,6 +59,19 @@ require("../hud-ocr");
     0,
     "Clear text and absent images must not load a worker",
   );
+  let dropKind = null;
+  const dropReader = N.createReader(async (_pixels, kind) => {
+    dropKind = kind;
+    return { text: "You have gained mesos (+13)", confidence: 92 };
+  });
+  const dropResult = await dropReader.read({
+    dropImage: { width: 4, height: 4, data: new Uint8ClampedArray(64) },
+  });
+  assert.equal(dropKind, "drop-notice");
+  assert.deepEqual(dropResult.dropNotice, {
+    text: "You have gained mesos (+13)",
+    confidence: 92,
+  });
   assert.equal(
     N.choose(
       [
@@ -99,9 +113,14 @@ require("../hud-ocr");
   });
   const reader = N.createReader(async (pixels, kind) => {
     await worker.setParameters({
-      tessedit_pageseg_mode: 7,
+      tessedit_pageseg_mode:
+        kind === "meso-scan" ? 11 : kind === "drop-notice" || kind === "map" ? 6 : 7,
       tessedit_char_whitelist:
-        kind === "level" ? "LV.0123456789" : "0123456789.[]% ",
+        kind === "level"
+          ? "LV.0123456789"
+          : kind === "drop-notice"
+            ? "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789 ()+-.,'!"
+            : "0123456789.[]% ",
     });
     const { data } = await worker.recognize(
       PNG.sync.write({
@@ -408,6 +427,28 @@ require("../hud-ocr");
           uncertain +
           " previously uncertain level variants",
       );
+    const dropFixture = require("./drop-feed-fixtures.json")[0],
+      rawDrop = {
+        width: dropFixture.width,
+        height: dropFixture.height,
+        data: require("node:zlib").inflateSync(
+          Buffer.from(dropFixture.rgba, "base64"),
+        ),
+      },
+      dropRead = await reader.read({
+        dropImage: DropProbe.prepareOcrImage(rawDrop),
+      });
+    assert.ok(
+      DropProbe.parseNotices(dropRead.dropNotice?.text).some((line) =>
+        /You have gained mesos/i.test(line),
+      ),
+      "The cropped pickup feed recognizes a real mesos notification",
+    );
+    assert.ok(
+      dropRead.dropNotice.confidence >= 50,
+      "Pickup line requires a minimum OCR confidence",
+    );
+    console.log("Drop feed OCR: cropped real mesos pickup notification passed.");
   } finally {
     await worker.terminate();
   }

@@ -1,10 +1,11 @@
 (function (root, factory) {
   const api = factory(
     typeof module === "object" && module.exports ? require("./map-name") : root.MapleMapName,
+    typeof module === "object" && module.exports ? require("./drop-feed-probe") : root.MapleDropFeedProbe,
   );
   if (typeof module === "object" && module.exports) module.exports = api;
   else root.MapleReader = api;
-})(typeof window === "undefined" ? globalThis : window, function (MapName) {
+})(typeof window === "undefined" ? globalThis : window, function (MapName, DropFeedProbe) {
   "use strict";
   function cropNormalized(image, region) {
     if (!image?.data || !region) return null;
@@ -49,7 +50,12 @@
       mapProbeBaseline = null,
       mapProbeCandidate = null,
       mapProbeCandidateCount = 0,
-      mapProbeTriggered = false;
+      mapProbeTriggered = false,
+      dropProbe = DropFeedProbe?.create?.(),
+      lastDropTextAt = new Map(),
+      dropReadActive = false,
+      pendingDropRead = null,
+      lastDropReadAt = 0;
     function mapProbeFingerprint(image) {
       const crop = mapNameApi?.cropHeaderText?.(image);
       if (!crop?.data || !crop.width || !crop.height) return null;
@@ -134,6 +140,99 @@
       mapProbeCandidate = null;
       mapProbeCandidateCount = 0;
       mapProbeTriggered = false;
+    }
+    function resetDropProbe() {
+      dropProbe?.reset();
+      lastDropTextAt.clear();
+      pendingDropRead = null;
+      lastDropReadAt = 0;
+    }
+    function observeDropProbe(image) {
+      return Boolean(
+        !session.state.paused &&
+          session.state.running &&
+          dropProbe?.observe(image),
+      );
+    }
+    async function processDropNotice({
+      image,
+      timestamp,
+      generation,
+      sessionStartAt,
+    }) {
+      if (
+        session.state.paused ||
+        generation !== getCapture().generation ||
+        !getCapture().stream ||
+        sessionStartAt !== session.state.startAt
+      ) return [];
+      try {
+        const prepared = DropFeedProbe?.prepareOcrImage?.(image) || image,
+          result = await localOcr.read({ dropImage: prepared });
+        if (
+          session.state.paused ||
+          generation !== getCapture().generation ||
+          !getCapture().stream ||
+          sessionStartAt !== session.state.startAt
+        ) return [];
+        if (!Number.isFinite(result?.dropNotice?.confidence) || result.dropNotice.confidence < 50)
+          return [];
+        const notices = DropFeedProbe?.parseNotices?.(result?.dropNotice?.text) || [];
+        for (const notice of notices) {
+          const key = notice.toLocaleLowerCase(),
+            previous = lastDropTextAt.get(key);
+          if (previous !== undefined && timestamp - previous < 1200) continue;
+          lastDropTextAt.set(key, timestamp);
+          if (lastDropTextAt.size > 100)
+            for (const [text, at] of lastDropTextAt)
+              if (timestamp - at > 10000) lastDropTextAt.delete(text);
+          session.addDropNotice(
+            notice,
+            timestamp,
+            result?.dropNotice?.confidence,
+          );
+        }
+        return notices;
+      } catch {
+        return [];
+      }
+    }
+    async function drainDropNotices() {
+      if (dropReadActive) return;
+      dropReadActive = true;
+      try {
+        while (pendingDropRead && !session.state.paused) {
+          let job = pendingDropRead;
+          pendingDropRead = null;
+          const wait = Math.max(0, 350 - (job.timestamp - lastDropReadAt));
+          if (wait)
+            await new Promise((resolve) => setTimeout(resolve, wait));
+          if (pendingDropRead) {
+            job = pendingDropRead;
+            pendingDropRead = null;
+          }
+          lastDropReadAt = job.timestamp;
+          await processDropNotice(job);
+        }
+      } finally {
+        dropReadActive = false;
+        if (pendingDropRead && !session.state.paused)
+          void drainDropNotices();
+      }
+    }
+    function readDropNotice(image, timestamp) {
+      if (!localOcr?.read || !session.addDropNotice || session.state.paused)
+        return false;
+      // Coalesce during OCR; the newest crop still contains the feed's recent
+      // lines, so a burst cannot build an unbounded recognition queue.
+      pendingDropRead = {
+        image,
+        timestamp,
+        generation: getCapture().generation,
+        sessionStartAt: session.state.startAt,
+      };
+      void drainDropNotices();
+      return true;
     }
     async function recoverAutoRegions(frame, readAt, generation, result) {
       if (session.state.calibration?.auto !== false) {
@@ -469,6 +568,9 @@
       observeMapProbe,
       resetMapProbe,
       resolveMapProbe,
+      observeDropProbe,
+      readDropNotice,
+      resetDropProbe,
       get busy() {
         return busy;
       },

@@ -2372,6 +2372,17 @@ return {detect,crop,anchors,percentageRegion};
     function read(input) {
       const task = queue.then(async () => {
         const result = {};
+        if (input.dropImage) {
+          try {
+            const reading = await recognize(input.dropImage, "drop-notice");
+            result.dropNotice = {
+              text: String(reading?.text || ""),
+              confidence: reading?.confidence,
+            };
+          } catch {
+            result.dropNotice = null;
+          }
+        }
         if (input.mapImage) {
           const mapObservations = [],
             mapReadings = input.includeMapDebug ? mapObservations : null;
@@ -2690,10 +2701,16 @@ return {detect,crop,anchors,percentageRegion};
         if (configuredWorker !== w || configuredKind !== kind) {
           await w.setParameters({
             tessedit_pageseg_mode:
-              kind === "meso-scan" ? 11 : kind === "map" ? 6 : 7,
+              kind === "meso-scan"
+                ? 11
+                : kind === "drop-notice" || kind === "map"
+                  ? 6
+                  : 7,
             tessedit_char_whitelist:
               kind === "meso-scan"
                 ? "0123456789,.MESOS"
+                : kind === "drop-notice"
+                  ? "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789 ()+-.,'!"
                 : kind === "map" || kind === "map-line"
                 ? "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz-'(),.0123456789 "
                 : kind === "level"
@@ -3496,6 +3513,7 @@ return {detect,crop,anchors,percentageRegion};
       mesoSamples: [],
       mesoStartAmount: null,
       mesoStatus: "Searching for the inventory balance automatically",
+      dropNotices: [],
       mapName: "",
       mapUpdatedAt: null,
       mapHistory: [],
@@ -3535,6 +3553,11 @@ return {detect,crop,anchors,percentageRegion};
     }
     if (!state.mapHistory.length && state.mapName && Number.isFinite(state.mapUpdatedAt))
       state.mapHistory.push({ t: state.mapUpdatedAt, name: state.mapName });
+    state.dropNotices = Array.isArray(state.dropNotices)
+      ? state.dropNotices
+          .filter((entry) => typeof entry?.text === "string" && Number.isFinite(entry.t))
+          .slice(-100)
+      : [];
     if (
       !Number.isSafeInteger(state.mesoStartAmount) ||
       state.mesoStartAmount < 0
@@ -3596,6 +3619,7 @@ return {detect,crop,anchors,percentageRegion};
       const t = now();
       state.samples = [];
       state.mesoSamples = [];
+      state.dropNotices = [];
       state.mesoStartAmount = null;
       state.mesoStatus = "Searching for the inventory balance automatically";
       state.level = null;
@@ -3615,6 +3639,27 @@ return {detect,crop,anchors,percentageRegion};
       if (state.mesoSamples.length > 720)
         state.mesoSamples = state.mesoSamples.slice(-720);
       state.mesoStatus = "Meso total read";
+      onChange();
+      return true;
+    }
+    function addDropNotice(text, t = now(), confidence = null) {
+      const normalized = String(text || "").replace(/\s+/g, " ").trim();
+      if (!normalized || normalized.length > 180 || !Number.isFinite(t))
+        return false;
+      if (
+        state.dropNotices.some(
+          (entry) => entry.text === normalized && t >= entry.t && t - entry.t < 1200,
+        )
+      ) return false;
+      state.dropNotices.push({
+        text: normalized,
+        t,
+        map: state.mapName || null,
+        ...(Number.isFinite(confidence) ? { confidence } : {}),
+      });
+      if (state.dropNotices.length > 100)
+        state.dropNotices = state.dropNotices.slice(-100);
+      save();
       onChange();
       return true;
     }
@@ -3762,6 +3807,7 @@ return {detect,crop,anchors,percentageRegion};
       key,
       samples,
       addMesoSample,
+      addDropNotice,
       setMesoStatus,
       setMesoRegion,
       setMesoAnchor,
@@ -4225,6 +4271,7 @@ return {detect,crop,anchors,percentageRegion};
           ? "—"
           : (estimatedGrossMesoRate > 0 ? "+" : estimatedGrossMesoRate < 0 ? "−" : "") + fmt(Math.abs(estimatedGrossMesoRate));
       renderMapSessions(mapVisits, now);
+      renderDropNotices(now);
       const lvl = state.level,
         req = lvl ? required(lvl) : 0,
         expIn = latest ? latest.exp || 0 : 0,
@@ -4371,6 +4418,39 @@ return {detect,crop,anchors,percentageRegion};
         section.appendChild(heading);
         section.appendChild(grid);
         root.appendChild(section);
+      }
+    }
+    function renderDropNotices(now) {
+      const root = q("#dropNotices"),
+        count = q("#dropNoticeCount"),
+        notices = Array.isArray(state.dropNotices) ? state.dropNotices : [];
+      if (count) count.textContent = notices.length.toLocaleString("en-US");
+      if (!root) return;
+      root.innerHTML = "";
+      if (!notices.length) {
+        const empty = document.createElement("p");
+        empty.className = "subtle";
+        empty.textContent = "Pickup notifications will appear when detected.";
+        root.appendChild(empty);
+        return;
+      }
+      for (const notice of notices.slice(-12).reverse()) {
+        const row = document.createElement("div"),
+          time = document.createElement("span"),
+          text = document.createElement("strong"),
+          map = document.createElement("span");
+        row.style.cssText = "display:grid;grid-template-columns:76px minmax(0,1fr) auto;gap:10px;align-items:baseline;padding:7px 0;border-top:1px solid var(--line);font-size:11px";
+        time.className = "subtle";
+        time.textContent = new Date(notice.t).toLocaleTimeString([], {
+          hour: "2-digit",
+          minute: "2-digit",
+          second: "2-digit",
+        });
+        text.textContent = notice.text;
+        map.className = "subtle";
+        map.textContent = notice.map || "Unknown map";
+        row.append(time, text, map);
+        root.appendChild(row);
       }
     }
     function updateRateHint(ss = samples()) {
@@ -4794,14 +4874,134 @@ return {detect,crop,anchors,percentageRegion};
 });
 </script>
 <!-- DASHBOARD END -->
+<!-- DROP FEED PROBE START -->
+<script>(function (root, factory) {
+  if (typeof module === "object" && module.exports) module.exports = factory();
+  else root.MapleDropFeedProbe = factory();
+})(typeof window === "undefined" ? globalThis : window, function () {
+  "use strict";
+  function create({ changedThreshold = 0.014, stableSamples = 2 } = {}) {
+    let baseline = null,
+      candidate = null,
+      candidateCount = 0;
+    function fingerprint(image) {
+      if (!image?.data || image.data.length !== image.width * image.height * 4)
+        return null;
+      const columns = 64,
+        rows = 24,
+        result = new Uint8Array(columns * rows);
+      for (let row = 0; row < rows; row++)
+        for (let column = 0; column < columns; column++) {
+          const x0 = Math.floor((column * image.width) / columns),
+            x1 = Math.max(x0 + 1, Math.floor(((column + 1) * image.width) / columns)),
+            y0 = Math.floor((row * image.height) / rows),
+            y1 = Math.max(y0 + 1, Math.floor(((row + 1) * image.height) / rows));
+          let luminance = 0,
+            count = 0;
+          for (let y = y0; y < Math.min(y1, image.height); y++)
+            for (let x = x0; x < Math.min(x1, image.width); x++) {
+              const i = (y * image.width + x) * 4;
+              luminance +=
+                0.2126 * image.data[i] +
+                0.7152 * image.data[i + 1] +
+                0.0722 * image.data[i + 2];
+              count++;
+            }
+          result[row * columns + column] = count
+            ? Math.round((luminance / count) / 16)
+            : 0;
+        }
+      return result;
+    }
+    function distance(a, b) {
+      if (!a || !b || a.length !== b.length) return 1;
+      let changed = 0;
+      for (let i = 0; i < a.length; i++)
+        if (Math.abs(a[i] - b[i]) >= 2) changed++;
+      return changed / a.length;
+    }
+    function observe(image) {
+      const current = fingerprint(image);
+      if (!current) return false;
+      if (!baseline) {
+        baseline = current;
+        return false;
+      }
+      if (distance(current, baseline) < changedThreshold) {
+        candidate = null;
+        candidateCount = 0;
+        return false;
+      }
+      if (candidate && distance(current, candidate) < changedThreshold / 2)
+        candidateCount++;
+      else {
+        candidate = current;
+        candidateCount = 1;
+      }
+      if (candidateCount < stableSamples) return false;
+      baseline = current;
+      candidate = null;
+      candidateCount = 0;
+      return true;
+    }
+    function reset() {
+      baseline = candidate = null;
+      candidateCount = 0;
+    }
+    return { observe, reset };
+  }
+  function parseNotices(text) {
+    return String(text || "")
+      .replace(/\r/g, "")
+      .split("\n")
+      .map((line) => line.replace(/\s+/g, " ").trim())
+      .filter(
+        (line) =>
+          line.length >= 8 &&
+          line.length <= 180 &&
+          !/\bEXP\b/i.test(line) &&
+          /\b(?:you have (?:gained|obtained|received|picked up)|mesos?\s*\(\s*\+)/i.test(
+            line,
+          ),
+      );
+  }
+  function prepareOcrImage(image, threshold = 120, scale = 2) {
+    if (!image?.data || image.data.length !== image.width * image.height * 4)
+      return null;
+    const width = image.width * scale,
+      height = image.height * scale,
+      data = new Uint8ClampedArray(width * height * 4);
+    for (let y = 0; y < height; y++)
+      for (let x = 0; x < width; x++) {
+        const source =
+            (Math.floor(y / scale) * image.width + Math.floor(x / scale)) * 4,
+          target = (y * width + x) * 4,
+          value =
+            (image.data[source] +
+              image.data[source + 1] +
+              image.data[source + 2]) /
+              3 >
+            threshold
+              ? 255
+              : 0;
+        data[target] = data[target + 1] = data[target + 2] = value;
+        data[target + 3] = 255;
+      }
+    return { width, height, data };
+  }
+  return { create, parseNotices, prepareOcrImage };
+});
+</script>
+<!-- DROP FEED PROBE END -->
 <!-- READER START -->
 <script>(function (root, factory) {
   const api = factory(
     typeof module === "object" && module.exports ? require("./map-name") : root.MapleMapName,
+    typeof module === "object" && module.exports ? require("./drop-feed-probe") : root.MapleDropFeedProbe,
   );
   if (typeof module === "object" && module.exports) module.exports = api;
   else root.MapleReader = api;
-})(typeof window === "undefined" ? globalThis : window, function (MapName) {
+})(typeof window === "undefined" ? globalThis : window, function (MapName, DropFeedProbe) {
   "use strict";
   function cropNormalized(image, region) {
     if (!image?.data || !region) return null;
@@ -4846,7 +5046,12 @@ return {detect,crop,anchors,percentageRegion};
       mapProbeBaseline = null,
       mapProbeCandidate = null,
       mapProbeCandidateCount = 0,
-      mapProbeTriggered = false;
+      mapProbeTriggered = false,
+      dropProbe = DropFeedProbe?.create?.(),
+      lastDropTextAt = new Map(),
+      dropReadActive = false,
+      pendingDropRead = null,
+      lastDropReadAt = 0;
     function mapProbeFingerprint(image) {
       const crop = mapNameApi?.cropHeaderText?.(image);
       if (!crop?.data || !crop.width || !crop.height) return null;
@@ -4931,6 +5136,99 @@ return {detect,crop,anchors,percentageRegion};
       mapProbeCandidate = null;
       mapProbeCandidateCount = 0;
       mapProbeTriggered = false;
+    }
+    function resetDropProbe() {
+      dropProbe?.reset();
+      lastDropTextAt.clear();
+      pendingDropRead = null;
+      lastDropReadAt = 0;
+    }
+    function observeDropProbe(image) {
+      return Boolean(
+        !session.state.paused &&
+          session.state.running &&
+          dropProbe?.observe(image),
+      );
+    }
+    async function processDropNotice({
+      image,
+      timestamp,
+      generation,
+      sessionStartAt,
+    }) {
+      if (
+        session.state.paused ||
+        generation !== getCapture().generation ||
+        !getCapture().stream ||
+        sessionStartAt !== session.state.startAt
+      ) return [];
+      try {
+        const prepared = DropFeedProbe?.prepareOcrImage?.(image) || image,
+          result = await localOcr.read({ dropImage: prepared });
+        if (
+          session.state.paused ||
+          generation !== getCapture().generation ||
+          !getCapture().stream ||
+          sessionStartAt !== session.state.startAt
+        ) return [];
+        if (!Number.isFinite(result?.dropNotice?.confidence) || result.dropNotice.confidence < 50)
+          return [];
+        const notices = DropFeedProbe?.parseNotices?.(result?.dropNotice?.text) || [];
+        for (const notice of notices) {
+          const key = notice.toLocaleLowerCase(),
+            previous = lastDropTextAt.get(key);
+          if (previous !== undefined && timestamp - previous < 1200) continue;
+          lastDropTextAt.set(key, timestamp);
+          if (lastDropTextAt.size > 100)
+            for (const [text, at] of lastDropTextAt)
+              if (timestamp - at > 10000) lastDropTextAt.delete(text);
+          session.addDropNotice(
+            notice,
+            timestamp,
+            result?.dropNotice?.confidence,
+          );
+        }
+        return notices;
+      } catch {
+        return [];
+      }
+    }
+    async function drainDropNotices() {
+      if (dropReadActive) return;
+      dropReadActive = true;
+      try {
+        while (pendingDropRead && !session.state.paused) {
+          let job = pendingDropRead;
+          pendingDropRead = null;
+          const wait = Math.max(0, 350 - (job.timestamp - lastDropReadAt));
+          if (wait)
+            await new Promise((resolve) => setTimeout(resolve, wait));
+          if (pendingDropRead) {
+            job = pendingDropRead;
+            pendingDropRead = null;
+          }
+          lastDropReadAt = job.timestamp;
+          await processDropNotice(job);
+        }
+      } finally {
+        dropReadActive = false;
+        if (pendingDropRead && !session.state.paused)
+          void drainDropNotices();
+      }
+    }
+    function readDropNotice(image, timestamp) {
+      if (!localOcr?.read || !session.addDropNotice || session.state.paused)
+        return false;
+      // Coalesce during OCR; the newest crop still contains the feed's recent
+      // lines, so a burst cannot build an unbounded recognition queue.
+      pendingDropRead = {
+        image,
+        timestamp,
+        generation: getCapture().generation,
+        sessionStartAt: session.state.startAt,
+      };
+      void drainDropNotices();
+      return true;
     }
     async function recoverAutoRegions(frame, readAt, generation, result) {
       if (session.state.calibration?.auto !== false) {
@@ -5266,6 +5564,9 @@ return {detect,crop,anchors,percentageRegion};
       observeMapProbe,
       resetMapProbe,
       resolveMapProbe,
+      observeDropProbe,
+      readDropNotice,
+      resetDropProbe,
       get busy() {
         return busy;
       },
@@ -5298,13 +5599,22 @@ return {detect,crop,anchors,percentageRegion};
   }) {
     const FULL_SCAN_INTERVAL_MS = 10000,
       MAP_HEADER_POLL_INTERVAL_MS = 2000,
+      DROP_FEED_POLL_INTERVAL_MS = 100,
+      DROP_FEED_SCALE = 0.5,
+      DROP_FEED_REGION = { x: 0.87, y: 0.82, w: 0.13, h: 0.08 },
       MAP_PROBE_SCALE = 0.5;
     let stream = null,
       timer = null,
       mapTimer = null,
+      dropFeedTimer = null,
       mapProbeCanvas = null,
       mapProbeWidth = 0,
       mapProbeHeight = 0,
+      dropProbeCanvas = null,
+      dropProbeWidth = 0,
+      dropProbeHeight = 0,
+      dropImageCanvas = null,
+      lastDropVideoTime = null,
       generation = 0,
       busy = false,
       connecting = false,
@@ -5315,20 +5625,32 @@ return {detect,crop,anchors,percentageRegion};
       generation++;
       session.clearPending();
       reader.resetMapProbe?.();
+      reader.resetDropProbe?.();
       onInvalidate();
     }
     function stop() {
       invalidate();
       timers.clearInterval(timer);
       timers.clearInterval(mapTimer);
-      timer = null;
-      mapTimer = null;
+      timers.clearInterval(dropFeedTimer);
+      timer = mapTimer = dropFeedTimer = null;
       if (mapProbeCanvas) {
         mapProbeCanvas.width = 0;
         mapProbeCanvas.height = 0;
       }
       mapProbeCanvas = null;
       mapProbeWidth = mapProbeHeight = 0;
+      if (dropProbeCanvas) {
+        dropProbeCanvas.width = 0;
+        dropProbeCanvas.height = 0;
+      }
+      if (dropImageCanvas) {
+        dropImageCanvas.width = 0;
+        dropImageCanvas.height = 0;
+      }
+      dropProbeCanvas = dropImageCanvas = null;
+      dropProbeWidth = dropProbeHeight = 0;
+      lastDropVideoTime = null;
       const prior = stream;
       stream = null;
       if (prior) prior.getTracks().forEach((track) => track.stop());
@@ -5511,6 +5833,91 @@ return {detect,crop,anchors,percentageRegion};
         !reader.busy
       ) void captureFrame(false, true, true);
     }
+    function pollDropFeed() {
+      if (
+        session.state.paused ||
+        !stream ||
+        video.readyState < 2 ||
+        !video.videoWidth ||
+        !view.isAutomatic?.() ||
+        !reader.observeDropProbe ||
+        !reader.readDropNotice ||
+        video.currentTime === lastDropVideoTime
+      ) return;
+      lastDropVideoTime = video.currentTime;
+      const sourceX = Math.round(video.videoWidth * DROP_FEED_REGION.x),
+        sourceY = Math.round(video.videoHeight * DROP_FEED_REGION.y),
+        sourceWidth = Math.max(
+          1,
+          Math.min(
+            video.videoWidth - sourceX,
+            Math.round(video.videoWidth * DROP_FEED_REGION.w),
+          ),
+        ),
+        sourceHeight = Math.max(
+          1,
+          Math.min(
+            video.videoHeight - sourceY,
+            Math.round(video.videoHeight * DROP_FEED_REGION.h),
+          ),
+        ),
+        width = Math.max(1, Math.round(sourceWidth * DROP_FEED_SCALE)),
+        height = Math.max(1, Math.round(sourceHeight * DROP_FEED_SCALE));
+      if (!dropProbeCanvas) dropProbeCanvas = document.createElement("canvas");
+      if (width !== dropProbeWidth || height !== dropProbeHeight) {
+        dropProbeCanvas.width = dropProbeWidth = width;
+        dropProbeCanvas.height = dropProbeHeight = height;
+      }
+      let probe;
+      try {
+        const context = dropProbeCanvas.getContext("2d", {
+          willReadFrequently: true,
+        });
+        context.drawImage(
+          video,
+          sourceX,
+          sourceY,
+          sourceWidth,
+          sourceHeight,
+          0,
+          0,
+          width,
+          height,
+        );
+        probe = context.getImageData(0, 0, width, height);
+      } catch {
+        return;
+      }
+      if (!reader.observeDropProbe(probe)) return;
+      if (!dropImageCanvas) dropImageCanvas = document.createElement("canvas");
+      if (
+        dropImageCanvas.width !== sourceWidth ||
+        dropImageCanvas.height !== sourceHeight
+      ) {
+        dropImageCanvas.width = sourceWidth;
+        dropImageCanvas.height = sourceHeight;
+      }
+      try {
+        const context = dropImageCanvas.getContext("2d", {
+          willReadFrequently: true,
+        });
+        context.drawImage(
+          video,
+          sourceX,
+          sourceY,
+          sourceWidth,
+          sourceHeight,
+          0,
+          0,
+          sourceWidth,
+          sourceHeight,
+        );
+        const image = context.getImageData(0, 0, sourceWidth, sourceHeight);
+        void reader.readDropNotice(image, now());
+      } catch {
+        /* A drop-feed probe never interrupts EXP or map recognition. */
+      }
+    }
     async function downloadCurrentFrame() {
       if (!debug) return false;
       if (!stream || video.readyState < 2 || !video.videoWidth) {
@@ -5585,6 +5992,10 @@ return {detect,crop,anchors,percentageRegion};
         timer = timers.setInterval(captureFrame, FULL_SCAN_INTERVAL_MS);
         // The small visual probe only triggers OCR after a stable title change.
         mapTimer = timers.setInterval(pollMapHeader, MAP_HEADER_POLL_INTERVAL_MS);
+        dropFeedTimer = timers.setInterval(
+          pollDropFeed,
+          DROP_FEED_POLL_INTERVAL_MS,
+        );
         await captureFrame();
       } catch (error) {
         if (pending) stop();
@@ -7251,7 +7662,7 @@ return {detect,crop,anchors,percentageRegion};
 <div class="grid"><section class="panel"><div class="panel-head"><span class="label">Current map visit</span><span class="tag" id="windowLabel">TRAILING 5 MIN</span></div>
 <div class="stats"><div class="stat"><div class="k">EXP / hour</div><div class="v lime" id="rate">—</div><div class="hint" id="rateHint">Waiting for samples</div></div><div class="stat"><div class="k">EXP gained</div><div class="v" id="gained">0</div><div class="hint">this session</div></div><div class="stat"><div class="k">Recent pace</div><div class="v" id="pace">—</div><div class="hint">over last 5 minutes</div></div><div class="stat"><div class="k">Time to next level</div><div class="v lime" id="nextLevelEta">—</div><div class="hint" id="nextLevelEtaHint">Need more data</div></div></div>
 <div class="chart-wrap" style="margin-bottom:24px"><div class="chart-title"><span>Mesos</span><button class="btn" id="setMesoRegion" style="padding:5px 8px">Adjust manually</button><span id="mesoHint" role="status">The tracker automatically searches for the standard inventory balance. Keep the item window visible.</span></div><div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(120px,1fr));gap:10px"><div class="stat" style="min-height:92px"><div class="k">Current total</div><div class="v" id="mesoAmount">—</div></div><div class="stat" style="min-height:92px"><div class="k">Net change</div><div class="v" id="mesoNet">—</div><div class="hint">this session</div></div><div class="stat" style="min-height:92px"><div class="k">Meso balance change / hour</div><div class="v lime" id="mesoRate">—</div><div class="hint">trailing 5 minutes</div></div><div class="stat" style="min-height:92px"><div class="k">Estimated gross mesos / hour</div><div class="v lime" id="estimatedGrossMesoRate">—</div><div class="hint">balance change + tracked potion costs · trailing 5 minutes</div></div></div><div class="chart-title" style="margin:18px 0 10px"><span>Estimated potion costs · trailing 5 minutes</span></div><div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(120px,1fr));gap:10px"><div class="stat" style="min-height:82px"><div class="k">HP potion cost / hour</div><div class="v" id="hpPotionCost">—</div></div><div class="stat" style="min-height:82px"><div class="k">MP potion cost / hour</div><div class="v" id="mpPotionCost">—</div></div><div class="stat" style="min-height:82px"><div class="k">HP + MP potion cost / hour</div><div class="v" id="bothPotionCost">—</div></div></div></div>
-<div class="chart-wrap" style="margin-bottom:16px"><div class="chart-title"><span>Map visits this session</span><span class="subtle">Rates use same-map readings; transition intervals are excluded.</span></div><div id="mapSessions"><p class="subtle">Map-specific readings will appear after the tracker recognizes your map.</p></div></div><div class="chart-wrap"><div class="chart-title"><span>Experience over time</span><span id="sampleCount">0 samples</span></div><svg class="chart" id="chart" viewBox="0 0 700 170" preserveAspectRatio="none" aria-label="Experience chart"><defs><linearGradient id="fill" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#c7f36b" stop-opacity=".2"/><stop offset="1" stop-color="#c7f36b" stop-opacity="0"/></linearGradient></defs><g id="chartContent"></g></svg></div>
+<div class="chart-wrap" style="margin-bottom:16px"><div class="chart-title"><span>Map visits this session</span><span class="subtle">Rates use same-map readings; transition intervals are excluded.</span></div><div id="mapSessions"><p class="subtle">Map-specific readings will appear after the tracker recognizes your map.</p></div></div><div class="chart-wrap" style="margin-bottom:16px"><div class="chart-title"><span>Pickup notifications</span><span class="tag"><b id="dropNoticeCount">0</b> detected</span></div><div id="dropNotices" aria-live="polite"><p class="subtle">Pickup notifications will appear when detected.</p></div><p class="hint" style="margin-top:10px">Scans the bottom-right notification area on incoming frames; OCR runs only when that area changes.</p></div><div class="chart-wrap"><div class="chart-title"><span>Experience over time</span><span id="sampleCount">0 samples</span></div><svg class="chart" id="chart" viewBox="0 0 700 170" preserveAspectRatio="none" aria-label="Experience chart"><defs><linearGradient id="fill" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#c7f36b" stop-opacity=".2"/><stop offset="1" stop-color="#c7f36b" stop-opacity="0"/></linearGradient></defs><g id="chartContent"></g></svg></div>
 <div class="chart-wrap capture-debug" style="margin-top:12px;padding:10px"><div class="chart-title" style="margin:0 6px 8px"><span>Latest game capture</span><span id="frameStatus">WAITING FOR SHARING</span></div><div class="calibration-tools"><button id="pickLevel">Select level</button><button id="pickExp">Select EXP readout</button><button id="pickMeso">Select meso amount</button><button id="clearMeso">Clear meso region</button><button id="clearRegions">Reset auto regions</button><span id="regionStatus" class="region-status">Searching for the level tiles and EXP readout once a capture arrives.</span></div><div class="ocr-tools"><button id="readFrame">Read frame</button><label><input type="checkbox" id="autoOcr" checked> Read new frames automatically</label></div><div class="ocr-tools"><button class="btn" id="downloadCurrentFrame" disabled>Download current screenshot</button><label><input type="checkbox" id="debugDownloads" checked> Download screenshots with rejected readings</label></div><p id="debugDownloadStatus" class="subtle" style="font-size:10px">In debug mode, rejected EXP/level or quickslot readings can download one screenshot per frame. Uncheck downloads to stop automatic files; filenames include the rejection reason. Screenshots stay on your device.</p><div id="ocrOutput" class="ocr-output">Waiting for a game capture. Text recognition runs locally in your browser.</div><div class="crop-preview-grid" id="cropPreviewGrid"><div><label>LEVEL OCR INPUT</label><img id="levelCropPreview" alt="Exact level crop used by OCR"><small id="levelCropPreviewStatus">Waiting for a crop</small></div><div><label>EXP OCR INPUT</label><img id="expCropPreview" alt="Exact EXP crop used by OCR"><small id="expCropPreviewStatus">Waiting for a crop</small></div><div><label>MESO AMOUNT INPUT</label><img id="mesoCropPreview" alt="Exact meso amount crop used by OCR"><small id="mesoCropPreviewStatus">Waiting for a crop</small></div><div><label>MAP NAME OCR INPUT</label><img id="mapCropPreview" alt="Exact map-name OCR input"><small id="mapCropPreviewStatus">Waiting for a crop</small></div></div><div class="frame-stage" id="frameStage"><img id="latestFrame" alt="Latest shared game window"><canvas id="frameCanvas"></canvas></div><div id="frameEmpty" class="subtle" style="padding:34px;text-align:center;font-size:11px">Share MapleStory to see a frame here.</div></div>
 <div class="foot"><span id="lastSample">NO CAPTURE YET</span></div></section>
 <div class="right-col"><section class="panel level-card"><div class="panel-head"><span class="label">Current character</span><span class="tag">MAPLE CLASSIC</span></div><div class="level-row"><div><div class="level-name">LEVEL</div><div class="level-num" id="level">—</div></div><div class="level-name" id="classLabel">AWAITING CAPTURE</div></div><div class="map-name-row" style="display:flex;align-items:baseline;gap:9px;margin:8px 0 4px;font-size:11px"><span class="level-name" style="font-size:9px">MAP</span><b id="mapName" style="font-weight:600;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;color:var(--text)">Waiting for capture</b></div><div class="progress"><span id="progressFill" style="width:0%"></span></div><div class="progress-meta"><span id="percent">0.00% to next level</span><span id="remaining">— EXP TO GO</span></div><div class="eta"><div><span>Estimated level up</span><br><b id="eta">—</b></div><span id="etaNote">Need more data</span></div></section>

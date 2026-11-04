@@ -1079,6 +1079,17 @@
     function read(input) {
       const task = queue.then(async () => {
         const result = {};
+        if (input.dropImage) {
+          try {
+            const reading = await recognize(input.dropImage, "drop-notice");
+            result.dropNotice = {
+              text: String(reading?.text || ""),
+              confidence: reading?.confidence,
+            };
+          } catch {
+            result.dropNotice = null;
+          }
+        }
         if (input.mapImage) {
           const mapObservations = [],
             mapReadings = input.includeMapDebug ? mapObservations : null;
@@ -1397,10 +1408,16 @@
         if (configuredWorker !== w || configuredKind !== kind) {
           await w.setParameters({
             tessedit_pageseg_mode:
-              kind === "meso-scan" ? 11 : kind === "map" ? 6 : 7,
+              kind === "meso-scan"
+                ? 11
+                : kind === "drop-notice" || kind === "map"
+                  ? 6
+                  : 7,
             tessedit_char_whitelist:
               kind === "meso-scan"
                 ? "0123456789,.MESOS"
+                : kind === "drop-notice"
+                  ? "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789 ()+-.,'!"
                 : kind === "map" || kind === "map-line"
                 ? "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz-'(),.0123456789 "
                 : kind === "level"

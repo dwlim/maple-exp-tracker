@@ -17,6 +17,7 @@ const modules = [
   ["RECOGNITION", "recognition.js"],
   ["DEBUG TOOLS", "debug-tools.js"],
   ["DASHBOARD", "dashboard.js"],
+  ["DROP FEED PROBE", "drop-feed-probe.js"],
   ["READER", "reader.js"],
   ["CAPTURE", "capture.js"],
   ["QUICKSLOT FONT", "quickslot-font.js"],

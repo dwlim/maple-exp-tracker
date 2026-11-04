@@ -125,6 +125,7 @@
           ? "—"
           : (estimatedGrossMesoRate > 0 ? "+" : estimatedGrossMesoRate < 0 ? "−" : "") + fmt(Math.abs(estimatedGrossMesoRate));
       renderMapSessions(mapVisits, now);
+      renderDropNotices(now);
       const lvl = state.level,
         req = lvl ? required(lvl) : 0,
         expIn = latest ? latest.exp || 0 : 0,
@@ -271,6 +272,39 @@
         section.appendChild(heading);
         section.appendChild(grid);
         root.appendChild(section);
+      }
+    }
+    function renderDropNotices(now) {
+      const root = q("#dropNotices"),
+        count = q("#dropNoticeCount"),
+        notices = Array.isArray(state.dropNotices) ? state.dropNotices : [];
+      if (count) count.textContent = notices.length.toLocaleString("en-US");
+      if (!root) return;
+      root.innerHTML = "";
+      if (!notices.length) {
+        const empty = document.createElement("p");
+        empty.className = "subtle";
+        empty.textContent = "Pickup notifications will appear when detected.";
+        root.appendChild(empty);
+        return;
+      }
+      for (const notice of notices.slice(-12).reverse()) {
+        const row = document.createElement("div"),
+          time = document.createElement("span"),
+          text = document.createElement("strong"),
+          map = document.createElement("span");
+        row.style.cssText = "display:grid;grid-template-columns:76px minmax(0,1fr) auto;gap:10px;align-items:baseline;padding:7px 0;border-top:1px solid var(--line);font-size:11px";
+        time.className = "subtle";
+        time.textContent = new Date(notice.t).toLocaleTimeString([], {
+          hour: "2-digit",
+          minute: "2-digit",
+          second: "2-digit",
+        });
+        text.textContent = notice.text;
+        map.className = "subtle";
+        map.textContent = notice.map || "Unknown map";
+        row.append(time, text, map);
+        root.appendChild(row);
       }
     }
     function updateRateHint(ss = samples()) {

@@ -33,12 +33,18 @@ assert.equal(session.addSample(39, 1100), true);
 assert.equal(session.addMesoSample(120000, clock), true);
 assert.equal(session.state.mesoStartAmount, 120000);
 assert.equal(session.addMesoSample(120000, clock), false);
+session.state.mapName = "Maple Road · Pig Beach";
+assert.equal(session.addDropNotice("You have obtained Red Potion", clock, 91), true);
+assert.equal(session.state.dropNotices[0].map, "Maple Road · Pig Beach");
+assert.equal(session.addDropNotice("You have obtained Red Potion", clock + 500), false);
+assert.equal(session.addDropNotice("You have obtained Red Potion", clock + 1300), true);
 session.save();
 assert.equal(saved.samples.length, 2);
 assert.equal(saved.mesoSamples.length, 1);
+assert.equal(saved.dropNotices.length, 2);
 assert.equal(saved.updatedAt, clock);
 assert.equal(saved.screen, null);
-assert.equal(changed, 2);
+assert.equal(changed, 4);
 for (let n = 0; n < 250; n++) session.addSample(39, n, clock + n);
 assert.equal(session.state.samples.length, 240);
 assert.equal(session.samples()[0].exp, 10);
@@ -48,6 +54,7 @@ assert.equal(session.state.level, null);
 assert.equal(session.state.samples.length, 0);
 assert.equal(session.state.mesoSamples.length, 0);
 assert.equal(session.state.mesoStartAmount, null);
+assert.equal(session.state.dropNotices.length, 0);
 assert.equal(session.state.startAt, clock);
 assert.equal(
   session.state.calibration.auto,

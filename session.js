@@ -53,6 +53,7 @@
       mesoSamples: [],
       mesoStartAmount: null,
       mesoStatus: "Searching for the inventory balance automatically",
+      dropNotices: [],
       mapName: "",
       mapUpdatedAt: null,
       mapHistory: [],
@@ -92,6 +93,11 @@
     }
     if (!state.mapHistory.length && state.mapName && Number.isFinite(state.mapUpdatedAt))
       state.mapHistory.push({ t: state.mapUpdatedAt, name: state.mapName });
+    state.dropNotices = Array.isArray(state.dropNotices)
+      ? state.dropNotices
+          .filter((entry) => typeof entry?.text === "string" && Number.isFinite(entry.t))
+          .slice(-100)
+      : [];
     if (
       !Number.isSafeInteger(state.mesoStartAmount) ||
       state.mesoStartAmount < 0
@@ -153,6 +159,7 @@
       const t = now();
       state.samples = [];
       state.mesoSamples = [];
+      state.dropNotices = [];
       state.mesoStartAmount = null;
       state.mesoStatus = "Searching for the inventory balance automatically";
       state.level = null;
@@ -172,6 +179,27 @@
       if (state.mesoSamples.length > 720)
         state.mesoSamples = state.mesoSamples.slice(-720);
       state.mesoStatus = "Meso total read";
+      onChange();
+      return true;
+    }
+    function addDropNotice(text, t = now(), confidence = null) {
+      const normalized = String(text || "").replace(/\s+/g, " ").trim();
+      if (!normalized || normalized.length > 180 || !Number.isFinite(t))
+        return false;
+      if (
+        state.dropNotices.some(
+          (entry) => entry.text === normalized && t >= entry.t && t - entry.t < 1200,
+        )
+      ) return false;
+      state.dropNotices.push({
+        text: normalized,
+        t,
+        map: state.mapName || null,
+        ...(Number.isFinite(confidence) ? { confidence } : {}),
+      });
+      if (state.dropNotices.length > 100)
+        state.dropNotices = state.dropNotices.slice(-100);
+      save();
       onChange();
       return true;
     }
@@ -319,6 +347,7 @@
       key,
       samples,
       addMesoSample,
+      addDropNotice,
       setMesoStatus,
       setMesoRegion,
       setMesoAnchor,

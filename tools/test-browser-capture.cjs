@@ -42,15 +42,18 @@ function fixture(getDisplayMedia) {
     };
   };
   d.document.createElement = (kind) => kind === "canvas" ? makeCanvas() : d.document.querySelector(kind);
-  const mapProbeReads = [], reader = {
+  const mapProbeReads = [], dropReads = [], reader = {
     read: async (frame, timestamp, options) => {
       mapProbeReads.push(options);
       return { accepted: true };
     },
     observeMapProbe() { return ++probeCount === 2; },
     resetMapProbe() {},
+    observeDropProbe() { return ++dropProbeCount === 2; },
+    readDropNotice(image, timestamp) { dropReads.push({ image, timestamp }); },
+    resetDropProbe() {},
   };
-  let probeCount = 0;
+  let probeCount = 0, dropProbeCount = 0;
   const c = Capture.create({
     navigator: { mediaDevices: { getDisplayMedia } },
     video,
@@ -100,6 +103,9 @@ function fixture(getDisplayMedia) {
     get mapProbeReads() {
       return mapProbeReads;
     },
+    get dropReads() {
+      return dropReads;
+    },
     get processedItems() {
       return processedItems;
     },
@@ -131,7 +137,7 @@ function fixture(getDisplayMedia) {
   });
   await f.c.connect();
   assert.equal(f.session.state.running, true);
-  assert.deepEqual(f.intervals.map(({ ms }) => ms), [10000, 2000]);
+  assert.deepEqual(f.intervals.map(({ ms }) => ms), [10000, 2000, 100]);
   assert.equal(f.captured, 1);
   assert.deepEqual(f.mapProbeReads[0], { report: false, forceMap: false });
   const flush = () => new Promise((resolve) => setTimeout(resolve, 0));
@@ -146,6 +152,11 @@ function fixture(getDisplayMedia) {
   assert.equal(f.captured, 2, "a stable map-header change requests one full-resolution read");
   assert.deepEqual(f.mapProbeReads[1], { report: false, forceMap: true });
   assert.equal(f.processedItems, 1, "a map-change read skips unrelated quickslot OCR");
+  f.intervals[2].fn();
+  f.video.currentTime = 2;
+  f.intervals[2].fn();
+  assert.equal(f.dropReads.length, 1, "stable low-resolution drop-region change reads one crop");
+  assert.ok(f.dropReads[0].image, "Drop OCR receives only the cropped notification region");
   f.intervals[1].fn();
   await flush();
   assert.equal(f.captured, 2, "the probe does not continuously request OCR after a change");
@@ -156,8 +167,8 @@ function fixture(getDisplayMedia) {
   assert.equal(f.session.state.samples[0].exp, 123);
   assert.deepEqual(
     f.cleared.filter((id) => id !== null),
-    [1, 2],
-    "stop clears both bounded scan timers",
+    [1, 2, 3],
+    "stop clears all bounded scan timers",
   );
   const cancelled = fixture(async () => {
     throw Object.assign(Error("cancelled"), { name: "NotAllowedError" });
