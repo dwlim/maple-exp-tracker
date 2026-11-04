@@ -4,11 +4,15 @@ const parserCases = [
   {
     input:
       "You have gained mesos (+13)\nYou have obtained Red Potion\nLevel up!",
-    expected: ["You have gained mesos (+13)", "You have obtained Red Potion"],
+    expected: ["You have gained mesos", "You have obtained Red Potion"],
   },
   {
     input: "You have gained mesos (+5)\r\nYou have gained mesos (+5)",
-    expected: ["You have gained mesos (+5)", "You have gained mesos (+5)"],
+    expected: ["You have gained mesos"],
+  },
+  {
+    input: "You have gained mesos (+A)\nYou have gained mes0s (+15)",
+    expected: ["You have gained mesos"],
   },
   {
     input: "EXP +12\nYou have gained EXP (+42)\nMonster defeated",
@@ -43,4 +47,4 @@ assert.equal(probe.observe(frame(255)), true, "A second stable change triggers")
 probe.reset();
 assert.equal(probe.observe(frame(0)), false, "Reset returns to baseline setup");
 
-console.log("Drop feed probe: low-resolution change detection, debounce and pickup-message filtering passed.");
+console.log("Drop feed probe: low-resolution change detection, debounce and conservative pickup-message normalization passed.");
