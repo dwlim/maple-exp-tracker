@@ -4958,7 +4958,7 @@ return {detect,crop,anchors,percentageRegion};
       .filter((line) => {
         if (line.length < 8 || line.length > 180) return false;
         if (/\bEXP\b/i.test(line))
-          return /\byou received\s+EXP\s*\(\s*\+\s*\d{1,9}\s*\)/i.test(
+          return /(?:\byou received\s+EXP|\bbonus\s+EXP\s+for\s+PARTY)\s*\(\s*\+\s*\d{1,9}\s*\)/i.test(
             line,
           );
         return /\b(?:you have (?:gained|obtained|received|picked up)|mesos?\s*\(\s*\+)/i.test(
@@ -4967,9 +4967,12 @@ return {detect,crop,anchors,percentageRegion};
       })
       .map((line) => {
         const exp = line.match(
-          /\byou received\s+EXP\s*\(\s*\+\s*(\d{1,9})\s*\)/i,
+          /\byou received\s+EXP\s*\(\s*\+\s*(\d{1,9})\s*\)|\bbonus\s+EXP\s+for\s+PARTY\s*\(\s*\+\s*(\d{1,9})\s*\)/i,
         );
-        if (exp) return "You received EXP (+" + exp[1] + ")";
+        if (exp)
+          return exp[1]
+            ? "You received EXP (+" + exp[1] + ")"
+            : "Bonus EXP for PARTY (+" + exp[2] + ")";
         // The mesos toast has a fixed grammar. Normalize that phrase and keep
         // an amount only when OCR returned the complete (+digits) suffix.
         const mesos = line.match(

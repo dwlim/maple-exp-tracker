@@ -27,6 +27,11 @@ const parserCases = [
     input: "You received EXP (+A)\nYou received EXP ( + 00012 )",
     expected: ["You received EXP (+00012)"],
   },
+  {
+    input:
+      "Bonus EXP for PARTY (+275)\nBonus EXP for party (+ 04 )\nBonus EXP for PARTY (+A)",
+    expected: ["Bonus EXP for PARTY (+275)", "Bonus EXP for PARTY (+04)"],
+  },
 ];
 for (const test of parserCases)
   assert.deepEqual(Probe.parseNotices(test.input), test.expected);
