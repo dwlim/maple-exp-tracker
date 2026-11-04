@@ -72,6 +72,33 @@ require("../hud-ocr");
     text: "You have gained mesos (+13)",
     confidence: 92,
   });
+  const segmentedCalls = [],
+    segmentedReader = N.createReader(async (_pixels, kind, output) => {
+      segmentedCalls.push({ kind, output });
+      if (kind === "drop-notice")
+        return {
+          text: "whole-block fallback",
+          confidence: 80,
+          blocks: [{ paragraphs: [{ lines: [
+            { text: "You have gained mesos", confidence: 80, bbox: { x0: 0, y0: 0, x1: 10, y1: 4 } },
+            { text: "You have gained mesos (+5)", confidence: 75, bbox: { x0: 0, y0: 5, x1: 10, y1: 9 } },
+          ] }] }],
+        };
+      return { text: "You have gained mesos (+15)", confidence: 90 };
+    });
+  const segmentedResult = await segmentedReader.read({
+    dropImage: { width: 12, height: 12, data: new Uint8ClampedArray(12 * 12 * 4) },
+  });
+  assert.deepEqual(segmentedResult.dropNotice, {
+    text: "You have gained mesos (+15)\nYou have gained mesos (+15)",
+    confidence: 90,
+  });
+  assert.deepEqual(segmentedCalls.map((call) => call.kind), [
+    "drop-notice",
+    "drop-notice-line",
+    "drop-notice-line",
+  ]);
+  assert.deepEqual(segmentedCalls[0].output, { blocks: true });
   assert.equal(
     N.choose(
       [
@@ -118,7 +145,7 @@ require("../hud-ocr");
       tessedit_char_whitelist:
         kind === "level"
           ? "LV.0123456789"
-          : kind === "drop-notice"
+          : kind === "drop-notice" || kind === "drop-notice-line"
             ? "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789 ()+-.,'!"
             : "0123456789.[]% ",
     });
@@ -128,10 +155,16 @@ require("../hud-ocr");
         height: pixels.height,
         data: Buffer.from(pixels.data),
       }),
+      {},
+      kind === "drop-notice" ? { text: true, blocks: true } : { text: true },
     );
     if (process.env.OCR_TRACE)
       console.log(kind, JSON.stringify(data.text.trim()), data.confidence);
-    return { text: data.text, confidence: data.confidence };
+    return {
+      text: data.text,
+      confidence: data.confidence,
+      blocks: data.blocks || [],
+    };
   });
   try {
     const downloaded = [

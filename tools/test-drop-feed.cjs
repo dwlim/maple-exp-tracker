@@ -31,6 +31,11 @@ const parserCases = [
   },
   {
     input:
+      "| You received EXP |\nBonus EXP for PARTY\nYou received EXP (+A)",
+    expected: ["You received EXP", "Bonus EXP for PARTY"],
+  },
+  {
+    input:
       "You received EXP (+42)\nYou have gained EXP (+12)\nEXP +12\nMonster defeated",
     expected: ["You received EXP (+42)"],
   },
