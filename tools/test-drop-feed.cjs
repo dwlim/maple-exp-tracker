@@ -19,8 +19,13 @@ const parserCases = [
     expected: ["You have gained mesos (+00042)"],
   },
   {
-    input: "EXP +12\nYou have gained EXP (+42)\nMonster defeated",
-    expected: [],
+    input:
+      "You received EXP (+42)\nYou have gained EXP (+12)\nEXP +12\nMonster defeated",
+    expected: ["You received EXP (+42)"],
+  },
+  {
+    input: "You received EXP (+A)\nYou received EXP ( + 00012 )",
+    expected: ["You received EXP (+00012)"],
   },
 ];
 for (const test of parserCases)

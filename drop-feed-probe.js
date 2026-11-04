@@ -78,16 +78,21 @@
       .replace(/\r/g, "")
       .split("\n")
       .map((line) => line.replace(/\s+/g, " ").trim())
-      .filter(
-        (line) =>
-          line.length >= 8 &&
-          line.length <= 180 &&
-          !/\bEXP\b/i.test(line) &&
-          /\b(?:you have (?:gained|obtained|received|picked up)|mesos?\s*\(\s*\+)/i.test(
+      .filter((line) => {
+        if (line.length < 8 || line.length > 180) return false;
+        if (/\bEXP\b/i.test(line))
+          return /\byou received\s+EXP\s*\(\s*\+\s*\d{1,9}\s*\)/i.test(
             line,
-          ),
-      )
+          );
+        return /\b(?:you have (?:gained|obtained|received|picked up)|mesos?\s*\(\s*\+)/i.test(
+          line,
+        );
+      })
       .map((line) => {
+        const exp = line.match(
+          /\byou received\s+EXP\s*\(\s*\+\s*(\d{1,9})\s*\)/i,
+        );
+        if (exp) return "You received EXP (+" + exp[1] + ")";
         // The mesos toast has a fixed grammar. Normalize that phrase and keep
         // an amount only when OCR returned the complete (+digits) suffix.
         const mesos = line.match(
