@@ -17,9 +17,25 @@
       digit: t.digit,
       data: Float32Array.from(t.mask, (c) => parseInt(c, 16) / 15),
     }));
+  function recognizeSmall(image) {
+    const reading = Small.recognize(image, font);
+    if (reading) return reading;
+    // Some potion icons (notably bright yellow stacks) bleed color into the
+    // quantity pixels. If the palette-based pass rejects the crop, retry on
+    // luminance only; keep the same conservative matcher and confidence gate.
+    const data = new Uint8ClampedArray(image.data.length);
+    for (let i = 0; i < data.length; i += 4) {
+      const gray = Math.round(
+        (image.data[i] + image.data[i + 1] + image.data[i + 2]) / 3,
+      );
+      data[i] = data[i + 1] = data[i + 2] = gray;
+      data[i + 3] = image.data[i + 3];
+    }
+    return Small.recognize({ ...image, data }, font);
+  }
   function recognize(image, { digits = null, diagnostic = false } = {}) {
     if (image.height <= 15 && font.some((t) => t.smallCell))
-      return Small.recognize(image, font);
+      return recognizeSmall(image);
     const { width, height, data } = image;
     if (
       width < 5 ||
@@ -123,7 +139,7 @@
   // Quantities share their row with icon graphics. Do not accept an extra
   // weak glyph from the icon or truncate a plausible uncertain continuation.
   function recognizeSlot(image) {
-    if (image.height <= 15) return Small.recognize(image, font);
+    if (image.height <= 15) return recognizeSmall(image);
     if (
       image.height < 8 ||
       image.width < 5 ||
@@ -184,7 +200,7 @@
             target = (y * width + x) * 4;
           data.set(image.data.subarray(source, source + 4), target);
         }
-      return Small.recognize({ width, height, data }, font);
+      return recognizeSmall({ width, height, data });
     }
     return best[1];
   }

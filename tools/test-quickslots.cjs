@@ -37,6 +37,14 @@ for (const f of require("./quickslot-tail-fixtures.json")) {
     f.name + " must not accept a prefix",
   );
 }
+for (const f of require("./quickslot-gray-fallback-fixtures.json")) {
+  const image = { ...f, data: z.inflateSync(Buffer.from(f.rgba, "base64")) };
+  assert.equal(
+    Q.recognizeSlot(image)?.count ?? null,
+    f.expectedCount,
+    f.name + " is recovered by the luminance-only retry",
+  );
+}
 assert.deepEqual(
   new Set(require("../quickslot-font").map((v) => v.digit)),
   new Set("0123456789"),
