@@ -73,6 +73,8 @@
     }
     return { observe, reset };
   }
+  const ITEM_NOTICE_RE =
+    /^([A-Za-z0-9][A-Za-z0-9'&., -]{1,79}?)\s+x\s*(\d{1,6})\s*\((Etc|Use|Equip|Set\s*Up|Setup|Cash|Deco)\)$/i;
   function parseNotices(text) {
     return String(text || "")
       .replace(/\r/g, "")
@@ -84,6 +86,8 @@
           return /(?:\byou received\s+EXP|\bbonus\s+EXP\s+for\s+PARTY)\s*\(\s*\+\s*\d{1,9}\s*\)/i.test(
             line,
           );
+        const item = line.match(ITEM_NOTICE_RE);
+        if (item) return Number(item[2]) > 0;
         return /\b(?:you have (?:gained|obtained|received|picked up)|mesos?\s*\(\s*\+)/i.test(
           line,
         );
@@ -96,6 +100,20 @@
           return exp[1]
             ? "You received EXP (+" + exp[1] + ")"
             : "Bonus EXP for PARTY (+" + exp[2] + ")";
+        const item = line.match(ITEM_NOTICE_RE);
+        if (item) {
+          const category = item[3].replace(/\s+/g, " ").toLocaleLowerCase("en-US"),
+            canonicalCategory = {
+              etc: "Etc",
+              use: "Use",
+              equip: "Equip",
+              "set up": "Set Up",
+              setup: "Set Up",
+              cash: "Cash",
+              deco: "Deco",
+            }[category];
+          return `${item[1].replace(/\s+/g, " ").trim()} x${Number(item[2])} (${canonicalCategory})`;
+        }
         // The mesos toast has a fixed grammar. Normalize that phrase and keep
         // an amount only when OCR returned the complete (+digits) suffix.
         const mesos = line.match(

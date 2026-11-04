@@ -32,6 +32,20 @@ const parserCases = [
       "Bonus EXP for PARTY (+275)\nBonus EXP for party (+ 04 )\nBonus EXP for PARTY (+A)",
     expected: ["Bonus EXP for PARTY (+275)", "Bonus EXP for PARTY (+04)"],
   },
+  {
+    input:
+      "Mushroom Spore x1 (Etc)\nRed Potion x2 (Use)\nBlue Snail Shell x10 (etc)",
+    expected: [
+      "Mushroom Spore x1 (Etc)",
+      "Red Potion x2 (Use)",
+      "Blue Snail Shell x10 (Etc)",
+    ],
+  },
+  {
+    input:
+      "Mushroom Spore x? (Etc)\nMushroom Spore x0 (Etc)\nMushroom Spore x1 (Other)",
+    expected: [],
+  },
 ];
 for (const test of parserCases)
   assert.deepEqual(Probe.parseNotices(test.input), test.expected);
