@@ -4965,15 +4965,22 @@ return {detect,crop,anchors,percentageRegion};
           ),
       )
       .map((line) => {
-        // The mesos toast is a fixed phrase followed by tiny, noisy digits.
-        // Keep the recognized event and omit the amount unless a future
-        // multi-pass amount reader can verify it independently.
+        // The mesos toast has a fixed grammar. Normalize that phrase and keep
+        // an amount only when OCR returned the complete (+digits) suffix.
         const mesos = line.match(
           /\byou have (gained|obtained|received|picked up)\s+mes[o0]s?\b/i,
         );
-        return mesos
-          ? "You have " + mesos[1].toLocaleLowerCase("en-US") + " mesos"
-          : line;
+        if (!mesos) return line;
+        const cleanSpelling = /\bmesos\b/i.test(line),
+          amount = cleanSpelling
+            ? line.match(/\bmesos\s*\(\s*\+\s*(\d{1,9})\s*\)/i)
+            : null;
+        return (
+          "You have " +
+          mesos[1].toLocaleLowerCase("en-US") +
+          " mesos" +
+          (amount ? " (+" + amount[1] + ")" : "")
+        );
       })
       .filter((line, index, all) => all.indexOf(line) === index);
   }

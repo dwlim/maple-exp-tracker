@@ -4,15 +4,19 @@ const parserCases = [
   {
     input:
       "You have gained mesos (+13)\nYou have obtained Red Potion\nLevel up!",
-    expected: ["You have gained mesos", "You have obtained Red Potion"],
+    expected: ["You have gained mesos (+13)", "You have obtained Red Potion"],
   },
   {
     input: "You have gained mesos (+5)\r\nYou have gained mesos (+5)",
-    expected: ["You have gained mesos"],
+    expected: ["You have gained mesos (+5)"],
   },
   {
     input: "You have gained mesos (+A)\nYou have gained mes0s (+15)",
     expected: ["You have gained mesos"],
+  },
+  {
+    input: "You have gained mesos (+00042)",
+    expected: ["You have gained mesos (+00042)"],
   },
   {
     input: "EXP +12\nYou have gained EXP (+42)\nMonster defeated",
