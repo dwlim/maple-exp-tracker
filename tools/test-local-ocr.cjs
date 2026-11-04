@@ -84,19 +84,22 @@ require("../hud-ocr");
             { text: "You have gained mesos (+5)", confidence: 75, bbox: { x0: 0, y0: 5, x1: 10, y1: 9 } },
           ] }] }],
         };
+      if (kind === "drop-amount")
+        return { text: "(+15)", confidence: 0 };
       return { text: "You have gained mesos (+15)", confidence: 90 };
     });
   const segmentedResult = await segmentedReader.read({
     dropImage: { width: 12, height: 12, data: new Uint8ClampedArray(12 * 12 * 4) },
+    dropAmountImage: { width: 18, height: 18, data: new Uint8ClampedArray(18 * 18 * 4) },
   });
   assert.deepEqual(segmentedResult.dropNotice, {
     text: "You have gained mesos (+15)\nYou have gained mesos (+15)",
-    confidence: 90,
+    confidence: 77.5,
   });
   assert.deepEqual(segmentedCalls.map((call) => call.kind), [
     "drop-notice",
-    "drop-notice-line",
-    "drop-notice-line",
+    "drop-amount",
+    "drop-amount",
   ]);
   assert.deepEqual(segmentedCalls[0].output, { blocks: true });
   assert.equal(
@@ -145,7 +148,9 @@ require("../hud-ocr");
       tessedit_char_whitelist:
         kind === "level"
           ? "LV.0123456789"
-          : kind === "drop-notice" || kind === "drop-notice-line"
+          : kind === "drop-amount"
+            ? "0123456789()+-"
+            : kind === "drop-notice" || kind === "drop-notice-line"
             ? "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789 ()+-.,'!"
             : "0123456789.[]% ",
     });
@@ -470,12 +475,12 @@ require("../hud-ocr");
       },
       dropRead = await reader.read({
         dropImage: DropProbe.prepareOcrImage(rawDrop),
+        dropAmountImage: DropProbe.prepareOcrImage(rawDrop, 120, 3),
       });
-    assert.ok(
-      DropProbe.parseNotices(dropRead.dropNotice?.text).some((line) =>
-        /You have gained mesos/i.test(line),
-      ),
-      "The cropped pickup feed recognizes a real mesos notification",
+    assert.deepEqual(
+      DropProbe.parseNotices(dropRead.dropNotice?.text),
+      ["You have gained mesos (+15)", "You have gained mesos (+5)"],
+      "The cropped pickup feed recovers each real mesos line and its amount",
     );
     assert.ok(
       dropRead.dropNotice.confidence >= 50,

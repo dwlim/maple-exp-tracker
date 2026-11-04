@@ -13,7 +13,7 @@ const parserCases = [
   {
     input:
       "You have gained mesos (+A)\nYou have gained mes0s (+15)\nYou have gained mesos",
-    expected: ["You have gained mesos"],
+    expected: ["You have gained mesos (+15)"],
   },
   {
     input: "You have gained mesos (+00042)",
@@ -22,7 +22,7 @@ const parserCases = [
   {
     input:
       "Garbage You have gained mesos\nYou have gained mesos garbage\nYou have gained mesos",
-    expected: ["You have gained mesos"],
+    expected: [],
   },
   {
     input:
@@ -32,7 +32,7 @@ const parserCases = [
   {
     input:
       "| You received EXP |\nBonus EXP for PARTY\nYou received EXP (+A)",
-    expected: ["You received EXP", "Bonus EXP for PARTY"],
+    expected: [],
   },
   {
     input:

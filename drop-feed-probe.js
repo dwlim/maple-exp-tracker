@@ -87,23 +87,22 @@
       )
       .map((line) => {
         const exp = line.match(
-          /^You received EXP(?:\s*\(\s*\+\s*(\d{1,9})\s*\))?$|^Bonus EXP for PARTY(?:\s*\(\s*\+\s*(\d{1,9})\s*\))?$/i,
+          /^You received EXP\s*\(\s*\+\s*(\d{1,9})\s*\)$|^Bonus EXP for PARTY\s*\(\s*\+\s*(\d{1,9})\s*\)$/i,
         );
         if (exp) {
           const party = /^Bonus EXP for PARTY/i.test(line),
             amount = exp[party ? 2 : 1];
           return (
             (party ? "Bonus EXP for PARTY" : "You received EXP") +
-            (amount ? " (+" + amount + ")" : "")
+            " (+" + amount + ")"
           );
         }
         const mesos = line.match(
-          /^You have gained mes[o0]s?(?:\s*\(\s*\+\s*(\d{1,9})\s*\))?$/i,
+          /^You have gained mes[o0]s?\s*\(\s*\+\s*(\d{1,9})\s*\)$/i,
         );
         if (mesos)
           return (
-            "You have gained mesos" +
-            (/\bmesos\b/i.test(line) && mesos[1] ? " (+" + mesos[1] + ")" : "")
+            "You have gained mesos (+" + mesos[1] + ")"
           );
         const item = line.match(ITEM_NOTICE_RE);
         if (item) {

@@ -1076,11 +1076,11 @@
   function createReader(recognize) {
     let queue = Promise.resolve();
     const cache = new Map();
-    function cropLine(image, bbox, padding = 5) {
+    function cropLine(image, bbox, padding = 5, fullWidth = false) {
       if (!image?.data || !bbox) return null;
-      const x0 = Math.max(0, Math.floor(bbox.x0) - padding),
+      const x0 = fullWidth ? 0 : Math.max(0, Math.floor(bbox.x0) - padding),
         y0 = Math.max(0, Math.floor(bbox.y0) - padding),
-        x1 = Math.min(image.width, Math.ceil(bbox.x1) + padding),
+        x1 = fullWidth ? image.width : Math.min(image.width, Math.ceil(bbox.x1) + padding),
         y1 = Math.min(image.height, Math.ceil(bbox.y1) + padding);
       if (x1 <= x0 || y1 <= y0) return null;
       const width = x1 - x0,
@@ -1103,6 +1103,21 @@
     function hasDropAmount(value) {
       return /\(\s*\+\s*\d/.test(value) || /\bx\s*\d+\s*\(/i.test(value);
     }
+    function fixedNoticePrefix(text) {
+      if (/^You\s+have\s+gained/i.test(text)) return "You have gained mesos";
+      if (/^You\s+received\s+EXP\b/i.test(text)) return "You received EXP";
+      if (/^Bonus\s+EXP\s+for\s+PARTY\b/i.test(text))
+        return "Bonus EXP for PARTY";
+      return null;
+    }
+    function cropDropAmount(image, line, layoutImage) {
+      if (!image?.data || !layoutImage?.width) return null;
+      const scale = image.width / layoutImage.width,
+        left = Math.max(0, Math.floor(image.width * 0.78)),
+        y0 = Math.max(0, Math.floor(line.bbox.y0 * scale) - 5),
+        y1 = Math.min(image.height, Math.ceil(line.bbox.y1 * scale) + 5);
+      return cropLine(image, { x0: left, y0, x1: image.width, y1 }, 0);
+    }
     function read(input) {
       const task = queue.then(async () => {
         const result = {};
@@ -1117,12 +1132,34 @@
             if (lines.length) {
               const readLines = [];
               for (const line of lines) {
-                const crop = cropLine(input.dropImage, line.bbox),
-                  individual = crop
-                    ? await recognize(crop, "drop-notice-line")
-                    : null,
-                  individualText = String(individual?.text || "").trim(),
-                  blockText = String(line.text || "").trim(),
+                const blockText = String(line.text || "").trim(),
+                  prefix = fixedNoticePrefix(blockText);
+                let lineText = blockText,
+                  lineConfidence = line.confidence;
+                if (prefix && input.dropAmountImage) {
+                  const crop = cropDropAmount(
+                      input.dropAmountImage,
+                      line,
+                      input.dropImage,
+                    ),
+                    amountReading = crop
+                      ? await recognize(crop, "drop-amount")
+                      : null,
+                    amount = String(amountReading?.text || "").match(/\d{1,9}/)?.[0];
+                  // The message prefix and the amount's fixed right-edge position
+                  // constrain this tiny numeric read more strongly than its
+                  // standalone Tesseract confidence score.
+                  if (amount) {
+                    lineText = prefix + " (+" + amount + ")";
+                  } else if (!hasDropAmount(blockText)) {
+                    lineText = "";
+                  }
+                } else {
+                  const crop = cropLine(input.dropImage, line.bbox, 5, true),
+                    individual = crop
+                      ? await recognize(crop, "drop-notice-line")
+                      : null,
+                    individualText = String(individual?.text || "").trim();
                   lineText = individualText &&
                     ((hasDropAmount(individualText) && !hasDropAmount(blockText)) ||
                       !blockText ||
@@ -1130,14 +1167,16 @@
                         individual.confidence >= (line.confidence || 0)))
                     ? individualText
                     : blockText || individualText;
+                  lineConfidence =
+                    lineText === individualText &&
+                    Number.isFinite(individual?.confidence)
+                      ? individual.confidence
+                      : line.confidence;
+                }
                 if (lineText)
                   readLines.push({
                     text: lineText,
-                    confidence:
-                      lineText === individualText &&
-                      Number.isFinite(individual?.confidence)
-                        ? individual.confidence
-                        : line.confidence,
+                    confidence: lineConfidence,
                   });
               }
               if (readLines.length) {
@@ -1484,6 +1523,8 @@
             tessedit_char_whitelist:
               kind === "meso-scan"
                 ? "0123456789,.MESOS"
+                : kind === "drop-amount"
+                  ? "0123456789()+-"
                 : kind === "drop-notice" || kind === "drop-notice-line"
                   ? "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789 ()+-.,'!"
                 : kind === "map" || kind === "map-line"
