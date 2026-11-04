@@ -80,28 +80,25 @@
       .replace(/\r/g, "")
       .split("\n")
       .map((line) => line.replace(/\s+/g, " ").trim())
-      .filter((line) => {
-        if (line.length < 8 || line.length > 180) return false;
-        if (/\bEXP\b/i.test(line))
-          return /(?:\byou received\s+EXP|\bbonus\s+EXP\s+for\s+PARTY)\s*\(\s*\+\s*\d{1,9}\s*\)/i.test(
-            line,
-          );
-        const item = line.match(ITEM_NOTICE_RE);
-        if (item) return Number(item[2]) > 0;
-        return /\b(?:you have (?:gained|obtained|received|picked up)|mesos?\s*\(\s*\+)/i.test(
-          line,
-        );
-      })
       .map((line) => {
         const exp = line.match(
-          /\byou received\s+EXP\s*\(\s*\+\s*(\d{1,9})\s*\)|\bbonus\s+EXP\s+for\s+PARTY\s*\(\s*\+\s*(\d{1,9})\s*\)/i,
+          /^You received EXP\s*\(\s*\+\s*(\d{1,9})\s*\)$|^Bonus EXP for PARTY\s*\(\s*\+\s*(\d{1,9})\s*\)$/i,
         );
         if (exp)
           return exp[1]
             ? "You received EXP (+" + exp[1] + ")"
             : "Bonus EXP for PARTY (+" + exp[2] + ")";
+        const mesos = line.match(
+          /^You have gained mes[o0]s?(?:\s*\(\s*\+\s*(\d{1,9})\s*\))?$/i,
+        );
+        if (mesos)
+          return (
+            "You have gained mesos" +
+            (/\bmesos\b/i.test(line) && mesos[1] ? " (+" + mesos[1] + ")" : "")
+          );
         const item = line.match(ITEM_NOTICE_RE);
         if (item) {
+          if (Number(item[2]) < 1) return null;
           const category = item[3].replace(/\s+/g, " ").toLocaleLowerCase("en-US"),
             canonicalCategory = {
               etc: "Etc",
@@ -114,23 +111,9 @@
             }[category];
           return `${item[1].replace(/\s+/g, " ").trim()} x${Number(item[2])} (${canonicalCategory})`;
         }
-        // The mesos toast has a fixed grammar. Normalize that phrase and keep
-        // an amount only when OCR returned the complete (+digits) suffix.
-        const mesos = line.match(
-          /\byou have (gained|obtained|received|picked up)\s+mes[o0]s?\b/i,
-        );
-        if (!mesos) return line;
-        const cleanSpelling = /\bmesos\b/i.test(line),
-          amount = cleanSpelling
-            ? line.match(/\bmesos\s*\(\s*\+\s*(\d{1,9})\s*\)/i)
-            : null;
-        return (
-          "You have " +
-          mesos[1].toLocaleLowerCase("en-US") +
-          " mesos" +
-          (amount ? " (+" + amount[1] + ")" : "")
-        );
+        return null;
       })
+      .filter(Boolean)
       .filter((line, index, all) => all.indexOf(line) === index);
   }
   function prepareOcrImage(image, threshold = 130, scale = 2) {

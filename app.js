@@ -1,6 +1,7 @@
 (function (root, factory) {
   if (typeof module === "object" && module.exports)
     module.exports = factory(
+      require("./drop-feed-probe"),
       require("./map-name"),
       require("./session"),
       require("./recognition"),
@@ -13,6 +14,7 @@
     );
   else
     root.MapleApp = factory(
+      root.MapleDropFeedProbe,
       root.MapleMapName,
       root.MapleSession,
       root.MapleRecognition,
@@ -26,6 +28,7 @@
 })(
   typeof window === "undefined" ? globalThis : window,
   function (
+    DropFeedProbe,
     MapName,
     Session,
     Recognition,
@@ -74,6 +77,8 @@
         key,
         levelOcr,
         isCanonicalMapName: MapName.isCanonicalName,
+        isValidDropNotice: (text) =>
+          Boolean(DropFeedProbe?.parseNotices?.(text)?.includes(text)),
         onChange: () => view?.update(),
       });
       const recognition = Recognition.create({

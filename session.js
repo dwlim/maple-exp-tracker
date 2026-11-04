@@ -45,6 +45,7 @@
     key = "maple-track-v1",
     levelOcr,
     isCanonicalMapName = () => true,
+    isValidDropNotice = () => false,
     now = Date.now,
     onChange = () => {},
   } = {}) {
@@ -95,7 +96,12 @@
       state.mapHistory.push({ t: state.mapUpdatedAt, name: state.mapName });
     state.dropNotices = Array.isArray(state.dropNotices)
       ? state.dropNotices
-          .filter((entry) => typeof entry?.text === "string" && Number.isFinite(entry.t))
+          .filter(
+            (entry) =>
+              typeof entry?.text === "string" &&
+              Number.isFinite(entry.t) &&
+              isValidDropNotice(entry.text),
+          )
           .slice(-100)
       : [];
     if (
@@ -184,7 +190,12 @@
     }
     function addDropNotice(text, t = now(), confidence = null) {
       const normalized = String(text || "").replace(/\s+/g, " ").trim();
-      if (!normalized || normalized.length > 180 || !Number.isFinite(t))
+      if (
+        !normalized ||
+        normalized.length > 180 ||
+        !Number.isFinite(t) ||
+        !isValidDropNotice(normalized)
+      )
         return false;
       if (
         state.dropNotices.some(

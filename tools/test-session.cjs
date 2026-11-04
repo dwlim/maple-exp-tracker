@@ -1,4 +1,5 @@
 const S = require("../session"),
+  DropProbe = require("../drop-feed-probe"),
   L = require("../level-ocr"),
   assert = require("node:assert/strict");
 let saved,
@@ -21,6 +22,7 @@ const storage = {
 const session = S.create({
   storage,
   levelOcr: L,
+  isValidDropNotice: (text) => DropProbe.parseNotices(text).includes(text),
   now: () => clock,
   onChange: () => changed++,
 });
@@ -34,10 +36,11 @@ assert.equal(session.addMesoSample(120000, clock), true);
 assert.equal(session.state.mesoStartAmount, 120000);
 assert.equal(session.addMesoSample(120000, clock), false);
 session.state.mapName = "Maple Road · Pig Beach";
-assert.equal(session.addDropNotice("You have obtained Red Potion", clock, 91), true);
+assert.equal(session.addDropNotice("Red Potion x1 (Use)", clock, 91), true);
 assert.equal(session.state.dropNotices[0].map, "Maple Road · Pig Beach");
-assert.equal(session.addDropNotice("You have obtained Red Potion", clock + 500), false);
-assert.equal(session.addDropNotice("You have obtained Red Potion", clock + 1300), true);
+assert.equal(session.addDropNotice("Potion garbage x? (Use)", clock + 500), false);
+assert.equal(session.addDropNotice("Red Potion x1 (Use)", clock + 500), false);
+assert.equal(session.addDropNotice("Red Potion x1 (Use)", clock + 1300), true);
 session.save();
 assert.equal(saved.samples.length, 2);
 assert.equal(saved.mesoSamples.length, 1);
@@ -65,6 +68,22 @@ assert.equal(
   S.create({ storage: { getItem: () => "{broken" }, levelOcr: L }).state.samples
     .length,
   0,
+);
+const migratedDropState = S.create({
+  storage: {
+    getItem: () => JSON.stringify({
+      dropNotices: [
+        { text: "You have obtained Red Potion", t: clock - 1000 },
+        { text: "Red Potion x1 (Use)", t: clock - 500 },
+      ],
+    }),
+  },
+  isValidDropNotice: (text) => DropProbe.parseNotices(text).includes(text),
+});
+assert.deepEqual(
+  migratedDropState.state.dropNotices.map((entry) => entry.text),
+  ["Red Potion x1 (Use)"],
+  "Discard legacy or noisy notices that do not match a confirmed toast format",
 );
 const canonicalOnly = new Set(["Maple Road · Pig Beach"]),
   sanitized = S.create({
