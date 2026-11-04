@@ -165,8 +165,27 @@
       !best ||
       uncertain.some((n) => n > best[0].length) ||
       sorted.some(([text]) => !best[0].startsWith(text))
-    )
-      return null;
+    ) {
+      // At 2x HUD scaling the quantity crop doubles in both dimensions. The
+      // large-font matcher is calibrated for the native 1x glyphs, so retry a
+      // rejected crop at the small HUD font's 13px height using nearest-neighbor
+      // sampling. The conservative small-font matcher still decides whether
+      // the resampled digits are clear enough to accept.
+      if (image.height < 18 || image.height > 32) return null;
+      const height = 13,
+        width = Math.max(1, Math.round((image.width * height) / image.height)),
+        data = new Uint8ClampedArray(width * height * 4);
+      for (let y = 0; y < height; y++)
+        for (let x = 0; x < width; x++) {
+          const source =
+              (Math.floor((y * image.height) / height) * image.width +
+                Math.floor((x * image.width) / width)) *
+              4,
+            target = (y * width + x) * 4;
+          data.set(image.data.subarray(source, source + 4), target);
+        }
+      return Small.recognize({ width, height, data }, font);
+    }
     return best[1];
   }
   return { recognize, recognizeSlot };

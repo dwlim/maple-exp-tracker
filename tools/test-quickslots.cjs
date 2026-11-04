@@ -4,6 +4,24 @@ const assert = require("node:assert/strict"),
   Q = require("../quickslot-ocr"),
   Items = require("../quickslots");
 const fixtures = require("./quickslot-font-fixtures.json");
+function resize(image, scale) {
+  const width = Math.round(image.width * scale),
+    height = Math.round(image.height * scale),
+    data = new Uint8ClampedArray(width * height * 4);
+  for (let y = 0; y < height; y++)
+    for (let x = 0; x < width; x++) {
+      const source =
+          (Math.min(image.height - 1, Math.floor(y / scale)) * image.width +
+            Math.min(image.width - 1, Math.floor(x / scale))) *
+          4,
+        target = (y * width + x) * 4;
+      data[target] = image.data[source];
+      data[target + 1] = image.data[source + 1];
+      data[target + 2] = image.data[source + 2];
+      data[target + 3] = 255;
+    }
+  return { width, height, data };
+}
 for (const f of fixtures) {
   const result = Q.recognize({
     ...f,
@@ -236,29 +254,47 @@ assert.equal(
   "A covered third row must not silently become an eight-slot layout",
 );
 for (const f of [cases[10], ref])
-  for (const scale of [0.75, 1.25]) {
-    const src = packedFrame(f),
-      w = Math.round(src.width * scale),
-      h = Math.round(src.height * scale),
-      data = new Uint8ClampedArray(w * h * 4);
-    for (let y = 0; y < h; y++)
-      for (let x = 0; x < w; x++) {
-        const a =
-            (Math.min(src.height - 1, Math.floor(y / scale)) * src.width +
-              Math.min(src.width - 1, Math.floor(x / scale))) *
-            4,
-          b = (y * w + x) * 4;
-        data[b] = src.data[a];
-        data[b + 1] = src.data[a + 1];
-        data[b + 2] = src.data[a + 2];
-        data[b + 3] = 255;
-      }
+  for (const scale of [0.75, 1.25, 2]) {
+    const scaled = resize(packedFrame(f), scale),
+      scaledLayout = Layout.detect(scaled);
     assert.equal(
-      Layout.detect({ width: w, height: h, data })?.count,
+      scaledLayout?.count,
       f.expected,
       "Scaled actual HUD preserves row count",
     );
   }
+const freshQuantity = cases.find((f) => f.name === "fresh-quantity-0"),
+  freshScaleTwo = resize(packedFrame(freshQuantity), 2),
+  freshScaleTwoLayout = Layout.detect(freshScaleTwo),
+  HudRegions = require("../hud-regions");
+for (const [slot, count] of Object.entries(freshQuantity.expectedCounts)) {
+  const q = freshScaleTwoLayout.slots[slot].quantity,
+    crop = HudRegions.crop(freshScaleTwo, {
+      x: q.x * freshScaleTwo.width,
+      y: q.y * freshScaleTwo.height,
+      w: q.w * freshScaleTwo.width,
+      h: q.h * freshScaleTwo.height,
+    });
+  assert.equal(
+    Q.recognizeSlot(crop)?.count,
+    count,
+    "2x HUD scale reads the full potion count in slot " + slot,
+  );
+}
+for (const slot of freshQuantity.unreadableSlots) {
+  const q = freshScaleTwoLayout.slots[slot].quantity,
+    crop = HudRegions.crop(freshScaleTwo, {
+      x: q.x * freshScaleTwo.width,
+      y: q.y * freshScaleTwo.height,
+      w: q.w * freshScaleTwo.width,
+      h: q.h * freshScaleTwo.height,
+    });
+  assert.equal(
+    Q.recognizeSlot(crop),
+    null,
+    "2x HUD scale does not invent a count for an unreadable slot " + slot,
+  );
+}
 const eight = packedFrame(cases.find((f) => f.name === "native-8-10")),
   twelve = packedFrame(cases.find((f) => f.expected === 12)),
   frame = (im) => ({ width: im.width, height: im.height, _pixels: im }),
