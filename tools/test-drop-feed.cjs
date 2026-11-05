@@ -50,9 +50,10 @@ const parserCases = [
   },
   {
     input:
-      "Mushroom Spore x1 (Etc)\nRed Potion x2 (Use)\nBlue Snail Shell x10 (etc)",
+      "Mushroom Spore x1 (Etc)\nLupin's Banana x1 earned. (Etc)\nRed Potion x2 (Use)\nBlue Snail Shell x10 (etc)",
     expected: [
       "Mushroom Spore x1 (Etc)",
+      "Lupin's Banana x1 (Etc)",
       "Red Potion x2 (Use)",
       "Blue Snail Shell x10 (Etc)",
     ],

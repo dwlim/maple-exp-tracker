@@ -5039,7 +5039,7 @@ return {detect,crop,anchors,percentageRegion};
     return { observe, reset };
   }
   const ITEM_NOTICE_RE =
-    /^([A-Za-z0-9][A-Za-z0-9'’&.,! -]{1,79}?)\s*[x×]\s*([0-9Il|Oo]{1,6})\s*\(([A-Za-z ]{2,8})\)$/i;
+    /^([A-Za-z0-9][A-Za-z0-9'’&.,! -]{1,79}?)\s*[x×]\s*([0-9Il|Oo]{1,6})(?:\s+earned)?[.!]?\s*\(([A-Za-z ]{2,8})\)$/i;
   const ITEM_CATEGORIES = [
     ["Etc", "etc"],
     ["Use", "use"],
