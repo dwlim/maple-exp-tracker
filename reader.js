@@ -54,8 +54,10 @@
       dropProbe = DropFeedProbe?.create?.(),
       lastDropTextAt = new Map(),
       dropReadActive = false,
-      pendingDropRead = null,
+      dropReadQueue = [],
       lastDropReadAt = 0;
+    const DROP_NOTICE_MIN_INTERVAL_MS = 150,
+      DROP_NOTICE_QUEUE_LIMIT = 4;
     function mapProbeFingerprint(image) {
       const crop = mapNameApi?.cropHeaderText?.(image);
       if (!crop?.data || !crop.width || !crop.height) return null;
@@ -144,7 +146,7 @@
     function resetDropProbe() {
       dropProbe?.reset();
       lastDropTextAt.clear();
-      pendingDropRead = null;
+      dropReadQueue.length = 0;
       lastDropReadAt = 0;
     }
     function observeDropProbe(image) {
@@ -215,36 +217,36 @@
       if (dropReadActive) return;
       dropReadActive = true;
       try {
-        while (pendingDropRead && !session.state.paused) {
-          let job = pendingDropRead;
-          pendingDropRead = null;
-          const wait = Math.max(0, 350 - (job.timestamp - lastDropReadAt));
+        while (dropReadQueue.length && !session.state.paused) {
+          const job = dropReadQueue.shift(),
+            wait = Math.max(
+              0,
+              DROP_NOTICE_MIN_INTERVAL_MS - (Date.now() - lastDropReadAt),
+            );
           if (wait)
             await new Promise((resolve) => setTimeout(resolve, wait));
-          if (pendingDropRead) {
-            job = pendingDropRead;
-            pendingDropRead = null;
-          }
-          lastDropReadAt = job.timestamp;
+          lastDropReadAt = Date.now();
           await processDropNotice(job);
         }
       } finally {
         dropReadActive = false;
-        if (pendingDropRead && !session.state.paused)
+        if (dropReadQueue.length && !session.state.paused)
           void drainDropNotices();
       }
     }
     function readDropNotice(image, timestamp) {
       if (!localOcr?.read || !session.addDropNotice || session.state.paused)
         return false;
-      // Coalesce during OCR; the newest crop still contains the feed's recent
-      // lines, so a burst cannot build an unbounded recognition queue.
-      pendingDropRead = {
+      // Preserve a short FIFO during OCR so fast pickup updates are not
+      // overwritten, while keeping memory and recognition work bounded.
+      if (dropReadQueue.length >= DROP_NOTICE_QUEUE_LIMIT)
+        dropReadQueue.shift();
+      dropReadQueue.push({
         image,
         timestamp,
         generation: getCapture().generation,
         sessionStartAt: session.state.startAt,
-      };
+      });
       void drainDropNotices();
       return true;
     }
