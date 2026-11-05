@@ -58,7 +58,7 @@ function fixture(getDisplayMedia) {
     },
     observeMapProbe() { return ++probeCount === 2; },
     resetMapProbe() {},
-    observeDropProbe() { return ++dropProbeCount === 2; },
+    observeDropProbe() { return ++dropProbeCount === 1; },
     readDropNotice(image, timestamp) { dropReads.push({ image, timestamp }); },
     resetDropProbe() {},
   };
@@ -162,9 +162,10 @@ function fixture(getDisplayMedia) {
   assert.deepEqual(f.mapProbeReads[1], { report: false, forceMap: true });
   assert.equal(f.processedItems, 1, "a map-change read skips unrelated quickslot OCR");
   f.intervals[2].fn();
+  assert.equal(f.dropReads.length, 1, "the first changed feed probe immediately schedules OCR");
   f.video.currentTime = 2;
   f.intervals[2].fn();
-  assert.equal(f.dropReads.length, 1, "stable low-resolution drop-region change reads one crop");
+  assert.equal(f.dropReads.length, 1, "an unchanged feed does not repeat OCR");
   assert.ok(f.dropReads[0].image, "Drop OCR receives only the cropped notification region");
   assert.equal(f.dropReads[0].image.width, 336, "Drop OCR crop is wide enough for a full item line");
   assert.equal(f.dropReads[0].image.height, 192, "Drop OCR crop preserves the lower notification rows");

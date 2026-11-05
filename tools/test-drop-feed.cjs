@@ -88,12 +88,14 @@ const probe = Probe.create(),
     return { width, height, data };
   };
 assert.equal(probe.observe(frame(255)), false, "First frame establishes baseline");
-assert.equal(probe.observe(frame(0)), false, "One changed frame is debounced");
-assert.equal(probe.observe(frame(0)), true, "Stable changed region triggers once");
+assert.equal(probe.observe(frame(0)), true, "First meaningful change triggers OCR");
 assert.equal(probe.observe(frame(0)), false, "Repeated frames do not retrigger");
-assert.equal(probe.observe(frame(255)), false, "A new event starts a fresh debounce");
-assert.equal(probe.observe(frame(255)), true, "A second stable change triggers");
+assert.equal(probe.observe(frame(255)), true, "A second meaningful change triggers immediately");
 probe.reset();
 assert.equal(probe.observe(frame(0)), false, "Reset returns to baseline setup");
+const debouncedProbe = Probe.create({ stableSamples: 2 });
+assert.equal(debouncedProbe.observe(frame(255)), false);
+assert.equal(debouncedProbe.observe(frame(0)), false, "Optional debounce remains available");
+assert.equal(debouncedProbe.observe(frame(0)), true);
 
-console.log("Drop feed probe: low-resolution change detection, debounce and conservative pickup-message normalization passed.");
+console.log("Drop feed probe: immediate change detection, optional debounce and conservative pickup-message normalization passed.");

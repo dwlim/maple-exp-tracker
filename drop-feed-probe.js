@@ -3,7 +3,7 @@
   else root.MapleDropFeedProbe = factory();
 })(typeof window === "undefined" ? globalThis : window, function () {
   "use strict";
-  function create({ changedThreshold = 0.014, stableSamples = 2 } = {}) {
+  function create({ changedThreshold = 0.014, stableSamples = 1 } = {}) {
     let baseline = null,
       candidate = null,
       candidateCount = 0;
