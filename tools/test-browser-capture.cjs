@@ -146,7 +146,7 @@ function fixture(getDisplayMedia) {
   });
   await f.c.connect();
   assert.equal(f.session.state.running, true);
-  assert.deepEqual(f.intervals.map(({ ms }) => ms), [10000, 2000, 100]);
+  assert.deepEqual(f.intervals.map(({ ms }) => ms), [10000, 2000]);
   assert.equal(f.captured, 1);
   assert.deepEqual(f.mapProbeReads[0], { report: false, forceMap: false });
   const flush = () => new Promise((resolve) => setTimeout(resolve, 0));
@@ -161,14 +161,7 @@ function fixture(getDisplayMedia) {
   assert.equal(f.captured, 2, "a stable map-header change requests one full-resolution read");
   assert.deepEqual(f.mapProbeReads[1], { report: false, forceMap: true });
   assert.equal(f.processedItems, 1, "a map-change read skips unrelated quickslot OCR");
-  f.intervals[2].fn();
-  assert.equal(f.dropReads.length, 1, "the first changed feed probe immediately schedules OCR");
-  f.video.currentTime = 2;
-  f.intervals[2].fn();
-  assert.equal(f.dropReads.length, 1, "an unchanged feed does not repeat OCR");
-  assert.ok(f.dropReads[0].image, "Drop OCR receives only the cropped notification region");
-  assert.equal(f.dropReads[0].image.width, 336, "Drop OCR crop is wide enough for a full item line");
-  assert.equal(f.dropReads[0].image.height, 192, "Drop OCR crop preserves the lower notification rows");
+  assert.equal(f.dropReads.length, 0, "paused pickup tracking never schedules pickup OCR");
   f.intervals[1].fn();
   await flush();
   assert.equal(f.captured, 2, "the probe does not continuously request OCR after a change");
@@ -179,8 +172,8 @@ function fixture(getDisplayMedia) {
   assert.equal(f.session.state.samples[0].exp, 123);
   assert.deepEqual(
     f.cleared.filter((id) => id !== null),
-    [1, 2, 3],
-    "stop clears all bounded scan timers",
+    [1, 2],
+    "stop clears the active scan timers",
   );
   const cancelled = fixture(async () => {
     throw Object.assign(Error("cancelled"), { name: "NotAllowedError" });

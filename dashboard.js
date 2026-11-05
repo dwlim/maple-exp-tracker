@@ -284,7 +284,7 @@
       if (!notices.length) {
         const empty = document.createElement("p");
         empty.className = "subtle";
-        empty.textContent = "Pickup notifications will appear when detected.";
+        empty.textContent = "Pickup tracking is temporarily paused.";
         root.appendChild(empty);
         return;
       }

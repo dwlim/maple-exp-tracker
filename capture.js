@@ -18,7 +18,8 @@
     now = Date.now,
     timers = { setTimeout, setInterval, clearInterval },
   }) {
-    const FULL_SCAN_INTERVAL_MS = 10000,
+    const PICKUP_TRACKING_ENABLED = false,
+      FULL_SCAN_INTERVAL_MS = 10000,
       MAP_HEADER_POLL_INTERVAL_MS = 2000,
       DROP_FEED_POLL_INTERVAL_MS = 100,
       DROP_FEED_SCALE = 0.5,
@@ -416,10 +417,11 @@
         timer = timers.setInterval(captureFrame, FULL_SCAN_INTERVAL_MS);
         // The small visual probe only triggers OCR after a stable title change.
         mapTimer = timers.setInterval(pollMapHeader, MAP_HEADER_POLL_INTERVAL_MS);
-        dropFeedTimer = timers.setInterval(
-          pollDropFeed,
-          DROP_FEED_POLL_INTERVAL_MS,
-        );
+        if (PICKUP_TRACKING_ENABLED)
+          dropFeedTimer = timers.setInterval(
+            pollDropFeed,
+            DROP_FEED_POLL_INTERVAL_MS,
+          );
         await captureFrame();
       } catch (error) {
         if (pending) stop();
