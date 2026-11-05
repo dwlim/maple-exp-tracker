@@ -68,6 +68,43 @@
       );
     }
 
+    async function rejectImage(image, timestamp, reason = "reading-rejected", cancelled = () => false) {
+      if (
+        !enabled ||
+        !image?.data ||
+        image.data.length !== image.width * image.height * 4 ||
+        !isDownloadEnabled() ||
+        cancelled()
+      ) return false;
+      const canvas = document.createElement("canvas");
+      canvas.width = image.width;
+      canvas.height = image.height;
+      try {
+        const context = canvas.getContext("2d"),
+          pixels = context?.createImageData?.(image.width, image.height);
+        if (!context || !pixels) return false;
+        pixels.data.set(image.data);
+        context.putImageData(pixels, 0, 0);
+        const blob = await new Promise((resolve) => canvas.toBlob(resolve, "image/png"));
+        if (!blob || cancelled()) return false;
+        saveBlob(
+          blob,
+          timestamp,
+          "maple-track-pickup-",
+          (date) =>
+            "Pickup-crop diagnostic requested · " +
+            date.toLocaleTimeString() +
+            " · " + reasonSlug(reason) +
+            " · allow multiple downloads if prompted",
+          reasonSlug(reason),
+        );
+        return true;
+      } finally {
+        canvas.width = 0;
+        canvas.height = 0;
+      }
+    }
+
     async function rejectFrame(frame, timestamp, reason = "reading-rejected", cancelled = () => false) {
       if (!enabled || !frame || !isDownloadEnabled() || cancelled()) return false;
       const blob =
@@ -76,7 +113,12 @@
       if (blob && !cancelled()) return downloadDebugFrame(blob, timestamp, false, reason);
       return false;
     }
-    return { downloadFrame: downloadDebugFrame, downloadManualFrame, rejectFrame };
+    return {
+      downloadFrame: downloadDebugFrame,
+      downloadManualFrame,
+      rejectFrame,
+      rejectImage,
+    };
   }
   return { create };
 });

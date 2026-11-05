@@ -110,8 +110,59 @@ assert.equal(created, 1);
     "maple-track-manual-2026-10-16T16-01-00-000Z.png",
   );
   assert.match(status, /Manual screenshot download requested/);
+  let writtenPixels = 0;
+  checked = true;
+  const imageDebug = Debug.create({
+      ...config,
+      enabled: true,
+      isDownloadEnabled: () => checked,
+      document: {
+        body: config.document.body,
+        createElement(kind) {
+          if (kind === "canvas")
+            return {
+              width: 0,
+              height: 0,
+              getContext() {
+                return {
+                  createImageData(width, height) {
+                    return { width, height, data: new Uint8ClampedArray(width * height * 4) };
+                  },
+                  putImageData(pixels) {
+                    writtenPixels = pixels.data.length;
+                  },
+                };
+              },
+              toBlob(callback) { callback(blob); },
+            };
+          return config.document.createElement(kind);
+        },
+      },
+    }),
+    beforePickupDownload = clicked;
+  assert.equal(
+    await imageDebug.rejectImage(
+      { width: 3, height: 2, data: new Uint8ClampedArray(24) },
+      stamp + 70000,
+      "no-item-line",
+    ),
+    true,
+  );
+  assert.equal(writtenPixels, 24, "the exact pickup crop pixels are encoded");
+  assert.equal(clicked, beforePickupDownload + 1);
+  assert.match(filename, /^maple-track-pickup-no-item-line-/);
+  checked = false;
+  assert.equal(
+    await imageDebug.rejectImage(
+      { width: 1, height: 1, data: new Uint8ClampedArray(4) },
+      stamp + 80000,
+      "no-item-line",
+    ),
+    false,
+    "the debug download checkbox disables pickup crop captures",
+  );
   console.log(
-    "Debug module: rejected and manual downloads, timestamps, opt-out, PNG reuse and cleanup passed.",
+    "Debug module: rejected/manual screenshots, pickup crop downloads, timestamps, opt-out and cleanup passed.",
   );
 })().catch((e) => {
   console.error(e);

@@ -24,6 +24,13 @@
       );
     return { width, height, data };
   }
+  function isExpectedNonItemDropNotice(text) {
+    return (
+      /^You\s+have\s+gained\s+mesos\b/i.test(text) ||
+      /^You\s+received\s+EXP\b/i.test(text) ||
+      /^Bonus\s+EXP\s+for\s+PARTY\b/i.test(text)
+    );
+  }
   function create({
     session,
     recognition,
@@ -194,6 +201,28 @@
             noticeConfidence.set(notice, Math.max(noticeConfidence.get(notice) || 0, confidence));
         }
         const notices = [...noticeConfidence.keys()];
+        if (!notices.length && debug && debugTools?.rejectImage) {
+          const candidateLines = candidates
+              .map((candidate) => String(candidate?.text || ""))
+              .join("\n")
+              .split(/\r?\n/)
+              .map((line) => line.trim())
+              .filter(Boolean),
+            onlyExpectedNonItems =
+              candidateLines.length > 0 &&
+              candidateLines.every(isExpectedNonItemDropNotice);
+          if (!onlyExpectedNonItems)
+            await debugTools.rejectImage(
+              image,
+              timestamp,
+              candidateLines.length ? "no-item-line" : "empty-ocr-output",
+              () =>
+                session.state.paused ||
+                generation !== getCapture().generation ||
+                !getCapture().stream ||
+                sessionStartAt !== session.state.startAt,
+            );
+        }
         for (const notice of notices) {
           const key = notice.toLocaleLowerCase(),
             previous = lastDropTextAt.get(key);
@@ -210,6 +239,17 @@
         }
         return notices;
       } catch {
+        if (
+          debug &&
+          debugTools?.rejectImage &&
+          !session.state.paused &&
+          generation === getCapture().generation &&
+          getCapture().stream &&
+          sessionStartAt === session.state.startAt
+        )
+          try {
+            await debugTools.rejectImage(image, timestamp, "ocr-error");
+          } catch {}
         return [];
       }
     }
