@@ -3,21 +3,21 @@ const assert = require("node:assert/strict"),
 const parserCases = [
   {
     input:
-      "You have gained mesos (+13)\nYou have obtained Red Potion\nLevel up!",
-    expected: ["You have gained mesos (+13)"],
+      "You have gained mesos (+13)\nRed Potion x1 (Use)\nLevel up!",
+    expected: ["Red Potion x1 (Use)"],
   },
   {
     input: "You have gained mesos (+5)\r\nYou have gained mesos (+5)",
-    expected: ["You have gained mesos (+5)"],
+    expected: [],
   },
   {
     input:
       "You have gained mesos (+A)\nYou have gained mes0s (+15)\nYou have gained mesos",
-    expected: ["You have gained mesos (+15)"],
+    expected: [],
   },
   {
     input: "You have gained mesos (+00042)",
-    expected: ["You have gained mesos (+00042)"],
+    expected: [],
   },
   {
     input:
@@ -27,7 +27,7 @@ const parserCases = [
   {
     input:
       "Noise You received EXP (+42)\nYou received EXP (+42) noise\nYou received EXP ( + 00012 )",
-    expected: ["You received EXP (+00012)"],
+    expected: [],
   },
   {
     input:
@@ -37,16 +37,16 @@ const parserCases = [
   {
     input:
       "You received EXP (+42)\nYou have gained EXP (+12)\nEXP +12\nMonster defeated",
-    expected: ["You received EXP (+42)"],
+    expected: [],
   },
   {
     input: "You received EXP (+A)\nYou received EXP ( + 00012 )",
-    expected: ["You received EXP (+00012)"],
+    expected: [],
   },
   {
     input:
       "Bonus EXP for PARTY (+275)\nBonus EXP for party (+ 04 )\nBonus EXP for PARTY (+A)",
-    expected: ["Bonus EXP for PARTY (+275)", "Bonus EXP for PARTY (+04)"],
+    expected: [],
   },
   {
     input:

@@ -86,24 +86,6 @@
           .replace(/^[|·•;:,-]+\s*|\s*[|·•;:,-]+$/g, ""),
       )
       .map((line) => {
-        const exp = line.match(
-          /^You received EXP\s*\(\s*\+\s*(\d{1,9})\s*\)$|^Bonus EXP for PARTY\s*\(\s*\+\s*(\d{1,9})\s*\)$/i,
-        );
-        if (exp) {
-          const party = /^Bonus EXP for PARTY/i.test(line),
-            amount = exp[party ? 2 : 1];
-          return (
-            (party ? "Bonus EXP for PARTY" : "You received EXP") +
-            " (+" + amount + ")"
-          );
-        }
-        const mesos = line.match(
-          /^You have gained mes[o0]s?\s*\(\s*\+\s*(\d{1,9})\s*\)$/i,
-        );
-        if (mesos)
-          return (
-            "You have gained mesos (+" + mesos[1] + ")"
-          );
         const item = line.match(ITEM_NOTICE_RE);
         if (item) {
           if (Number(item[2]) < 1) return null;

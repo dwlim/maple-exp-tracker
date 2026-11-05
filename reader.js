@@ -168,12 +168,7 @@
       ) return [];
       try {
         const prepared = DropFeedProbe?.prepareOcrImage?.(image) || image,
-          amountImage =
-            DropFeedProbe?.prepareOcrImage?.(image, 120, 3) || image,
-          result = await localOcr.read({
-            dropImage: prepared,
-            dropAmountImage: amountImage,
-          });
+          result = await localOcr.read({ dropImage: prepared });
         if (
           session.state.paused ||
           generation !== getCapture().generation ||

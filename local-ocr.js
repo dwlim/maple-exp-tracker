@@ -1100,23 +1100,12 @@
         line?.bbox && String(line.text || "").trim().length >= 5,
       );
     }
-    function hasDropAmount(value) {
-      return /\(\s*\+\s*\d/.test(value) || /\bx\s*\d+\s*\(/i.test(value);
-    }
-    function fixedNoticePrefix(text) {
-      if (/^You\s+have\s+gained/i.test(text)) return "You have gained mesos";
-      if (/^You\s+received\s+EXP\b/i.test(text)) return "You received EXP";
-      if (/^Bonus\s+EXP\s+for\s+PARTY\b/i.test(text))
-        return "Bonus EXP for PARTY";
-      return null;
-    }
-    function cropDropAmount(image, line, layoutImage) {
-      if (!image?.data || !layoutImage?.width) return null;
-      const scale = image.width / layoutImage.width,
-        left = Math.max(0, Math.floor(image.width * 0.78)),
-        y0 = Math.max(0, Math.floor(line.bbox.y0 * scale) - 5),
-        y1 = Math.min(image.height, Math.ceil(line.bbox.y1 * scale) + 5);
-      return cropLine(image, { x0: left, y0, x1: image.width, y1 }, 0);
+    function isNonItemNotice(text) {
+      return (
+        /^You\s+have\s+gained/i.test(text) ||
+        /^You\s+received\s+EXP\b/i.test(text) ||
+        /^Bonus\s+EXP\s+for\s+PARTY\b/i.test(text)
+      );
     }
     function read(input) {
       const task = queue.then(async () => {
@@ -1132,47 +1121,19 @@
             if (lines.length) {
               const readLines = [];
               for (const line of lines) {
-                const blockText = String(line.text || "").trim(),
-                  prefix = fixedNoticePrefix(blockText);
-                let lineText = blockText,
-                  lineConfidence = line.confidence;
-                if (prefix && input.dropAmountImage) {
-                  const crop = cropDropAmount(
-                      input.dropAmountImage,
-                      line,
-                      input.dropImage,
-                    ),
-                    amountReading = crop
-                      ? await recognize(crop, "drop-amount")
-                      : null,
-                    amount = String(amountReading?.text || "").match(/\d{1,9}/)?.[0];
-                  // The message prefix and the amount's fixed right-edge position
-                  // constrain this tiny numeric read more strongly than its
-                  // standalone Tesseract confidence score.
-                  if (amount) {
-                    lineText = prefix + " (+" + amount + ")";
-                  } else if (!hasDropAmount(blockText)) {
-                    lineText = "";
-                  }
-                } else {
-                  const crop = cropLine(input.dropImage, line.bbox, 5, true),
-                    individual = crop
-                      ? await recognize(crop, "drop-notice-line")
-                      : null,
-                    individualText = String(individual?.text || "").trim();
-                  lineText = individualText &&
-                    ((hasDropAmount(individualText) && !hasDropAmount(blockText)) ||
-                      !blockText ||
-                      (Number.isFinite(individual?.confidence) &&
-                        individual.confidence >= (line.confidence || 0)))
-                    ? individualText
-                    : blockText || individualText;
+                const blockText = String(line.text || "").trim();
+                if (isNonItemNotice(blockText)) continue;
+                const crop = cropLine(input.dropImage, line.bbox, 5, true),
+                  individual = crop
+                    ? await recognize(crop, "drop-notice-line")
+                    : null,
+                  individualText = String(individual?.text || "").trim(),
+                  lineText = individualText || blockText,
                   lineConfidence =
-                    lineText === individualText &&
+                    individualText &&
                     Number.isFinite(individual?.confidence)
                       ? individual.confidence
                       : line.confidence;
-                }
                 if (lineText)
                   readLines.push({
                     text: lineText,
@@ -1523,8 +1484,6 @@
             tessedit_char_whitelist:
               kind === "meso-scan"
                 ? "0123456789,.MESOS"
-                : kind === "drop-amount"
-                  ? "0123456789()+-"
                 : kind === "drop-notice" || kind === "drop-notice-line"
                   ? "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789 ()+-.,'!"
                 : kind === "map" || kind === "map-line"

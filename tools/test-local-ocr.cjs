@@ -62,14 +62,14 @@ require("../hud-ocr");
   let dropKind = null;
   const dropReader = N.createReader(async (_pixels, kind) => {
     dropKind = kind;
-    return { text: "You have gained mesos (+13)", confidence: 92 };
+    return { text: "Red Potion x1 (Use)", confidence: 92 };
   });
   const dropResult = await dropReader.read({
     dropImage: { width: 4, height: 4, data: new Uint8ClampedArray(64) },
   });
   assert.equal(dropKind, "drop-notice");
   assert.deepEqual(dropResult.dropNotice, {
-    text: "You have gained mesos (+13)",
+    text: "Red Potion x1 (Use)",
     confidence: 92,
   });
   const segmentedCalls = [],
@@ -81,25 +81,22 @@ require("../hud-ocr");
           confidence: 80,
           blocks: [{ paragraphs: [{ lines: [
             { text: "You have gained mesos", confidence: 80, bbox: { x0: 0, y0: 0, x1: 10, y1: 4 } },
-            { text: "You have gained mesos (+5)", confidence: 75, bbox: { x0: 0, y0: 5, x1: 10, y1: 9 } },
+            { text: "Mushroom Spore x1 (Etc)", confidence: 75, bbox: { x0: 0, y0: 5, x1: 10, y1: 9 } },
+            { text: "Bonus EXP for PARTY (+5)", confidence: 75, bbox: { x0: 0, y0: 10, x1: 10, y1: 11 } },
           ] }] }],
         };
-      if (kind === "drop-amount")
-        return { text: "(+15)", confidence: 0 };
-      return { text: "You have gained mesos (+15)", confidence: 90 };
+      return { text: "Mushroom Spore x1 (Etc)", confidence: 90 };
     });
   const segmentedResult = await segmentedReader.read({
     dropImage: { width: 12, height: 12, data: new Uint8ClampedArray(12 * 12 * 4) },
-    dropAmountImage: { width: 18, height: 18, data: new Uint8ClampedArray(18 * 18 * 4) },
   });
   assert.deepEqual(segmentedResult.dropNotice, {
-    text: "You have gained mesos (+15)\nYou have gained mesos (+15)",
-    confidence: 77.5,
+    text: "Mushroom Spore x1 (Etc)",
+    confidence: 90,
   });
   assert.deepEqual(segmentedCalls.map((call) => call.kind), [
     "drop-notice",
-    "drop-amount",
-    "drop-amount",
+    "drop-notice-line",
   ]);
   assert.deepEqual(segmentedCalls[0].output, { blocks: true });
   assert.equal(
@@ -148,9 +145,7 @@ require("../hud-ocr");
       tessedit_char_whitelist:
         kind === "level"
           ? "LV.0123456789"
-          : kind === "drop-amount"
-            ? "0123456789()+-"
-            : kind === "drop-notice" || kind === "drop-notice-line"
+          : kind === "drop-notice" || kind === "drop-notice-line"
             ? "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789 ()+-.,'!"
             : "0123456789.[]% ",
     });
@@ -475,12 +470,11 @@ require("../hud-ocr");
       },
       dropRead = await reader.read({
         dropImage: DropProbe.prepareOcrImage(rawDrop),
-        dropAmountImage: DropProbe.prepareOcrImage(rawDrop, 120, 3),
       });
     assert.deepEqual(
       DropProbe.parseNotices(dropRead.dropNotice?.text),
-      ["You have gained mesos (+15)", "You have gained mesos (+5)"],
-      "The cropped pickup feed recovers each real mesos line and its amount",
+      [],
+      "Currency and EXP notifications are excluded from item pickup tracking",
     );
     assert.ok(
       dropRead.dropNotice.confidence >= 50,
