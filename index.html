@@ -2410,7 +2410,8 @@ return {detect,crop,anchors,percentageRegion};
             });
             const lines = dropLines(reading);
             let text = String(reading?.text || ""),
-              confidence = reading?.confidence;
+              confidence = reading?.confidence,
+              candidates = [{ text, confidence }];
             if (lines.length) {
               const readLines = [];
               for (const line of lines) {
@@ -2427,13 +2428,11 @@ return {detect,crop,anchors,percentageRegion};
                     Number.isFinite(individual?.confidence)
                       ? individual.confidence
                       : line.confidence;
-                if (lineText)
-                  readLines.push({
-                    text: lineText,
-                    confidence: lineConfidence,
-                  });
+                if (blockText) readLines.push({ text: blockText, confidence: line.confidence });
+                if (individualText) readLines.push({ text: individualText, confidence: lineConfidence });
               }
               if (readLines.length) {
+                candidates = readLines;
                 text = readLines.map((line) => line.text).join("\n");
                 const confidences = readLines
                   .map((line) => line.confidence)
@@ -2446,6 +2445,7 @@ return {detect,crop,anchors,percentageRegion};
             result.dropNotice = {
               text,
               confidence,
+              candidates,
             };
           } catch {
             result.dropNotice = null;
@@ -5039,7 +5039,32 @@ return {detect,crop,anchors,percentageRegion};
     return { observe, reset };
   }
   const ITEM_NOTICE_RE =
-    /^([A-Za-z0-9][A-Za-z0-9'&., -]{1,79}?)\s+x\s*(\d{1,6})\s*\((Etc|Use|Equip|Set\s*Up|Setup|Cash|Deco)\)$/i;
+    /^([A-Za-z0-9][A-Za-z0-9'’&.,! -]{1,79}?)\s*[x×]\s*([0-9Il|Oo]{1,6})\s*\(([A-Za-z ]{2,8})\)$/i;
+  const ITEM_CATEGORIES = [
+    ["Etc", "etc"],
+    ["Use", "use"],
+    ["Equip", "equip"],
+    ["Set Up", "setup"],
+    ["Cash", "cash"],
+    ["Deco", "deco"],
+  ];
+  function oneEditAway(a, b) {
+    if (a === b) return true;
+    if (Math.abs(a.length - b.length) > 1) return false;
+    let i = 0, j = 0, edits = 0;
+    while (i < a.length && j < b.length) {
+      if (a[i] === b[j]) { i++; j++; continue; }
+      if (++edits > 1) return false;
+      if (a.length > b.length) i++;
+      else if (b.length > a.length) j++;
+      else { i++; j++; }
+    }
+    return edits + Number(i < a.length || j < b.length) <= 1;
+  }
+  function canonicalItemCategory(value) {
+    const normalized = String(value || "").replace(/\s+/g, "").toLowerCase();
+    return ITEM_CATEGORIES.find(([, key]) => oneEditAway(normalized, key))?.[0] || null;
+  }
   function parseNotices(text) {
     return String(text || "")
       .replace(/\r/g, "")
@@ -5053,18 +5078,10 @@ return {detect,crop,anchors,percentageRegion};
       .map((line) => {
         const item = line.match(ITEM_NOTICE_RE);
         if (item) {
-          if (Number(item[2]) < 1) return null;
-          const category = item[3].replace(/\s+/g, " ").toLocaleLowerCase("en-US"),
-            canonicalCategory = {
-              etc: "Etc",
-              use: "Use",
-              equip: "Equip",
-              "set up": "Set Up",
-              setup: "Set Up",
-              cash: "Cash",
-              deco: "Deco",
-            }[category];
-          return `${item[1].replace(/\s+/g, " ").trim()} x${Number(item[2])} (${canonicalCategory})`;
+          const quantity = Number(item[2].replace(/[Il|]/g, "1").replace(/[Oo]/g, "0")),
+            category = canonicalItemCategory(item[3]);
+          if (quantity < 1 || !category) return null;
+          return `${item[1].replace(/\s+/g, " ").trim()} x${quantity} (${category})`;
         }
         return null;
       })
@@ -5277,9 +5294,23 @@ return {detect,crop,anchors,percentageRegion};
           !getCapture().stream ||
           sessionStartAt !== session.state.startAt
         ) return [];
-        if (!Number.isFinite(result?.dropNotice?.confidence) || result.dropNotice.confidence < 50)
-          return [];
-        const notices = DropFeedProbe?.parseNotices?.(result?.dropNotice?.text) || [];
+        const candidates = Array.isArray(result?.dropNotice?.candidates)
+            ? result.dropNotice.candidates
+            : [{ text: result?.dropNotice?.text, confidence: result?.dropNotice?.confidence }],
+          noticeConfidence = new Map();
+        for (const candidate of candidates) {
+          const confidence = Number.isFinite(candidate?.confidence)
+              ? candidate.confidence
+              : result?.dropNotice?.confidence,
+            notices = DropFeedProbe?.parseNotices?.(candidate?.text) || [];
+          // The exact item/quantity/category shape is the validation gate.
+          // Tesseract often assigns weak scores to small game-font lines, so
+          // avoid suppressing a structurally valid pickup on confidence alone.
+          if (!Number.isFinite(confidence)) continue;
+          for (const notice of notices)
+            noticeConfidence.set(notice, Math.max(noticeConfidence.get(notice) || 0, confidence));
+        }
+        const notices = [...noticeConfidence.keys()];
         for (const notice of notices) {
           const key = notice.toLocaleLowerCase(),
             previous = lastDropTextAt.get(key);
@@ -5291,7 +5322,7 @@ return {detect,crop,anchors,percentageRegion};
           session.addDropNotice(
             notice,
             timestamp,
-            result?.dropNotice?.confidence,
+            noticeConfidence.get(notice),
           );
         }
         return notices;
@@ -5707,7 +5738,10 @@ return {detect,crop,anchors,percentageRegion};
       MAP_HEADER_POLL_INTERVAL_MS = 2000,
       DROP_FEED_POLL_INTERVAL_MS = 100,
       DROP_FEED_SCALE = 0.5,
-      DROP_FEED_REGION = { x: 0.87, y: 0.82, w: 0.13, h: 0.08 },
+      // Keep enough of the lower-right HUD to include the full pickup sentence
+      // and its category tag, even in a narrow game window. OCR still runs only
+      // after the low-resolution probe sees a stable visual change.
+      DROP_FEED_REGION = { x: 0.58, y: 0.68, w: 0.42, h: 0.32 },
       MAP_PROBE_SCALE = 0.5;
     let stream = null,
       timer = null,

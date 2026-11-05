@@ -71,6 +71,7 @@ require("../hud-ocr");
   assert.deepEqual(dropResult.dropNotice, {
     text: "Red Potion x1 (Use)",
     confidence: 92,
+    candidates: [{ text: "Red Potion x1 (Use)", confidence: 92 }],
   });
   const segmentedCalls = [],
     segmentedReader = N.createReader(async (_pixels, kind, output) => {
@@ -85,14 +86,18 @@ require("../hud-ocr");
             { text: "Bonus EXP for PARTY (+5)", confidence: 75, bbox: { x0: 0, y0: 10, x1: 10, y1: 11 } },
           ] }] }],
         };
-      return { text: "Mushroom Spore x1 (Etc)", confidence: 90 };
+      return { text: "Mushroom Spore xl (Ete)", confidence: 25 };
     });
   const segmentedResult = await segmentedReader.read({
     dropImage: { width: 12, height: 12, data: new Uint8ClampedArray(12 * 12 * 4) },
   });
   assert.deepEqual(segmentedResult.dropNotice, {
-    text: "Mushroom Spore x1 (Etc)",
-    confidence: 90,
+    text: "Mushroom Spore x1 (Etc)\nMushroom Spore xl (Ete)",
+    confidence: 50,
+    candidates: [
+      { text: "Mushroom Spore x1 (Etc)", confidence: 75 },
+      { text: "Mushroom Spore xl (Ete)", confidence: 25 },
+    ],
   });
   assert.deepEqual(segmentedCalls.map((call) => call.kind), [
     "drop-notice",
@@ -477,10 +482,10 @@ require("../hud-ocr");
       "Currency and EXP notifications are excluded from item pickup tracking",
     );
     assert.ok(
-      dropRead.dropNotice.confidence >= 50,
-      "Pickup line requires a minimum OCR confidence",
+      Number.isFinite(dropRead.dropNotice.confidence),
+      "Drop OCR retains confidence as diagnostic metadata",
     );
-    console.log("Drop feed OCR: cropped real mesos pickup notification passed.");
+    console.log("Drop feed OCR: real currency/EXP notification remains excluded.");
   } finally {
     await worker.terminate();
   }

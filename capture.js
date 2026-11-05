@@ -22,7 +22,10 @@
       MAP_HEADER_POLL_INTERVAL_MS = 2000,
       DROP_FEED_POLL_INTERVAL_MS = 100,
       DROP_FEED_SCALE = 0.5,
-      DROP_FEED_REGION = { x: 0.87, y: 0.82, w: 0.13, h: 0.08 },
+      // Keep enough of the lower-right HUD to include the full pickup sentence
+      // and its category tag, even in a narrow game window. OCR still runs only
+      // after the low-resolution probe sees a stable visual change.
+      DROP_FEED_REGION = { x: 0.58, y: 0.68, w: 0.42, h: 0.32 },
       MAP_PROBE_SCALE = 0.5;
     let stream = null,
       timer = null,

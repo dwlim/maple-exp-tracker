@@ -74,7 +74,32 @@
     return { observe, reset };
   }
   const ITEM_NOTICE_RE =
-    /^([A-Za-z0-9][A-Za-z0-9'&., -]{1,79}?)\s+x\s*(\d{1,6})\s*\((Etc|Use|Equip|Set\s*Up|Setup|Cash|Deco)\)$/i;
+    /^([A-Za-z0-9][A-Za-z0-9'’&.,! -]{1,79}?)\s*[x×]\s*([0-9Il|Oo]{1,6})\s*\(([A-Za-z ]{2,8})\)$/i;
+  const ITEM_CATEGORIES = [
+    ["Etc", "etc"],
+    ["Use", "use"],
+    ["Equip", "equip"],
+    ["Set Up", "setup"],
+    ["Cash", "cash"],
+    ["Deco", "deco"],
+  ];
+  function oneEditAway(a, b) {
+    if (a === b) return true;
+    if (Math.abs(a.length - b.length) > 1) return false;
+    let i = 0, j = 0, edits = 0;
+    while (i < a.length && j < b.length) {
+      if (a[i] === b[j]) { i++; j++; continue; }
+      if (++edits > 1) return false;
+      if (a.length > b.length) i++;
+      else if (b.length > a.length) j++;
+      else { i++; j++; }
+    }
+    return edits + Number(i < a.length || j < b.length) <= 1;
+  }
+  function canonicalItemCategory(value) {
+    const normalized = String(value || "").replace(/\s+/g, "").toLowerCase();
+    return ITEM_CATEGORIES.find(([, key]) => oneEditAway(normalized, key))?.[0] || null;
+  }
   function parseNotices(text) {
     return String(text || "")
       .replace(/\r/g, "")
@@ -88,18 +113,10 @@
       .map((line) => {
         const item = line.match(ITEM_NOTICE_RE);
         if (item) {
-          if (Number(item[2]) < 1) return null;
-          const category = item[3].replace(/\s+/g, " ").toLocaleLowerCase("en-US"),
-            canonicalCategory = {
-              etc: "Etc",
-              use: "Use",
-              equip: "Equip",
-              "set up": "Set Up",
-              setup: "Set Up",
-              cash: "Cash",
-              deco: "Deco",
-            }[category];
-          return `${item[1].replace(/\s+/g, " ").trim()} x${Number(item[2])} (${canonicalCategory})`;
+          const quantity = Number(item[2].replace(/[Il|]/g, "1").replace(/[Oo]/g, "0")),
+            category = canonicalItemCategory(item[3]);
+          if (quantity < 1 || !category) return null;
+          return `${item[1].replace(/\s+/g, " ").trim()} x${quantity} (${category})`;
         }
         return null;
       })

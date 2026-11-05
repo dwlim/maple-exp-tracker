@@ -38,7 +38,16 @@ function fixture(getDisplayMedia) {
       get width() { return width; },
       set height(value) { height = value; },
       get height() { return height; },
-      getContext: () => ({ drawImage() {}, getImageData: () => probePixels }),
+      getContext: () => ({
+        drawImage() {},
+        getImageData: () => width === probePixels.width && height === probePixels.height
+          ? probePixels
+          : {
+              width,
+              height,
+              data: new Uint8ClampedArray(width * height * 4).fill(127),
+            },
+      }),
     };
   };
   d.document.createElement = (kind) => kind === "canvas" ? makeCanvas() : d.document.querySelector(kind);
@@ -157,6 +166,8 @@ function fixture(getDisplayMedia) {
   f.intervals[2].fn();
   assert.equal(f.dropReads.length, 1, "stable low-resolution drop-region change reads one crop");
   assert.ok(f.dropReads[0].image, "Drop OCR receives only the cropped notification region");
+  assert.equal(f.dropReads[0].image.width, 336, "Drop OCR crop is wide enough for a full item line");
+  assert.equal(f.dropReads[0].image.height, 192, "Drop OCR crop preserves the lower notification rows");
   f.intervals[1].fn();
   await flush();
   assert.equal(f.captured, 2, "the probe does not continuously request OCR after a change");

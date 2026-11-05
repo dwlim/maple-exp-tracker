@@ -58,6 +58,10 @@ const parserCases = [
     ],
   },
   {
+    input: "Mushroom Spore xl (Ete)\nRed Potion ×2 (Usc)\nBlue Snail Shell x1 (Other)",
+    expected: ["Mushroom Spore x1 (Etc)", "Red Potion x2 (Use)"],
+  },
+  {
     input:
       "Mushroom Spore x? (Etc)\nMushroom Spore x0 (Etc)\nMushroom Spore x1 (Other)",
     expected: [],

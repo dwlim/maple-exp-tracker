@@ -175,9 +175,23 @@
           !getCapture().stream ||
           sessionStartAt !== session.state.startAt
         ) return [];
-        if (!Number.isFinite(result?.dropNotice?.confidence) || result.dropNotice.confidence < 50)
-          return [];
-        const notices = DropFeedProbe?.parseNotices?.(result?.dropNotice?.text) || [];
+        const candidates = Array.isArray(result?.dropNotice?.candidates)
+            ? result.dropNotice.candidates
+            : [{ text: result?.dropNotice?.text, confidence: result?.dropNotice?.confidence }],
+          noticeConfidence = new Map();
+        for (const candidate of candidates) {
+          const confidence = Number.isFinite(candidate?.confidence)
+              ? candidate.confidence
+              : result?.dropNotice?.confidence,
+            notices = DropFeedProbe?.parseNotices?.(candidate?.text) || [];
+          // The exact item/quantity/category shape is the validation gate.
+          // Tesseract often assigns weak scores to small game-font lines, so
+          // avoid suppressing a structurally valid pickup on confidence alone.
+          if (!Number.isFinite(confidence)) continue;
+          for (const notice of notices)
+            noticeConfidence.set(notice, Math.max(noticeConfidence.get(notice) || 0, confidence));
+        }
+        const notices = [...noticeConfidence.keys()];
         for (const notice of notices) {
           const key = notice.toLocaleLowerCase(),
             previous = lastDropTextAt.get(key);
@@ -189,7 +203,7 @@
           session.addDropNotice(
             notice,
             timestamp,
-            result?.dropNotice?.confidence,
+            noticeConfidence.get(notice),
           );
         }
         return notices;

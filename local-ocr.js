@@ -1117,7 +1117,8 @@
             });
             const lines = dropLines(reading);
             let text = String(reading?.text || ""),
-              confidence = reading?.confidence;
+              confidence = reading?.confidence,
+              candidates = [{ text, confidence }];
             if (lines.length) {
               const readLines = [];
               for (const line of lines) {
@@ -1134,13 +1135,11 @@
                     Number.isFinite(individual?.confidence)
                       ? individual.confidence
                       : line.confidence;
-                if (lineText)
-                  readLines.push({
-                    text: lineText,
-                    confidence: lineConfidence,
-                  });
+                if (blockText) readLines.push({ text: blockText, confidence: line.confidence });
+                if (individualText) readLines.push({ text: individualText, confidence: lineConfidence });
               }
               if (readLines.length) {
+                candidates = readLines;
                 text = readLines.map((line) => line.text).join("\n");
                 const confidences = readLines
                   .map((line) => line.confidence)
@@ -1153,6 +1152,7 @@
             result.dropNotice = {
               text,
               confidence,
+              candidates,
             };
           } catch {
             result.dropNotice = null;
