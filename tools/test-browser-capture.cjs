@@ -4,7 +4,7 @@ const assert = require("node:assert/strict"),
   L = require("../level-ocr"),
   App = require("../app"),
   { dom } = require("./test-helpers.cjs");
-function fixture(getDisplayMedia) {
+function fixture(getDisplayMedia, { pickupTrackingEnabled = false } = {}) {
   const d = dom(),
     session = S.create({ levelOcr: L });
   session.state.samples = [{ exp: 123 }];
@@ -19,7 +19,8 @@ function fixture(getDisplayMedia) {
     status,
     processedItems = 0,
     intervals = [],
-    cleared = [];
+    cleared = [],
+    dropImageDraws = [];
   const probePixels = {
     width: 400,
     height: 300,
@@ -39,7 +40,7 @@ function fixture(getDisplayMedia) {
       set height(value) { height = value; },
       get height() { return height; },
       getContext: () => ({
-        drawImage() {},
+        drawImage(...args) { dropImageDraws.push(args); },
         getImageData: () => width === probePixels.width && height === probePixels.height
           ? probePixels
           : {
@@ -58,7 +59,9 @@ function fixture(getDisplayMedia) {
     },
     observeMapProbe() { return ++probeCount === 2; },
     resetMapProbe() {},
-    observeDropProbe() { return ++dropProbeCount === 1; },
+    observeDropProbe() {
+      return ++dropProbeCount === 1 ? [{ y: 14, height: 7 }] : [];
+    },
     readDropNotice(image, timestamp) { dropReads.push({ image, timestamp }); },
     resetDropProbe() {},
   };
@@ -75,6 +78,7 @@ function fixture(getDisplayMedia) {
       },
     },
     reader,
+    pickupTrackingEnabled,
     onFrame: async () => { processedItems++; },
     view: {
       update() {},
@@ -114,6 +118,9 @@ function fixture(getDisplayMedia) {
     },
     get dropReads() {
       return dropReads;
+    },
+    get dropImageDraws() {
+      return dropImageDraws;
     },
     get processedItems() {
       return processedItems;
@@ -175,6 +182,25 @@ function fixture(getDisplayMedia) {
     [1, 2],
     "stop clears the active scan timers",
   );
+  const pickup = fixture(async () => stream, { pickupTrackingEnabled: true });
+  await pickup.c.connect();
+  assert.deepEqual(
+    pickup.intervals.map(({ ms }) => ms),
+    [10000, 2000, 100],
+    "pickup row probe runs at 10Hz only when explicitly enabled",
+  );
+  pickup.video.currentTime += 0.1;
+  pickup.intervals[2].fn();
+  await flush();
+  assert.equal(pickup.dropReads.length, 1, "a confirmed row reaches pickup OCR");
+  assert.equal(pickup.dropReads[0].image.width, 336);
+  assert.equal(pickup.dropReads[0].image.height, 22, "OCR receives a narrow row crop");
+  assert.deepEqual(
+    pickup.dropImageDraws.at(-1).slice(1, 5),
+    [464, 432, 336, 22],
+    "row crop stays within the lower-right feed and excludes unrelated HUD area",
+  );
+  pickup.c.stop();
   const cancelled = fixture(async () => {
     throw Object.assign(Error("cancelled"), { name: "NotAllowedError" });
   });

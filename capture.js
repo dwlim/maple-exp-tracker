@@ -13,19 +13,19 @@
     view,
     debugTools,
     debug = false,
+    pickupTrackingEnabled = false,
     onFrame = null,
     onInvalidate = () => {},
     now = Date.now,
     timers = { setTimeout, setInterval, clearInterval },
   }) {
-    const PICKUP_TRACKING_ENABLED = false,
+    const PICKUP_TRACKING_ENABLED = pickupTrackingEnabled,
       FULL_SCAN_INTERVAL_MS = 10000,
       MAP_HEADER_POLL_INTERVAL_MS = 2000,
       DROP_FEED_POLL_INTERVAL_MS = 100,
       DROP_FEED_SCALE = 0.5,
-      // Keep enough of the lower-right HUD to include the full pickup sentence
-      // and its category tag, even in a narrow game window. OCR still runs only
-      // after the low-resolution probe sees a stable visual change.
+      // Restrict the probe to the lower-right HUD; it reports stable new text
+      // rows so OCR only receives a small crop around a newly added message.
       DROP_FEED_REGION = { x: 0.58, y: 0.68, w: 0.42, h: 0.32 },
       MAP_PROBE_SCALE = 0.5;
     let stream = null,
@@ -313,7 +313,8 @@
       } catch {
         return;
       }
-      if (!reader.observeDropProbe(probe)) return;
+      const newRows = reader.observeDropProbe(probe);
+      if (!newRows?.length) return;
       if (!dropImageCanvas) dropImageCanvas = document.createElement("canvas");
       if (
         dropImageCanvas.width !== sourceWidth ||
@@ -324,21 +325,30 @@
       }
       try {
         const context = dropImageCanvas.getContext("2d", {
-          willReadFrequently: true,
-        });
-        context.drawImage(
-          video,
-          sourceX,
-          sourceY,
-          sourceWidth,
-          sourceHeight,
-          0,
-          0,
-          sourceWidth,
-          sourceHeight,
-        );
-        const image = context.getImageData(0, 0, sourceWidth, sourceHeight);
-        void reader.readDropNotice(image, now());
+            willReadFrequently: true,
+          }),
+          probePadding = 2;
+        for (const row of newRows) {
+          const cropTop = Math.max(0, row.y - probePadding),
+            cropBottom = Math.min(height, row.y + row.height + probePadding),
+            top = sourceY + Math.floor((cropTop * sourceHeight) / height),
+            bottom = sourceY + Math.ceil((cropBottom * sourceHeight) / height),
+            cropHeight = Math.max(1, Math.min(sourceY + sourceHeight, bottom) - top);
+          if (dropImageCanvas.height !== cropHeight) dropImageCanvas.height = cropHeight;
+          context.drawImage(
+            video,
+            sourceX,
+            top,
+            sourceWidth,
+            cropHeight,
+            0,
+            0,
+            sourceWidth,
+            cropHeight,
+          );
+          const image = context.getImageData(0, 0, sourceWidth, cropHeight);
+          void reader.readDropNotice(image, now());
+        }
       } catch {
         /* A drop-feed probe never interrupts EXP or map recognition. */
       }

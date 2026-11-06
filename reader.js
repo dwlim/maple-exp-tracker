@@ -157,11 +157,9 @@
       lastDropReadAt = 0;
     }
     function observeDropProbe(image) {
-      return Boolean(
-        !session.state.paused &&
-          session.state.running &&
-          dropProbe?.observe(image),
-      );
+      return !session.state.paused && session.state.running
+        ? dropProbe?.observe(image) || []
+        : [];
     }
     async function processDropNotice({
       image,
