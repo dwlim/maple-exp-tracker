@@ -17,26 +17,30 @@
     onLevelPreview = () => {},
   }) {
     function readExpGlyphs(region, frame, level) {
-      let pixels = cropLevelDigits(region, frame),
+      const x = Math.round(region.x * frame.width),
+        right = x + Math.round(region.w * frame.width),
+        glyphHeight = Math.max(1, Math.round(region.h * frame.height)),
+        maxExtra = Math.min(
+          Math.max(0, frame.width - right),
+          Math.max(16, glyphHeight * 3),
+        ),
+        step = Math.max(2, Math.ceil(glyphHeight * 0.35));
+      let extra = 0,
+        pixels,
+        raw;
+      // Auto regions are intentionally tight. Widen only their right edge as
+      // needed, stopping once OCR sees the closing bracket or reaches a small
+      // glyph-scaled bound. This avoids feeding a visibly clipped percent field
+      // to validation while keeping each read local to the EXP HUD.
+      while (true) {
+        const candidate = {
+          ...region,
+          w: region.w + extra / frame.width,
+        };
+        pixels = cropLevelDigits(candidate, frame);
         raw = hudOcr.recognize(pixels);
-      // A saved/manual box can end just after the percent sign and clip the
-      // thin green closing bracket. Retry with a few source pixels to the
-      // right; the OCR still has to see and recognize the real bracket.
-      if (/\[[\d.?]+%$/.test(raw.text)) {
-        const x = Math.round(region.x * frame.width),
-          right = x + Math.round(region.w * frame.width),
-          extra = Math.min(8, frame.width - right);
-        if (extra > 0) {
-          const extended = cropLevelDigits(
-            { ...region, w: region.w + extra / frame.width },
-            frame,
-          );
-          const extendedReading = hudOcr.recognize(extended);
-          if (extendedReading.text.endsWith("]")) {
-            pixels = extended;
-            raw = extendedReading;
-          }
-        }
+        if (raw.text.trim().endsWith("]") || extra >= maxExtra) break;
+        extra = Math.min(maxExtra, extra + step);
       }
       const result = hudOcr.resolveReading(raw, required(level));
       if (debug) onExpPreview(pixels);

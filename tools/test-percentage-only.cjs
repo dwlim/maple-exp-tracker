@@ -147,6 +147,35 @@ assert.ok(
   "A percentage-only layout must be locatable without the old hardcoded high-level gate",
 );
 
+// A tight detector box can cut through the final percent/bracket glyph. Reading
+// should extend the crop until the actual closing bracket is visible.
+full._pixels = full;
+let clippedRegion = null;
+for (let trim = 1; trim <= 40; trim++) {
+  const candidate = {
+    ...fullRegions.exp,
+    w: fullRegions.exp.w - trim / full.width,
+  };
+  if (candidate.w <= 0) break;
+  if (!H.recognize(R.crop(full, pixels(candidate, full))).text.trim().endsWith("]")) {
+    clippedRegion = candidate;
+    break;
+  }
+}
+assert.ok(clippedRegion, "Fixture can reproduce a crop that clips the closing bracket");
+const cropRecovery = require("../recognition").create({
+  document: {},
+  state: { samples: [] },
+  levelOcr: highLevel,
+  hudOcr: H,
+  hudRegions: R,
+  required,
+  getImage: () => ({}),
+});
+const recoveredCrop = cropRecovery.readExpGlyphs(clippedRegion, full, 99);
+assert.equal(recoveredCrop.rawText, "412[0.34%]");
+assert.equal(recoveredCrop.uncertain, false);
+
 (async () => {
   const { pipeline, readingFrame, packedFrame } = require("./test-helpers.cjs"),
     p = pipeline();
