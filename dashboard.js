@@ -1,8 +1,38 @@
 (function (root, factory) {
-  if (typeof module === "object" && module.exports) module.exports = factory(require("./potion-costs"), require("./map-sessions"));
-  else root.MapleDashboard = factory(root.MaplePotionCosts, root.MapleMapSessions);
-})(typeof window === "undefined" ? globalThis : window, function (PotionCosts, MapSessions) {
+  if (typeof module === "object" && module.exports) module.exports = factory(require("./potion-costs"), require("./map-sessions"), require("./quickslot-session"));
+  else root.MapleDashboard = factory(root.MaplePotionCosts, root.MapleMapSessions, root.MapleQuickslotSession);
+})(typeof window === "undefined" ? globalThis : window, function (PotionCosts, MapSessions, QuickslotSession) {
   "use strict";
+  function sessionPotionUsage(storage) {
+    const totals = {
+      hp: 0,
+      mp: 0,
+      both: 0,
+      restocked: 0,
+      configured: false,
+      observed: false,
+    };
+    if (!storage?.getItem || !Array.isArray(QuickslotSession?.STORE_KEYS))
+      return totals;
+    for (const key of QuickslotSession.STORE_KEYS) {
+      let saved;
+      try {
+        saved = JSON.parse(storage.getItem(key) || "null");
+      } catch {}
+      for (const item of Array.isArray(saved?.items) ? saved.items : []) {
+        const group = PotionCosts.catalog[item?.potionType]?.group;
+        if (!["hp", "mp", "both"].includes(group)) continue;
+        totals.configured = true;
+        if (Number.isInteger(item.count) && item.count >= 0)
+          totals.observed = true;
+        if (Number.isFinite(item.used) && item.used >= 0)
+          totals[group] += item.used;
+        if (Number.isFinite(item.restocked) && item.restocked >= 0)
+          totals.restocked += item.restocked;
+      }
+    }
+    return totals;
+  }
   function create({
     document,
     window,
@@ -98,11 +128,17 @@
         potionState = JSON.parse(storage?.getItem(PotionCosts.KEY) || "{}") || {};
       } catch {}
       const potionMetrics = PotionCosts.metrics(potionState, now),
+        potionUsage = sessionPotionUsage(storage),
         costText = (value) => value === null ? "—" : fmt(value),
+        useText = (value) => potionUsage.observed ? fmt(value) : "—",
         trackedGroups = new Set((potionState.items || []).map((item) => item?.group));
       if (q("#hpPotionCost")) q("#hpPotionCost").textContent = costText(potionMetrics.hp);
       if (q("#mpPotionCost")) q("#mpPotionCost").textContent = costText(potionMetrics.mp);
       if (q("#bothPotionCost")) q("#bothPotionCost").textContent = costText(potionMetrics.both);
+      if (q("#hpPotsUsed")) q("#hpPotsUsed").textContent = useText(potionUsage.hp);
+      if (q("#mpPotsUsed")) q("#mpPotsUsed").textContent = useText(potionUsage.mp);
+      if (q("#bothPotsUsed")) q("#bothPotsUsed").textContent = useText(potionUsage.both);
+      if (q("#potsRestocked")) q("#potsRestocked").textContent = useText(potionUsage.restocked);
       let estimatedGrossMesoRate = null;
       if (
         mesoRate !== null && activeMapVisit && now - activeMapVisit.start >= 300000 &&
@@ -724,5 +760,5 @@
       isAutomatic: () => q("#autoOcr").checked,
     };
   }
-  return { create };
+  return { create, sessionPotionUsage };
 });

@@ -4280,10 +4280,40 @@ return {detect,crop,anchors,percentageRegion};
 <!-- DEBUG TOOLS END -->
 <!-- DASHBOARD START -->
 <script>(function (root, factory) {
-  if (typeof module === "object" && module.exports) module.exports = factory(require("./potion-costs"), require("./map-sessions"));
-  else root.MapleDashboard = factory(root.MaplePotionCosts, root.MapleMapSessions);
-})(typeof window === "undefined" ? globalThis : window, function (PotionCosts, MapSessions) {
+  if (typeof module === "object" && module.exports) module.exports = factory(require("./potion-costs"), require("./map-sessions"), require("./quickslot-session"));
+  else root.MapleDashboard = factory(root.MaplePotionCosts, root.MapleMapSessions, root.MapleQuickslotSession);
+})(typeof window === "undefined" ? globalThis : window, function (PotionCosts, MapSessions, QuickslotSession) {
   "use strict";
+  function sessionPotionUsage(storage) {
+    const totals = {
+      hp: 0,
+      mp: 0,
+      both: 0,
+      restocked: 0,
+      configured: false,
+      observed: false,
+    };
+    if (!storage?.getItem || !Array.isArray(QuickslotSession?.STORE_KEYS))
+      return totals;
+    for (const key of QuickslotSession.STORE_KEYS) {
+      let saved;
+      try {
+        saved = JSON.parse(storage.getItem(key) || "null");
+      } catch {}
+      for (const item of Array.isArray(saved?.items) ? saved.items : []) {
+        const group = PotionCosts.catalog[item?.potionType]?.group;
+        if (!["hp", "mp", "both"].includes(group)) continue;
+        totals.configured = true;
+        if (Number.isInteger(item.count) && item.count >= 0)
+          totals.observed = true;
+        if (Number.isFinite(item.used) && item.used >= 0)
+          totals[group] += item.used;
+        if (Number.isFinite(item.restocked) && item.restocked >= 0)
+          totals.restocked += item.restocked;
+      }
+    }
+    return totals;
+  }
   function create({
     document,
     window,
@@ -4379,11 +4409,17 @@ return {detect,crop,anchors,percentageRegion};
         potionState = JSON.parse(storage?.getItem(PotionCosts.KEY) || "{}") || {};
       } catch {}
       const potionMetrics = PotionCosts.metrics(potionState, now),
+        potionUsage = sessionPotionUsage(storage),
         costText = (value) => value === null ? "—" : fmt(value),
+        useText = (value) => potionUsage.observed ? fmt(value) : "—",
         trackedGroups = new Set((potionState.items || []).map((item) => item?.group));
       if (q("#hpPotionCost")) q("#hpPotionCost").textContent = costText(potionMetrics.hp);
       if (q("#mpPotionCost")) q("#mpPotionCost").textContent = costText(potionMetrics.mp);
       if (q("#bothPotionCost")) q("#bothPotionCost").textContent = costText(potionMetrics.both);
+      if (q("#hpPotsUsed")) q("#hpPotsUsed").textContent = useText(potionUsage.hp);
+      if (q("#mpPotsUsed")) q("#mpPotsUsed").textContent = useText(potionUsage.mp);
+      if (q("#bothPotsUsed")) q("#bothPotsUsed").textContent = useText(potionUsage.both);
+      if (q("#potsRestocked")) q("#potsRestocked").textContent = useText(potionUsage.restocked);
       let estimatedGrossMesoRate = null;
       if (
         mesoRate !== null && activeMapVisit && now - activeMapVisit.start >= 300000 &&
@@ -5005,7 +5041,7 @@ return {detect,crop,anchors,percentageRegion};
       isAutomatic: () => q("#autoOcr").checked,
     };
   }
-  return { create };
+  return { create, sessionPotionUsage };
 });
 </script>
 <!-- DASHBOARD END -->
@@ -8046,6 +8082,7 @@ return {detect,crop,anchors,percentageRegion};
 <div class="grid"><section class="panel"><div class="panel-head"><span class="label">Current map visit</span><span class="tag" id="windowLabel">TRAILING 5 MIN</span></div>
 <div class="stats"><div class="stat"><div class="k">EXP / hour</div><div class="v lime" id="rate">—</div><div class="hint" id="rateHint">Waiting for samples</div></div><div class="stat"><div class="k">EXP gained</div><div class="v" id="gained">0</div><div class="hint">this session</div></div><div class="stat"><div class="k">Recent pace</div><div class="v" id="pace">—</div><div class="hint">over last 5 minutes</div></div><div class="stat"><div class="k">Time to next level</div><div class="v lime" id="nextLevelEta">—</div><div class="hint" id="nextLevelEtaHint">Need more data</div></div></div>
 <div class="chart-wrap" style="margin-bottom:24px"><div class="chart-title"><span>Mesos</span><button class="btn" id="setMesoRegion" style="padding:5px 8px">Adjust manually</button><span id="mesoHint" role="status">The tracker automatically searches for the standard inventory balance. Keep the item window visible.</span></div><div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(120px,1fr));gap:10px"><div class="stat" style="min-height:92px"><div class="k">Current total</div><div class="v" id="mesoAmount">—</div></div><div class="stat" style="min-height:92px"><div class="k">Net change</div><div class="v" id="mesoNet">—</div><div class="hint">this session</div></div><div class="stat" style="min-height:92px"><div class="k">Meso balance change / hour</div><div class="v lime" id="mesoRate">—</div><div class="hint">trailing 5 minutes</div></div><div class="stat" style="min-height:92px"><div class="k">Estimated gross mesos / hour</div><div class="v lime" id="estimatedGrossMesoRate">—</div><div class="hint">balance change + tracked potion costs · trailing 5 minutes</div></div></div><div class="chart-title" style="margin:18px 0 10px"><span>Estimated potion costs · trailing 5 minutes</span></div><div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(120px,1fr));gap:10px"><div class="stat" style="min-height:82px"><div class="k">HP potion cost / hour</div><div class="v" id="hpPotionCost">—</div></div><div class="stat" style="min-height:82px"><div class="k">MP potion cost / hour</div><div class="v" id="mpPotionCost">—</div></div><div class="stat" style="min-height:82px"><div class="k">HP + MP potion cost / hour</div><div class="v" id="bothPotionCost">—</div></div></div></div>
+<div class="chart-wrap potion-use-wrap"><div class="chart-title"><span>Potion use</span><span class="subtle">THIS SESSION · REFILLS SEPARATE</span></div><div class="potion-use-grid"><div class="stat"><div class="k">HP POTS USED</div><div class="v" id="hpPotsUsed">—</div><div class="hint">observed use</div></div><div class="stat"><div class="k">MP POTS USED</div><div class="v" id="mpPotsUsed">—</div><div class="hint">observed use</div></div><div class="stat"><div class="k">HP + MP USED</div><div class="v" id="bothPotsUsed">—</div><div class="hint">combined potions</div></div><div class="stat"><div class="k">RESTOCKED</div><div class="v" id="potsRestocked">—</div><div class="hint">tracked slots</div></div></div></div>
 <div class="chart-wrap" style="margin-bottom:16px"><div class="chart-title"><span>Map visits this session</span><span class="subtle">Rates use same-map readings; transition intervals are excluded.</span></div><div id="mapSessions"><p class="subtle">Map-specific readings will appear after the tracker recognizes your map.</p></div></div><div class="chart-wrap" style="margin-bottom:16px"><div class="chart-title"><span>Pickup tracking · paused</span><span class="tag"><b id="dropNoticeCount">0</b> saved</span></div><div id="dropNotices" aria-live="polite"><p class="subtle">Pickup tracking is temporarily paused.</p></div><p class="hint" style="margin-top:10px">Pickup notification scanning is paused. Previously detected notices remain saved.</p></div><div class="chart-wrap"><div class="chart-title"><span>Experience over time</span><span id="sampleCount">0 samples</span></div><svg class="chart" id="chart" viewBox="0 0 700 170" preserveAspectRatio="none" aria-label="Experience chart"><defs><linearGradient id="fill" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#c7f36b" stop-opacity=".2"/><stop offset="1" stop-color="#c7f36b" stop-opacity="0"/></linearGradient></defs><g id="chartContent"></g></svg></div>
 <div class="chart-wrap capture-debug" style="margin-top:12px;padding:10px"><div class="chart-title" style="margin:0 6px 8px"><span>Latest game capture</span><span id="frameStatus">WAITING FOR SHARING</span></div><div class="calibration-tools"><button id="pickLevel">Select level</button><button id="pickExp">Select EXP readout</button><button id="pickMeso">Select meso amount</button><button id="clearMeso">Clear meso region</button><button id="clearRegions">Reset auto regions</button><span id="regionStatus" class="region-status">Searching for the level tiles and EXP readout once a capture arrives.</span></div><div class="ocr-tools"><button id="readFrame">Read frame</button><label><input type="checkbox" id="autoOcr" checked> Read new frames automatically</label></div><div class="ocr-tools"><button class="btn" id="downloadCurrentFrame" disabled>Download current screenshot</button><label><input type="checkbox" id="debugDownloads" checked> Download rejected screenshots and pickup crops</label></div><p id="debugDownloadStatus" class="subtle" style="font-size:10px">In debug mode, failed item-line OCR saves the exact pickup crop to Downloads. Known EXP/meso notices are ignored. Uncheck downloads to stop automatic files; filenames include the OCR failure reason.</p><div id="ocrOutput" class="ocr-output">Waiting for a game capture. Text recognition runs locally in your browser.</div><div class="crop-preview-grid" id="cropPreviewGrid"><div><label>LEVEL OCR INPUT</label><img id="levelCropPreview" alt="Exact level crop used by OCR"><small id="levelCropPreviewStatus">Waiting for a crop</small></div><div><label>EXP OCR INPUT</label><img id="expCropPreview" alt="Exact EXP crop used by OCR"><small id="expCropPreviewStatus">Waiting for a crop</small></div><div><label>MESO AMOUNT INPUT</label><img id="mesoCropPreview" alt="Exact meso amount crop used by OCR"><small id="mesoCropPreviewStatus">Waiting for a crop</small></div><div><label>MAP NAME OCR INPUT</label><img id="mapCropPreview" alt="Exact map-name OCR input"><small id="mapCropPreviewStatus">Waiting for a crop</small></div></div><div class="frame-stage" id="frameStage"><img id="latestFrame" alt="Latest shared game window"><canvas id="frameCanvas"></canvas></div><div id="frameEmpty" class="subtle" style="padding:34px;text-align:center;font-size:11px">Share MapleStory to see a frame here.</div></div>
 <div class="foot"><span id="lastSample">NO CAPTURE YET</span></div></section>

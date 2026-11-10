@@ -155,6 +155,20 @@ body:not(.stream-card) .chart-title .subtle {
   text-transform: none;
 }
 
+body:not(.stream-card) .potion-use-wrap {
+  margin-bottom: 14px !important;
+}
+
+body:not(.stream-card) .potion-use-grid {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 8px;
+}
+
+body:not(.stream-card) .potion-use-grid .stat {
+  min-height: 78px;
+}
+
 body:not(.stream-card) .chart {
   height: 150px;
 }
@@ -333,6 +347,10 @@ body:not(.stream-card) .safety-note {
   }
 
   body:not(.stream-card) .stats {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  body:not(.stream-card) .potion-use-grid {
     grid-template-columns: repeat(2, minmax(0, 1fr));
   }
 

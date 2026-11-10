@@ -9,6 +9,7 @@ const checks = [
   ["tools/test-reader-drop-feed.cjs"],
   ["tools/test-burst-capture.cjs"],
   ["tools/test-stream-card.cjs"],
+  ["tools/test-dashboard-potions.cjs"],
   ["tools/test-quickslots.cjs"],
   ["tools/test-potion-costs.cjs"],
   ["tools/test-debug-downloads.cjs"],
