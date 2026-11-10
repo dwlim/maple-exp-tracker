@@ -1,0 +1,343 @@
+/* Dashboard styling follows the compact stream-card visual language while
+   keeping the main tracker comfortable for longer labels and denser data. */
+body:not(.stream-card) {
+  background:
+    radial-gradient(ellipse at 12% -18%, #c7f36b0b, transparent 34rem),
+    var(--bg);
+}
+
+body:not(.stream-card) .app {
+  max-width: 1320px;
+  padding: 24px 28px 48px;
+}
+
+body:not(.stream-card) .top {
+  margin-bottom: 22px;
+  padding-bottom: 14px;
+  border-bottom: 1px solid var(--line);
+}
+
+body:not(.stream-card) .mark {
+  width: 32px;
+  height: 32px;
+  border-radius: 9px;
+  font-size: 20px;
+}
+
+body:not(.stream-card) .brand strong {
+  font: 500 11px 'DM Mono', monospace;
+  letter-spacing: 1px;
+  text-transform: uppercase;
+}
+
+body:not(.stream-card) .brand span {
+  margin-top: 2px;
+  font-size: 9px;
+  letter-spacing: .7px;
+  text-transform: uppercase;
+}
+
+body:not(.stream-card) .topright {
+  gap: 10px;
+}
+
+body:not(.stream-card) .topright > .subtle {
+  font: 9px 'DM Mono', monospace;
+  letter-spacing: .4px;
+}
+
+body:not(.stream-card) .live-pill {
+  gap: 7px;
+  border-radius: 7px;
+  padding: 6px 9px;
+  font-size: 9px;
+}
+
+body:not(.stream-card) h1 {
+  margin: 0 0 4px;
+  font-size: 21px;
+  line-height: 1.25;
+  letter-spacing: -.5px;
+}
+
+body:not(.stream-card) .intro {
+  margin: 0 0 18px;
+  font: 9px 'DM Mono', monospace;
+  letter-spacing: .2px;
+}
+
+body:not(.stream-card) .grid {
+  grid-template-columns: minmax(0, 1.55fr) minmax(290px, .85fr);
+  gap: 14px;
+}
+
+body:not(.stream-card) .right-col {
+  gap: 14px;
+}
+
+body:not(.stream-card) .panel {
+  padding: 18px;
+  border-radius: 14px;
+  box-shadow: 0 8px 26px #0002;
+}
+
+body:not(.stream-card) .panel-head {
+  gap: 8px;
+  margin-bottom: 16px;
+}
+
+body:not(.stream-card) .label {
+  font-size: 9px;
+  letter-spacing: .9px;
+}
+
+body:not(.stream-card) .tag {
+  padding: 4px 6px;
+  border-radius: 6px;
+  font-size: 8px;
+  letter-spacing: .25px;
+}
+
+body:not(.stream-card) .stats {
+  gap: 8px;
+  margin-bottom: 18px;
+}
+
+body:not(.stream-card) .stat {
+  min-height: 92px;
+  padding: 11px 10px;
+  border: 1px solid #2c2d35;
+  border-radius: 9px;
+  background: var(--panel2);
+}
+
+body:not(.stream-card) .k,
+body:not(.stream-card) .level-name {
+  font-size: 8px;
+  letter-spacing: .35px;
+  text-transform: uppercase;
+}
+
+body:not(.stream-card) .v {
+  margin: 7px 0 3px;
+  font-size: clamp(18px, 1.8vw, 25px);
+  line-height: 1.15;
+  letter-spacing: -.55px;
+}
+
+body:not(.stream-card) .hint {
+  font-size: 9px;
+  line-height: 1.45;
+}
+
+body:not(.stream-card) .chart-wrap {
+  margin-bottom: 14px !important;
+  padding: 13px 0 0;
+  overflow: visible;
+  border: 0;
+  border-top: 1px solid var(--line);
+  border-radius: 0;
+  background: transparent;
+}
+
+body:not(.stream-card) .chart-title {
+  gap: 8px;
+  margin-bottom: 10px;
+  color: #a9aab4;
+  font-size: 8px;
+  letter-spacing: .65px;
+  text-transform: uppercase;
+}
+
+body:not(.stream-card) .chart-title .subtle {
+  font: 8px 'DM Mono', monospace;
+  letter-spacing: 0;
+  text-transform: none;
+}
+
+body:not(.stream-card) .chart {
+  height: 150px;
+}
+
+body:not(.stream-card) .foot {
+  margin-top: 12px;
+  font-size: 8px;
+}
+
+body:not(.stream-card) .level-row {
+  margin-bottom: 12px;
+}
+
+body:not(.stream-card) .level-num {
+  font-size: 46px;
+  letter-spacing: -2px;
+}
+
+body:not(.stream-card) .map-name-row {
+  min-width: 0;
+}
+
+body:not(.stream-card) .map-name-row b {
+  min-width: 0;
+  font: 10px 'DM Mono', monospace !important;
+}
+
+body:not(.stream-card) .progress {
+  height: 7px;
+}
+
+body:not(.stream-card) .progress-meta {
+  gap: 5px 10px;
+  margin-top: 8px;
+  font-size: 8px;
+}
+
+body:not(.stream-card) .eta {
+  margin-top: 17px;
+  padding-top: 13px;
+  font-size: 9px;
+}
+
+body:not(.stream-card) .eta b {
+  font-size: 20px;
+}
+
+body:not(.stream-card) .eta > span {
+  font-size: 8px;
+}
+
+body:not(.stream-card) .setup-step {
+  margin: 14px 0;
+}
+
+body:not(.stream-card) .setup .btn {
+  min-height: 34px;
+  padding: 7px 9px;
+  border-radius: 7px;
+  font-size: 9px;
+}
+
+body:not(.stream-card) .source {
+  padding: 9px 10px;
+  border: 1px solid #2c2d35;
+  border-radius: 7px;
+}
+
+body:not(.stream-card) .log {
+  margin-top: 17px;
+  padding-top: 13px;
+}
+
+body:not(.stream-card) .log-item {
+  gap: 6px;
+  padding: 9px 0;
+  font-size: 8px;
+}
+
+body:not(.stream-card) .items-panel,
+body:not(.stream-card) .safety {
+  margin-top: 14px;
+}
+
+body:not(.stream-card) .items-panel h2,
+body:not(.stream-card) .safety h2 {
+  margin: 0;
+  font-size: 15px;
+  letter-spacing: -.2px;
+}
+
+body:not(.stream-card) .items-panel > p,
+body:not(.stream-card) .safety-intro {
+  font-size: 10px;
+  line-height: 1.65;
+}
+
+body:not(.stream-card) .items-panel > p {
+  margin: 0 0 12px;
+}
+
+body:not(.stream-card) .items-panel .btn {
+  min-height: 34px;
+  padding: 7px 9px;
+  border-radius: 7px;
+  font-size: 9px;
+}
+
+body:not(.stream-card) .quickslot-grid-wrap {
+  margin-top: 14px;
+}
+
+body:not(.stream-card) .quickslot-grid {
+  gap: 8px;
+}
+
+body:not(.stream-card) .quickslot-card {
+  padding: 10px;
+  border: 1px solid #2c2d35;
+  border-radius: 9px;
+}
+
+body:not(.stream-card) .safety-grid {
+  gap: 18px 22px;
+}
+
+body:not(.stream-card) .safety-grid h3 {
+  font: 9px 'DM Mono', monospace;
+  letter-spacing: .3px;
+  text-transform: uppercase;
+}
+
+body:not(.stream-card) .safety-grid p,
+body:not(.stream-card) .safety-note {
+  font-size: 10px;
+  line-height: 1.65;
+}
+
+@media (max-width: 1050px) {
+  body:not(.stream-card) .grid {
+    grid-template-columns: 1fr;
+  }
+
+  body:not(.stream-card) .right-col {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    align-items: start;
+  }
+
+  body:not(.stream-card) .setup {
+    grid-row: span 1;
+  }
+}
+
+@media (max-width: 700px) {
+  body:not(.stream-card) .app {
+    padding: 18px 14px 32px;
+  }
+
+  body:not(.stream-card) .right-col {
+    grid-template-columns: 1fr;
+  }
+
+  body:not(.stream-card) .top {
+    align-items: flex-start;
+  }
+
+  body:not(.stream-card) .topright {
+    flex-direction: column;
+    align-items: flex-end;
+    gap: 6px;
+  }
+
+  body:not(.stream-card) h1 {
+    font-size: 19px;
+  }
+
+  body:not(.stream-card) .stats {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  body:not(.stream-card) .safety-grid {
+    grid-template-columns: 1fr;
+    gap: 14px;
+  }
+}

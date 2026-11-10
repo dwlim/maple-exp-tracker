@@ -4,6 +4,13 @@ const assert = require("node:assert/strict"),
 const html = fs.readFileSync("index.html", "utf8"),
   source = fs.readFileSync("hud-regions.js", "utf8"),
   next = render(html, "HUD REGIONS", source);
+assert.match(html, /<link\s+rel="stylesheet"\s+href="\.\/dashboard\.css"\s*\/>/);
+assert.ok(fs.existsSync("dashboard.css"), "Dashboard stylesheet is present");
+assert.match(
+  fs.readFileSync(".github/workflows/pages.yml", "utf8"),
+  /cp dashboard\.css _site\/dashboard\.css/,
+  "Pages deployment publishes the dashboard stylesheet",
+);
 assert.equal(
   render(next, "HUD REGIONS", source),
   next,
