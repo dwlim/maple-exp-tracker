@@ -72,13 +72,16 @@ body:not(.stream-card) .intro {
 }
 
 body:not(.stream-card) .grid {
-  grid-template-columns: minmax(0, 1.65fr) minmax(310px, .9fr);
-  gap: 16px;
-  align-items: start;
+  grid-template-columns: minmax(0, 1fr);
+  gap: 12px;
+  align-items: stretch;
 }
 
 body:not(.stream-card) .right-col {
-  gap: 16px;
+  display: grid;
+  grid-template-columns: minmax(260px, .85fr) minmax(0, 1.15fr);
+  align-items: start;
+  gap: 12px;
   min-width: 0;
 }
 
@@ -599,7 +602,7 @@ body:not(.stream-card) .overview-panel .foot {
 
 body:not(.stream-card) .resource-panel,
 body:not(.stream-card) .history-panel {
-  margin-top: 16px;
+  margin-top: 12px;
 }
 
 body:not(.stream-card) .resource-grid {
@@ -713,24 +716,20 @@ body:not(.stream-card) .quickslot-card canvas {
 }
 
 @media (max-width: 1120px) {
-  body:not(.stream-card) .grid {
-    grid-template-columns: minmax(0, 1.35fr) minmax(290px, .9fr);
-  }
-
   body:not(.stream-card) .stats {
     grid-template-columns: repeat(2, minmax(0, 1fr));
   }
 }
 
 @media (max-width: 900px) {
-  body:not(.stream-card) .grid {
-    grid-template-columns: 1fr;
-  }
-
   body:not(.stream-card) .right-col {
     display: grid;
     grid-template-columns: repeat(2, minmax(0, 1fr));
     align-items: start;
+  }
+
+  body:not(.stream-card) .setup {
+    grid-row: auto;
   }
 
   body:not(.stream-card) .resource-grid {
