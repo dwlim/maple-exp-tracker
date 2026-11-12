@@ -8126,7 +8126,7 @@ return {detect,crop,anchors,percentageRegion};
   </section>
 </details>
 <section class="panel resource-panel" aria-label="Session economy">
-  <div class="panel-head"><span class="label">Session economy</span><span class="tag">MESOS · POTION USE</span></div>
+  <div class="panel-head"><span class="label">Session economy</span><span class="tag">MESOS · POTION USE & COST</span></div>
   <div class="resource-grid">
     <div class="chart-wrap meso-wrap">
       <div class="chart-title"><span>Mesos</span><button class="btn" id="setMesoRegion">Adjust manually</button><span id="mesoHint" role="status">The tracker automatically searches for the standard inventory balance. Keep the item window visible.</span></div>
@@ -8136,20 +8136,20 @@ return {detect,crop,anchors,percentageRegion};
         <div class="stat"><div class="k">Meso balance change / hour</div><div class="v lime" id="mesoRate">—</div><div class="hint">trailing 5 minutes</div></div>
         <div class="stat"><div class="k">Estimated gross mesos / hour</div><div class="v lime" id="estimatedGrossMesoRate">—</div><div class="hint">balance change + tracked potion costs · trailing 5 minutes</div></div>
       </div>
-      <div class="chart-title subhead"><span>Estimated potion costs · trailing 5 minutes</span></div>
-      <div class="meso-cost-grid">
-        <div class="stat"><div class="k">HP potion cost / hour</div><div class="v" id="hpPotionCost">—</div></div>
-        <div class="stat"><div class="k">MP potion cost / hour</div><div class="v" id="mpPotionCost">—</div></div>
-        <div class="stat"><div class="k">HP + MP potion cost / hour</div><div class="v" id="bothPotionCost">—</div></div>
-      </div>
     </div>
     <div class="chart-wrap potion-use-wrap">
-      <div class="chart-title"><span>Potion use</span><span class="subtle">THIS SESSION · REFILLS SEPARATE</span></div>
+      <div class="chart-title"><span>Potion use & cost</span><span class="subtle">SESSION TOTALS · COST / HOUR</span></div>
       <div class="potion-use-grid">
         <div class="stat"><div class="k">HP pots used</div><div class="v" id="hpPotsUsed">—</div><div class="hint">observed use</div></div>
         <div class="stat"><div class="k">MP pots used</div><div class="v" id="mpPotsUsed">—</div><div class="hint">observed use</div></div>
         <div class="stat"><div class="k">HP + MP used</div><div class="v" id="bothPotsUsed">—</div><div class="hint">combined potions</div></div>
         <div class="stat"><div class="k">Restocked</div><div class="v" id="potsRestocked">—</div><div class="hint">tracked slots</div></div>
+      </div>
+      <div class="chart-title subhead"><span>Estimated meso cost / hour · trailing 5 minutes</span></div>
+      <div class="potion-cost-grid">
+        <div class="stat"><div class="k">HP potion cost / hour</div><div class="v" id="hpPotionCost">—</div></div>
+        <div class="stat"><div class="k">MP potion cost / hour</div><div class="v" id="mpPotionCost">—</div></div>
+        <div class="stat"><div class="k">HP + MP potion cost / hour</div><div class="v" id="bothPotionCost">—</div></div>
       </div>
     </div>
   </div>

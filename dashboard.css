@@ -617,9 +617,9 @@ body:not(.stream-card) .history-panel {
 
 body:not(.stream-card) .resource-grid {
   display: grid;
-  grid-template-columns: minmax(0, 1.55fr) minmax(300px, .85fr);
+  grid-template-columns: minmax(0, 1fr);
   gap: 12px;
-  align-items: stretch;
+  align-items: start;
 }
 
 body:not(.stream-card) .resource-grid > .chart-wrap,
@@ -634,7 +634,7 @@ body:not(.stream-card) .meso-metrics-grid {
   gap: 8px;
 }
 
-body:not(.stream-card) .meso-cost-grid {
+body:not(.stream-card) .potion-cost-grid {
   display: grid;
   grid-template-columns: repeat(3, minmax(0, 1fr));
   gap: 8px;
@@ -649,7 +649,7 @@ body:not(.stream-card) .meso-wrap .v {
   font-size: clamp(17px, 1.65vw, 23px);
 }
 
-body:not(.stream-card) .meso-wrap .subhead {
+body:not(.stream-card) .resource-panel .subhead {
   margin: 15px 0 9px;
   color: #999aa4;
   font-size: 9px;
@@ -665,7 +665,7 @@ body:not(.stream-card) #mesoHint {
 }
 
 body:not(.stream-card) .potion-use-grid {
-  grid-template-columns: repeat(2, minmax(0, 1fr));
+  grid-template-columns: repeat(4, minmax(0, 1fr));
 }
 
 body:not(.stream-card) .potion-use-wrap .v {
@@ -846,7 +846,7 @@ body:not(.stream-card) .quickslot-card canvas {
   }
 
   body:not(.stream-card) .resource-grid {
-    grid-template-columns: minmax(0, 1.3fr) minmax(260px, .9fr);
+    grid-template-columns: minmax(0, 1fr);
   }
 }
 
@@ -917,7 +917,7 @@ body:not(.stream-card) .quickslot-card canvas {
     grid-template-columns: repeat(2, minmax(0, 1fr));
   }
 
-  body:not(.stream-card) .meso-cost-grid {
+  body:not(.stream-card) .potion-cost-grid {
     grid-template-columns: 1fr;
   }
 
