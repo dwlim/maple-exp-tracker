@@ -74,12 +74,23 @@ body:not(.stream-card) .intro {
 body:not(.stream-card) .grid {
   grid-template-columns: minmax(0, 1.55fr) minmax(280px, .85fr);
   gap: 12px;
-  align-items: start;
+  align-items: stretch;
 }
 
 body:not(.stream-card) .right-col {
   display: block;
+  height: 100%;
   min-width: 0;
+}
+
+body:not(.stream-card) .overview-panel,
+body:not(.stream-card) .level-card {
+  height: 100%;
+}
+
+body:not(.stream-card) .overview-panel {
+  display: flex;
+  flex-direction: column;
 }
 
 body:not(.stream-card) .panel {
@@ -588,11 +599,13 @@ body:not(.stream-card) .safety-grid {
 }
 
 body:not(.stream-card) .overview-panel .stats {
+  flex: 1 1 auto;
+  align-content: stretch;
   margin-bottom: 0;
 }
 
 body:not(.stream-card) .overview-panel .foot {
-  margin-top: 14px;
+  margin-top: auto;
   padding-top: 12px;
   border-top: 1px solid var(--line);
 }
