@@ -4397,9 +4397,14 @@ return {detect,crop,anchors,percentageRegion};
           ? (mesoNet > 0 ? "+" : mesoNet < 0 ? "−" : "") + fmt(Math.abs(mesoNet))
           : "—";
       if (q("#mesoRate"))
-        q("#mesoRate").textContent = mesoElapsed >= 60000
+        q("#mesoRate").textContent = mesoRate !== null
           ? (mesoRate > 0 ? "+" : mesoRate < 0 ? "−" : "") + fmt(Math.abs(mesoRate))
           : "—";
+      const mesoScope = activeMapVisit ? "this map visit" : "this session";
+      if (q("#mesoNetHint"))
+        q("#mesoNetHint").textContent = "since first meso read " + mesoScope;
+      if (q("#mesoRateHint"))
+        q("#mesoRateHint").textContent = "recent reads · max 5 minutes · " + mesoScope;
       if (q("#mesoHint"))
         q("#mesoHint").textContent = latestMeso && now - latestMeso.t > 120000
           ? "No recent meso read"
@@ -8132,9 +8137,9 @@ return {detect,crop,anchors,percentageRegion};
       <div class="chart-title"><span>Mesos</span><button class="btn" id="setMesoRegion">Adjust manually</button><span id="mesoHint" role="status">The tracker automatically searches for the standard inventory balance. Keep the item window visible.</span></div>
       <div class="meso-metrics-grid">
         <div class="stat"><div class="k">Current total</div><div class="v" id="mesoAmount">—</div></div>
-        <div class="stat"><div class="k">Net change</div><div class="v" id="mesoNet">—</div><div class="hint">this session</div></div>
-        <div class="stat"><div class="k">Meso balance change / hour</div><div class="v lime" id="mesoRate">—</div><div class="hint">trailing 5 minutes</div></div>
-        <div class="stat"><div class="k">Estimated gross mesos / hour</div><div class="v lime" id="estimatedGrossMesoRate">—</div><div class="hint">balance change + tracked potion costs · trailing 5 minutes</div></div>
+        <div class="stat"><div class="k">Net change</div><div class="v" id="mesoNet">—</div><div class="hint" id="mesoNetHint">since first meso read this map visit</div></div>
+        <div class="stat"><div class="k">Meso balance change / hour</div><div class="v lime" id="mesoRate">—</div><div class="hint" id="mesoRateHint">recent reads · max 5 minutes</div></div>
+        <div class="stat"><div class="k">Estimated gross mesos / hour</div><div class="v lime" id="estimatedGrossMesoRate">—</div><div class="hint" title="Net meso rate plus known tracked potion costs. Other meso spending is not included.">net rate + tracked potion costs; other spending excluded</div></div>
       </div>
     </div>
     <div class="chart-wrap potion-use-wrap">

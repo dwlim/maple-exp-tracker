@@ -116,9 +116,14 @@
           ? (mesoNet > 0 ? "+" : mesoNet < 0 ? "−" : "") + fmt(Math.abs(mesoNet))
           : "—";
       if (q("#mesoRate"))
-        q("#mesoRate").textContent = mesoElapsed >= 60000
+        q("#mesoRate").textContent = mesoRate !== null
           ? (mesoRate > 0 ? "+" : mesoRate < 0 ? "−" : "") + fmt(Math.abs(mesoRate))
           : "—";
+      const mesoScope = activeMapVisit ? "this map visit" : "this session";
+      if (q("#mesoNetHint"))
+        q("#mesoNetHint").textContent = "since first meso read " + mesoScope;
+      if (q("#mesoRateHint"))
+        q("#mesoRateHint").textContent = "recent reads · max 5 minutes · " + mesoScope;
       if (q("#mesoHint"))
         q("#mesoHint").textContent = latestMeso && now - latestMeso.t > 120000
           ? "No recent meso read"
