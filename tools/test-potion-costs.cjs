@@ -78,6 +78,74 @@ assert.equal(get().mp, 158400);
 const snapshot = Costs.snapshot(store, true, now);
 assert.equal(Costs.metrics(snapshot, now + 25001).mp, null);
 assert.equal(Costs.metrics({ ...snapshot, updatedAt: now + 1 }, now).mp, null);
+const stockMemory = new Map(),
+  stockStorage = {
+    getItem: (key) => stockMemory.get(key) || null,
+    setItem: (key, value) => stockMemory.set(key, value),
+  },
+  stockStore = Items.create({ storage: stockStorage, key: "active-profile" }),
+  stock = stockStore.add("Red Potion", region, 100, 100, null, {
+    potionType: "red",
+  });
+stockStore.setUnitCost(stock.id, 50);
+stockStore.enable(true);
+for (const [t, count] of [
+  [now - 4000, 100],
+  [now - 3000, 200],
+  [now - 2000, 200],
+  [now - 1000, 150],
+  [now, 150],
+])
+  stockStore.observe(stock.id, { count, confidence: 99 }, t);
+const stockSnapshot = Costs.snapshot(stockStore, true, now, "active-profile"),
+  inventoryDelta = Items.inventoryValueChange(
+    JSON.parse(stockStorage.getItem("active-profile")).items.map((item) => ({
+      ...item,
+      group: Costs.catalog[item.potionType].group,
+      price: Costs.price(item),
+    })),
+    now - 4000,
+    now,
+  );
+assert.equal(stockSnapshot.inventoryKey, "active-profile");
+assert.equal(
+  Object.hasOwn(stockSnapshot.items[0], "inventorySamples"),
+  false,
+  "The lightweight shared snapshot points to the active store instead of duplicating its history",
+);
+assert.deepEqual(inventoryDelta, {
+  value: 2500,
+  known: true,
+  configured: true,
+}, "Restocking is reflected as ending stock value minus starting stock value");
+assert.equal(
+    -5000 + inventoryDelta.value,
+  -2500,
+  "Map-visit net change adds potion inventory value to wallet change",
+);
+assert.equal(
+  -5000 + inventoryDelta.value + 2500,
+  0,
+  "Adding consumed stock cost reconstructs gross mesos without double-counting a restock",
+);
+assert.equal(
+  Items.inventoryValueChange(
+    [{ group: "hp", price: 50, inventorySamples: [] }],
+    now - 2000,
+    now,
+  ).known,
+  false,
+  "Missing inventory boundary reads cannot be treated as a zero adjustment",
+);
+assert.equal(
+  Items.inventoryValueChange(
+    [{ group: "hp", price: null, inventorySamples: [{ t: now - 2000, count: 100 }, { t: now, count: 50 }] }],
+    now - 2000,
+    now,
+  ).known,
+  false,
+  "Unknown potion prices cannot create a fabricated inventory value",
+);
 mp.at = now - 26000;
 assert.equal(get().mp, null);
 assert.equal(Costs.metrics(Costs.snapshot(store, false, now), now).hp, null);

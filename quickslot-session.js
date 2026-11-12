@@ -22,6 +22,45 @@
     }
     return seconds >= 30 ? (used / seconds) * 3600 : null;
   }
+  function inventoryValueChange(items, start, end) {
+    if (!Number.isFinite(start) || !Number.isFinite(end) || end < start)
+      return { value: null, known: false, configured: false };
+    const tracked = (Array.isArray(items) ? items : []).filter(
+      (item) =>
+        !!Costs.catalog[item?.potionType]?.group ||
+        ["hp", "mp", "both"].includes(item?.group),
+    );
+    if (!tracked.length) return { value: 0, known: true, configured: false };
+    let value = 0;
+    const countAt = (item, t) => {
+      const samples = item.inventorySamples || [];
+      let low = 0, high = samples.length - 1, sample = null;
+      while (low <= high) {
+        const mid = (low + high) >> 1,
+          entry = samples[mid];
+        if (entry.t <= t) {
+          sample = entry;
+          low = mid + 1;
+        } else high = mid - 1;
+      }
+      return sample && t - sample.t <= 25000 ? sample.count : null;
+    };
+    for (const item of tracked) {
+      const startCount = countAt(item, start),
+        endCount = countAt(item, end);
+      if (startCount === null || endCount === null)
+        return { value: null, known: false, configured: true };
+      const quantityChange = endCount - startCount;
+      if (!quantityChange) continue;
+      const unitCost = Costs.validPrice(item.price)
+        ? item.price
+        : Costs.price(item);
+      if (unitCost === null)
+        return { value: null, known: false, configured: true };
+      value += quantityChange * unitCost;
+    }
+    return { value, known: Number.isFinite(value), configured: true };
+  }
   function validRegion(r) {
     return (
       r &&
@@ -101,6 +140,12 @@
         usageSamples: Array.isArray(v.usageSamples)
           ? v.usageSamples.filter((s) => Number.isFinite(s?.t) && Number.isFinite(s?.seconds) && s.seconds > 0 && s.seconds <= 25 && Number.isFinite(s?.used) && s.used >= 0).slice(-200)
           : [],
+        inventorySamples: Array.isArray(v.inventorySamples)
+          ? v.inventorySamples
+              .filter((s) => Number.isFinite(s?.t) && Number.isInteger(s?.count) && s.count >= 0 && s.count <= 99999)
+              .sort((a, b) => a.t - b.t)
+              .slice(-720)
+          : [],
         at: null,
         pending: null,
         status: "Waiting for capture",
@@ -162,6 +207,7 @@
         height,
         count: null,
         usageSamples: [],
+        inventorySamples: [],
         at: null,
         pending: null,
         status: "Waiting for capture",
@@ -232,6 +278,10 @@
         }
       }
       Object.assign(item, { count, at: t, pending: null, status: "Reading" });
+      item.inventorySamples ||= [];
+      item.inventorySamples.push({ t, count });
+      if (item.inventorySamples.length > 720)
+        item.inventorySamples = item.inventorySamples.slice(-720);
       return { accepted: true, changed: true, persisted: true };
     }
     function observe(id, result, t) {
@@ -285,6 +335,7 @@
           i.paidStock = 0;
           i.seconds = 0;
           i.usageSamples = [];
+          i.inventorySamples = [];
         }
         invalidate();
         changed();
@@ -295,5 +346,12 @@
     };
   }
 
-  return { KEY, STORE_KEYS, create: createStore, rate, validRegion };
+  return {
+    KEY,
+    STORE_KEYS,
+    create: createStore,
+    inventoryValueChange,
+    rate,
+    validRegion,
+  };
 });

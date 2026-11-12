@@ -271,7 +271,14 @@
         try {
           storage?.setItem(
             Costs.KEY,
-            JSON.stringify(Costs.snapshot(store, !!live, now())),
+            JSON.stringify(
+              Costs.snapshot(
+                store,
+                !!live,
+                now(),
+                live ? Session.KEY + ":" + live.kind : null,
+              ),
+            ),
           );
         } catch {}
         q("#trackItems").checked = store?.state.enabled === true;

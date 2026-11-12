@@ -25,10 +25,11 @@
       ? item.unitCost
       : (catalog[item?.potionType]?.price ?? null);
   }
-  function snapshot(store, live, now) {
+  function snapshot(store, live, now, inventoryKey = null) {
     return {
       updatedAt: now,
       enabled: !!live && store?.state.enabled === true,
+      inventoryKey: typeof inventoryKey === "string" ? inventoryKey : null,
       items: (store?.state.items || [])
         .filter((i) => catalog[i.potionType])
         .map((i) => ({

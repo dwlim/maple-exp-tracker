@@ -2851,10 +2851,11 @@ return {detect,crop,anchors,percentageRegion};
       ? item.unitCost
       : (catalog[item?.potionType]?.price ?? null);
   }
-  function snapshot(store, live, now) {
+  function snapshot(store, live, now, inventoryKey = null) {
     return {
       updatedAt: now,
       enabled: !!live && store?.state.enabled === true,
+      inventoryKey: typeof inventoryKey === "string" ? inventoryKey : null,
       items: (store?.state.items || [])
         .filter((i) => catalog[i.potionType])
         .map((i) => ({
@@ -3010,6 +3011,45 @@ return {detect,crop,anchors,percentageRegion};
     }
     return seconds >= 30 ? (used / seconds) * 3600 : null;
   }
+  function inventoryValueChange(items, start, end) {
+    if (!Number.isFinite(start) || !Number.isFinite(end) || end < start)
+      return { value: null, known: false, configured: false };
+    const tracked = (Array.isArray(items) ? items : []).filter(
+      (item) =>
+        !!Costs.catalog[item?.potionType]?.group ||
+        ["hp", "mp", "both"].includes(item?.group),
+    );
+    if (!tracked.length) return { value: 0, known: true, configured: false };
+    let value = 0;
+    const countAt = (item, t) => {
+      const samples = item.inventorySamples || [];
+      let low = 0, high = samples.length - 1, sample = null;
+      while (low <= high) {
+        const mid = (low + high) >> 1,
+          entry = samples[mid];
+        if (entry.t <= t) {
+          sample = entry;
+          low = mid + 1;
+        } else high = mid - 1;
+      }
+      return sample && t - sample.t <= 25000 ? sample.count : null;
+    };
+    for (const item of tracked) {
+      const startCount = countAt(item, start),
+        endCount = countAt(item, end);
+      if (startCount === null || endCount === null)
+        return { value: null, known: false, configured: true };
+      const quantityChange = endCount - startCount;
+      if (!quantityChange) continue;
+      const unitCost = Costs.validPrice(item.price)
+        ? item.price
+        : Costs.price(item);
+      if (unitCost === null)
+        return { value: null, known: false, configured: true };
+      value += quantityChange * unitCost;
+    }
+    return { value, known: Number.isFinite(value), configured: true };
+  }
   function validRegion(r) {
     return (
       r &&
@@ -3089,6 +3129,12 @@ return {detect,crop,anchors,percentageRegion};
         usageSamples: Array.isArray(v.usageSamples)
           ? v.usageSamples.filter((s) => Number.isFinite(s?.t) && Number.isFinite(s?.seconds) && s.seconds > 0 && s.seconds <= 25 && Number.isFinite(s?.used) && s.used >= 0).slice(-200)
           : [],
+        inventorySamples: Array.isArray(v.inventorySamples)
+          ? v.inventorySamples
+              .filter((s) => Number.isFinite(s?.t) && Number.isInteger(s?.count) && s.count >= 0 && s.count <= 99999)
+              .sort((a, b) => a.t - b.t)
+              .slice(-720)
+          : [],
         at: null,
         pending: null,
         status: "Waiting for capture",
@@ -3150,6 +3196,7 @@ return {detect,crop,anchors,percentageRegion};
         height,
         count: null,
         usageSamples: [],
+        inventorySamples: [],
         at: null,
         pending: null,
         status: "Waiting for capture",
@@ -3220,6 +3267,10 @@ return {detect,crop,anchors,percentageRegion};
         }
       }
       Object.assign(item, { count, at: t, pending: null, status: "Reading" });
+      item.inventorySamples ||= [];
+      item.inventorySamples.push({ t, count });
+      if (item.inventorySamples.length > 720)
+        item.inventorySamples = item.inventorySamples.slice(-720);
       return { accepted: true, changed: true, persisted: true };
     }
     function observe(id, result, t) {
@@ -3273,6 +3324,7 @@ return {detect,crop,anchors,percentageRegion};
           i.paidStock = 0;
           i.seconds = 0;
           i.usageSamples = [];
+          i.inventorySamples = [];
         }
         invalidate();
         changed();
@@ -3283,7 +3335,14 @@ return {detect,crop,anchors,percentageRegion};
     };
   }
 
-  return { KEY, STORE_KEYS, create: createStore, rate, validRegion };
+  return {
+    KEY,
+    STORE_KEYS,
+    create: createStore,
+    inventoryValueChange,
+    rate,
+    validRegion,
+  };
 });
 </script>
 <!-- QUICKSLOT SESSION END -->
@@ -4314,6 +4373,13 @@ return {detect,crop,anchors,percentageRegion};
     }
     return totals;
   }
+  function readPotionSnapshot(storage) {
+    try {
+      return JSON.parse(storage?.getItem(PotionCosts.KEY) || "{}") || {};
+    } catch {
+      return {};
+    }
+  }
   function create({
     document,
     window,
@@ -4337,6 +4403,7 @@ return {detect,crop,anchors,percentageRegion};
     function update() {
       const captureStream = getCapture()?.stream,
         now = clock(),
+        potionState = readPotionSnapshot(storage),
         allSamples = samples(),
         mapVisits = MapSessions.create(state, now, totalExp),
         activeMapVisit = mapVisits.find((visit) => visit.active),
@@ -4386,15 +4453,57 @@ return {detect,crop,anchors,percentageRegion};
         firstMeso = mesoSamples[0],
         latestMeso = mesoSamples.at(-1),
         mesoBase = mesoSamples.find((s) => s.t >= now - 300000),
-        mesoNet = firstMeso && latestMeso ? latestMeso.amount - firstMeso.amount : 0,
         mesoElapsed = latestMeso && mesoBase ? latestMeso.t - mesoBase.t : 0,
         mesoRate = mesoElapsed >= 60000 && now - latestMeso.t <= 120000
           ? ((latestMeso.amount - mesoBase.amount) * 3600000) / mesoElapsed
           : null;
+      const potionInventoryFresh = potionState.enabled === true &&
+          Number.isFinite(potionState.updatedAt) &&
+          potionState.updatedAt <= now &&
+          now - potionState.updatedAt <= 25000,
+        activeStore = potionInventoryFresh &&
+            Array.isArray(QuickslotSession?.STORE_KEYS) &&
+            QuickslotSession.STORE_KEYS.includes(potionState.inventoryKey)
+          ? (() => {
+              try {
+                return JSON.parse(storage?.getItem(potionState.inventoryKey) || "{}") || {};
+              } catch {
+                return {};
+              }
+            })()
+          : {},
+        trackedPotionItems = potionInventoryFresh && Array.isArray(activeStore.items)
+          ? activeStore.items
+          : (Array.isArray(potionState.items) ? potionState.items : []),
+        inventoryChange = (start, end) =>
+          QuickslotSession.inventoryValueChange(trackedPotionItems, start, end);
+      let mesoNetBase = firstMeso,
+        mesoInventoryChange = firstMeso && latestMeso
+          ? inventoryChange(firstMeso.t, latestMeso.t)
+          : { value: 0, known: true, configured: false },
+        mesoInventoryAdjusted = !mesoInventoryChange.configured || mesoInventoryChange.known;
+      if (firstMeso && latestMeso && mesoInventoryChange.configured && !mesoInventoryChange.known) {
+        for (const candidate of mesoSamples) {
+          if (candidate.t >= latestMeso.t) continue;
+          const inventory = inventoryChange(candidate.t, latestMeso.t);
+          if (!inventory.known) continue;
+          mesoNetBase = candidate;
+          mesoInventoryChange = inventory;
+          mesoInventoryAdjusted = true;
+          break;
+        }
+      }
+      const mesoNet = firstMeso && latestMeso && mesoNetBase
+        ? latestMeso.amount - mesoNetBase.amount +
+          (mesoInventoryAdjusted ? mesoInventoryChange.value : 0)
+        : null,
+        rateInventoryChange = mesoBase && latestMeso
+          ? inventoryChange(mesoBase.t, latestMeso.t)
+          : { value: 0, known: true, configured: false };
       if (q("#mesoAmount")) q("#mesoAmount").textContent = latestMeso && now - latestMeso.t <= 120000 ? fmt(latestMeso.amount) : "—";
       if (q("#mesoNet"))
-        q("#mesoNet").textContent = latestMeso
-          ? (mesoNet > 0 ? "+" : mesoNet < 0 ? "−" : "") + fmt(Math.abs(mesoNet))
+        q("#mesoNet").textContent = mesoNet !== null
+          ? (mesoNet > 0 ? "+" : mesoNet < 0 ? "−" : "") + fmt(Math.abs(mesoNet ?? 0))
           : "—";
       if (q("#mesoRate"))
         q("#mesoRate").textContent = mesoRate !== null
@@ -4402,17 +4511,17 @@ return {detect,crop,anchors,percentageRegion};
           : "—";
       const mesoScope = activeMapVisit ? "this map visit" : "this session";
       if (q("#mesoNetHint"))
-        q("#mesoNetHint").textContent = "since first meso read " + mesoScope;
+        q("#mesoNetHint").textContent = mesoInventoryAdjusted && mesoInventoryChange.configured
+          ? "wallet + potion inventory since aligned read · " + mesoScope
+          : mesoInventoryChange.configured
+            ? "wallet only · potion start/end values unavailable"
+            : "wallet balance since first meso read · " + mesoScope;
       if (q("#mesoRateHint"))
         q("#mesoRateHint").textContent = "recent reads · max 5 minutes · " + mesoScope;
       if (q("#mesoHint"))
         q("#mesoHint").textContent = latestMeso && now - latestMeso.t > 120000
           ? "No recent meso read"
           : state.mesoStatus || "Keep inventory open to read mesos";
-      let potionState = {};
-      try {
-        potionState = JSON.parse(storage?.getItem(PotionCosts.KEY) || "{}") || {};
-      } catch {}
       const potionMetrics = PotionCosts.metrics(potionState, now),
         potionUsage = sessionPotionUsage(storage),
         costText = (value) => value === null ? "—" : fmt(value),
@@ -4428,9 +4537,7 @@ return {detect,crop,anchors,percentageRegion};
       let estimatedGrossMesoRate = null;
       if (
         mesoRate !== null && activeMapVisit && now - activeMapVisit.start >= 300000 &&
-        potionState.enabled === true && trackedGroups.size &&
-        Number.isFinite(potionState.updatedAt) && potionState.updatedAt <= now &&
-        now - potionState.updatedAt <= 25000
+        potionInventoryFresh && trackedGroups.size
       ) {
         let spend = 0, known = true;
         for (const group of trackedGroups) {
@@ -4440,7 +4547,11 @@ return {detect,crop,anchors,percentageRegion};
           }
           spend += potionMetrics[group];
         }
-        if (known) estimatedGrossMesoRate = mesoRate + spend;
+        if (known && rateInventoryChange.known)
+          estimatedGrossMesoRate =
+            mesoRate +
+            (rateInventoryChange.value * 3600000) / mesoElapsed +
+            spend;
       }
       if (q("#estimatedGrossMesoRate"))
         q("#estimatedGrossMesoRate").textContent = estimatedGrossMesoRate === null
@@ -7510,7 +7621,14 @@ return {detect,crop,anchors,percentageRegion};
         try {
           storage?.setItem(
             Costs.KEY,
-            JSON.stringify(Costs.snapshot(store, !!live, now())),
+            JSON.stringify(
+              Costs.snapshot(
+                store,
+                !!live,
+                now(),
+                live ? Session.KEY + ":" + live.kind : null,
+              ),
+            ),
           );
         } catch {}
         q("#trackItems").checked = store?.state.enabled === true;
@@ -8137,9 +8255,9 @@ return {detect,crop,anchors,percentageRegion};
       <div class="chart-title"><span>Mesos</span><button class="btn" id="setMesoRegion">Adjust manually</button><span id="mesoHint" role="status">The tracker automatically searches for the standard inventory balance. Keep the item window visible.</span></div>
       <div class="meso-metrics-grid">
         <div class="stat"><div class="k">Current total</div><div class="v" id="mesoAmount">—</div></div>
-        <div class="stat"><div class="k">Net change</div><div class="v" id="mesoNet">—</div><div class="hint" id="mesoNetHint">since first meso read this map visit</div></div>
+        <div class="stat"><div class="k">Net change</div><div class="v" id="mesoNet" title="Meso balance change plus the change in tracked potion inventory value.">—</div><div class="hint" id="mesoNetHint">wallet + tracked potion inventory · this map visit</div></div>
         <div class="stat"><div class="k">Meso balance change / hour</div><div class="v lime" id="mesoRate">—</div><div class="hint" id="mesoRateHint">recent reads · max 5 minutes</div></div>
-        <div class="stat"><div class="k">Estimated gross mesos / hour</div><div class="v lime" id="estimatedGrossMesoRate">—</div><div class="hint" title="Net meso rate plus known tracked potion costs. Other meso spending is not included.">net rate + tracked potion costs; other spending excluded</div></div>
+        <div class="stat"><div class="k">Estimated gross mesos / hour</div><div class="v lime" id="estimatedGrossMesoRate">—</div><div class="hint" title="Inventory-adjusted net meso rate plus tracked potion consumption costs. Other meso spending is not included.">adjusted net + potion use; other spending excluded</div></div>
       </div>
     </div>
     <div class="chart-wrap potion-use-wrap">

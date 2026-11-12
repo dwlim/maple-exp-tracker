@@ -33,6 +33,13 @@
     }
     return totals;
   }
+  function readPotionSnapshot(storage) {
+    try {
+      return JSON.parse(storage?.getItem(PotionCosts.KEY) || "{}") || {};
+    } catch {
+      return {};
+    }
+  }
   function create({
     document,
     window,
@@ -56,6 +63,7 @@
     function update() {
       const captureStream = getCapture()?.stream,
         now = clock(),
+        potionState = readPotionSnapshot(storage),
         allSamples = samples(),
         mapVisits = MapSessions.create(state, now, totalExp),
         activeMapVisit = mapVisits.find((visit) => visit.active),
@@ -105,15 +113,57 @@
         firstMeso = mesoSamples[0],
         latestMeso = mesoSamples.at(-1),
         mesoBase = mesoSamples.find((s) => s.t >= now - 300000),
-        mesoNet = firstMeso && latestMeso ? latestMeso.amount - firstMeso.amount : 0,
         mesoElapsed = latestMeso && mesoBase ? latestMeso.t - mesoBase.t : 0,
         mesoRate = mesoElapsed >= 60000 && now - latestMeso.t <= 120000
           ? ((latestMeso.amount - mesoBase.amount) * 3600000) / mesoElapsed
           : null;
+      const potionInventoryFresh = potionState.enabled === true &&
+          Number.isFinite(potionState.updatedAt) &&
+          potionState.updatedAt <= now &&
+          now - potionState.updatedAt <= 25000,
+        activeStore = potionInventoryFresh &&
+            Array.isArray(QuickslotSession?.STORE_KEYS) &&
+            QuickslotSession.STORE_KEYS.includes(potionState.inventoryKey)
+          ? (() => {
+              try {
+                return JSON.parse(storage?.getItem(potionState.inventoryKey) || "{}") || {};
+              } catch {
+                return {};
+              }
+            })()
+          : {},
+        trackedPotionItems = potionInventoryFresh && Array.isArray(activeStore.items)
+          ? activeStore.items
+          : (Array.isArray(potionState.items) ? potionState.items : []),
+        inventoryChange = (start, end) =>
+          QuickslotSession.inventoryValueChange(trackedPotionItems, start, end);
+      let mesoNetBase = firstMeso,
+        mesoInventoryChange = firstMeso && latestMeso
+          ? inventoryChange(firstMeso.t, latestMeso.t)
+          : { value: 0, known: true, configured: false },
+        mesoInventoryAdjusted = !mesoInventoryChange.configured || mesoInventoryChange.known;
+      if (firstMeso && latestMeso && mesoInventoryChange.configured && !mesoInventoryChange.known) {
+        for (const candidate of mesoSamples) {
+          if (candidate.t >= latestMeso.t) continue;
+          const inventory = inventoryChange(candidate.t, latestMeso.t);
+          if (!inventory.known) continue;
+          mesoNetBase = candidate;
+          mesoInventoryChange = inventory;
+          mesoInventoryAdjusted = true;
+          break;
+        }
+      }
+      const mesoNet = firstMeso && latestMeso && mesoNetBase
+        ? latestMeso.amount - mesoNetBase.amount +
+          (mesoInventoryAdjusted ? mesoInventoryChange.value : 0)
+        : null,
+        rateInventoryChange = mesoBase && latestMeso
+          ? inventoryChange(mesoBase.t, latestMeso.t)
+          : { value: 0, known: true, configured: false };
       if (q("#mesoAmount")) q("#mesoAmount").textContent = latestMeso && now - latestMeso.t <= 120000 ? fmt(latestMeso.amount) : "—";
       if (q("#mesoNet"))
-        q("#mesoNet").textContent = latestMeso
-          ? (mesoNet > 0 ? "+" : mesoNet < 0 ? "−" : "") + fmt(Math.abs(mesoNet))
+        q("#mesoNet").textContent = mesoNet !== null
+          ? (mesoNet > 0 ? "+" : mesoNet < 0 ? "−" : "") + fmt(Math.abs(mesoNet ?? 0))
           : "—";
       if (q("#mesoRate"))
         q("#mesoRate").textContent = mesoRate !== null
@@ -121,17 +171,17 @@
           : "—";
       const mesoScope = activeMapVisit ? "this map visit" : "this session";
       if (q("#mesoNetHint"))
-        q("#mesoNetHint").textContent = "since first meso read " + mesoScope;
+        q("#mesoNetHint").textContent = mesoInventoryAdjusted && mesoInventoryChange.configured
+          ? "wallet + potion inventory since aligned read · " + mesoScope
+          : mesoInventoryChange.configured
+            ? "wallet only · potion start/end values unavailable"
+            : "wallet balance since first meso read · " + mesoScope;
       if (q("#mesoRateHint"))
         q("#mesoRateHint").textContent = "recent reads · max 5 minutes · " + mesoScope;
       if (q("#mesoHint"))
         q("#mesoHint").textContent = latestMeso && now - latestMeso.t > 120000
           ? "No recent meso read"
           : state.mesoStatus || "Keep inventory open to read mesos";
-      let potionState = {};
-      try {
-        potionState = JSON.parse(storage?.getItem(PotionCosts.KEY) || "{}") || {};
-      } catch {}
       const potionMetrics = PotionCosts.metrics(potionState, now),
         potionUsage = sessionPotionUsage(storage),
         costText = (value) => value === null ? "—" : fmt(value),
@@ -147,9 +197,7 @@
       let estimatedGrossMesoRate = null;
       if (
         mesoRate !== null && activeMapVisit && now - activeMapVisit.start >= 300000 &&
-        potionState.enabled === true && trackedGroups.size &&
-        Number.isFinite(potionState.updatedAt) && potionState.updatedAt <= now &&
-        now - potionState.updatedAt <= 25000
+        potionInventoryFresh && trackedGroups.size
       ) {
         let spend = 0, known = true;
         for (const group of trackedGroups) {
@@ -159,7 +207,11 @@
           }
           spend += potionMetrics[group];
         }
-        if (known) estimatedGrossMesoRate = mesoRate + spend;
+        if (known && rateInventoryChange.known)
+          estimatedGrossMesoRate =
+            mesoRate +
+            (rateInventoryChange.value * 3600000) / mesoElapsed +
+            spend;
       }
       if (q("#estimatedGrossMesoRate"))
         q("#estimatedGrossMesoRate").textContent = estimatedGrossMesoRate === null
