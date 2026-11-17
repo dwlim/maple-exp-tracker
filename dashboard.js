@@ -110,12 +110,7 @@
             (!Number.isFinite(state.startAt) || s.t >= state.startAt),
           )
           .sort((a, b) => a.t - b.t),
-        latestMeso = mesoSamples.at(-1),
-        mesoBase = mesoSamples.find((s) => s.t >= now - 300000),
-        mesoElapsed = latestMeso && mesoBase ? latestMeso.t - mesoBase.t : 0,
-        mesoRate = mesoElapsed >= 60000 && now - latestMeso.t <= 120000
-          ? ((latestMeso.amount - mesoBase.amount) * 3600000) / mesoElapsed
-          : null;
+        latestMeso = mesoSamples.at(-1);
       const potionInventoryFresh = potionState.enabled === true &&
           Number.isFinite(potionState.updatedAt) &&
           potionState.updatedAt <= now &&
@@ -161,10 +156,6 @@
         q("#mesoNet").textContent = mesoNet !== null
           ? (mesoNet > 0 ? "+" : mesoNet < 0 ? "−" : "") + fmt(Math.abs(mesoNet ?? 0))
           : "—";
-      if (q("#mesoRate"))
-        q("#mesoRate").textContent = mesoRate !== null
-          ? (mesoRate > 0 ? "+" : mesoRate < 0 ? "−" : "") + fmt(Math.abs(mesoRate))
-          : "—";
       if (q("#mesoNetHint"))
         q("#mesoNetHint").textContent = "wallet balance since session start";
       if (q("#netProfit"))
@@ -177,24 +168,17 @@
           : potionInventoryChange.known
             ? "Net mesos + ending potion value − starting value"
             : "Potion inventory baseline or current value unavailable";
-      if (q("#mesoRateHint"))
-        q("#mesoRateHint").textContent = "recent reads · trailing 5 minutes";
       if (q("#mesoHint"))
         q("#mesoHint").textContent = latestMeso && now - latestMeso.t > 120000
           ? "No recent meso read"
           : state.mesoStatus || "Keep inventory open to read mesos";
-      const potionMetrics = PotionCosts.metrics(potionState, now),
-        potionUsage = sessionPotionUsage(storage),
-        costText = (value) => value === null ? "—" : fmt(value),
+      const potionUsage = sessionPotionUsage(storage),
         useText = (value) => potionUsage.observed ? fmt(value) : "—";
-      if (q("#hpPotionCost")) q("#hpPotionCost").textContent = costText(potionMetrics.hp);
-      if (q("#mpPotionCost")) q("#mpPotionCost").textContent = costText(potionMetrics.mp);
-      if (q("#bothPotionCost")) q("#bothPotionCost").textContent = costText(potionMetrics.both);
       if (q("#hpPotsUsed")) q("#hpPotsUsed").textContent = useText(potionUsage.hp);
       if (q("#mpPotsUsed")) q("#mpPotsUsed").textContent = useText(potionUsage.mp);
       if (q("#bothPotsUsed")) q("#bothPotsUsed").textContent = useText(potionUsage.both);
       if (q("#potsRestocked")) q("#potsRestocked").textContent = useText(potionUsage.restocked);
-      renderMapSessions(mapVisits, now);
+      renderMapSessions(mapVisits, now, trackedPotionItems);
       renderDropNotices(now);
       const lvl = state.level,
         req = lvl ? required(lvl) : 0,
@@ -281,7 +265,7 @@
       updateRateHint(ss);
       save();
     }
-    function renderMapSessions(visits, now) {
+    function renderMapSessions(visits, now, potionItems = []) {
       const root = q("#mapSessions");
       if (!root) return;
       root.innerHTML = "";
@@ -317,6 +301,9 @@
         const elapsed = Math.max(0, Math.min(now, visit.end) - visit.start),
           xpRate = visit.expElapsed >= 30000 ? visit.expGain * 3600000 / visit.expElapsed : null,
           mesoRate = visit.mesoElapsed >= 60000 ? visit.mesoChange * 3600000 / visit.mesoElapsed : null,
+          potionRates = visit.active
+            ? QuickslotSession.costRatesForInterval(potionItems, visit.start, now, now)
+            : null,
           addStat = (label, value, hint = "") => {
             const item = document.createElement("div"), key = document.createElement("div"), val = document.createElement("div");
             item.className = "stat";
@@ -339,6 +326,11 @@
         addStat("Meso balance change", visit.mesoSamples ? signed(visit.mesoChange) : "—");
         addStat("Mesos / hour", mesoRate === null ? "—" : signed(mesoRate));
         addStat("Map time", duration(elapsed));
+        if (visit.active) {
+          addStat("HP potion cost / hour", potionRates?.hp === null || !potionRates ? "—" : fmt(potionRates.hp), "trailing 5 minutes");
+          addStat("MP potion cost / hour", potionRates?.mp === null || !potionRates ? "—" : fmt(potionRates.mp), "trailing 5 minutes");
+          addStat("HP + MP potion cost / hour", potionRates?.both === null || !potionRates ? "—" : fmt(potionRates.both), "trailing 5 minutes");
+        }
         section.appendChild(heading);
         section.appendChild(grid);
         root.appendChild(section);

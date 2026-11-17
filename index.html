@@ -3011,6 +3011,55 @@ return {detect,crop,anchors,percentageRegion};
     }
     return seconds >= 30 ? (used / seconds) * 3600 : null;
   }
+  function costRatesForInterval(items, start, end, now = Date.now()) {
+    const out = { hp: null, mp: null, both: null };
+    if (![start, end, now].every(Number.isFinite) || end < start || end > now)
+      return out;
+    const tracked = (Array.isArray(items) ? items : []).filter(
+      (item) => !!Costs.catalog[item?.potionType]?.group,
+    );
+    for (const group of ["hp", "mp", "both"]) {
+      const groupItems = tracked.filter(
+        (item) => Costs.catalog[item.potionType].group === group,
+      );
+      if (!groupItems.length) continue;
+      let total = 0,
+        known = true;
+      for (const item of groupItems) {
+        const unitCost = Costs.price(item),
+          windowStart = Math.max(start, now - 300000),
+          windowEnd = Math.min(end, now);
+        if (unitCost === null) {
+          known = false;
+          break;
+        }
+        let used = 0,
+          seconds = 0;
+        for (const sample of item.usageSamples || []) {
+          if (
+            !Number.isFinite(sample.t) || sample.t > now ||
+            !Number.isFinite(sample.seconds) || sample.seconds <= 0 ||
+            sample.seconds > 25 || !Number.isFinite(sample.used) ||
+            sample.used < 0
+          ) continue;
+          const observedStart = sample.t - sample.seconds * 1000,
+            overlapMs = Math.min(sample.t, windowEnd) -
+              Math.max(windowStart, observedStart);
+          if (overlapMs <= 0) continue;
+          const fraction = overlapMs / (sample.seconds * 1000);
+          seconds += overlapMs / 1000;
+          used += sample.used * fraction;
+        }
+        if (seconds < 30) {
+          known = false;
+          break;
+        }
+        total += unitCost * (used / seconds) * 3600;
+      }
+      if (known && Number.isFinite(total)) out[group] = total;
+    }
+    return out;
+  }
   function inventoryValue(items, start, end, startAtFirstSample) {
     if (!Number.isFinite(start) || !Number.isFinite(end) || end < start)
       return { value: null, known: false, configured: false };
@@ -3349,6 +3398,7 @@ return {detect,crop,anchors,percentageRegion};
     KEY,
     STORE_KEYS,
     create: createStore,
+    costRatesForInterval,
     inventoryValueSince,
     rate,
     validRegion,
@@ -3362,12 +3412,24 @@ return {detect,crop,anchors,percentageRegion};
     typeof module === "object" && module.exports
       ? require("./potion-costs")
       : root.MaplePotionCosts,
+    typeof module === "object" && module.exports
+      ? require("./map-sessions")
+      : root.MapleMapSessions,
+    typeof module === "object" && module.exports
+      ? require("./quickslot-session")
+      : root.MapleQuickslotSession,
   );
   if (typeof module === "object" && module.exports) module.exports = api;
   else root.MapleStreamCard = api;
-})(typeof window === "undefined" ? globalThis : window, function (PotionCosts) {
-  function metrics(state, now, required, totalExp) {
-    const samples = (Array.isArray(state.samples) ? state.samples : [])
+})(typeof window === "undefined" ? globalThis : window, function (PotionCosts, MapSessions, QuickslotSession) {
+  function currentMapVisit(state, now, totalExp) {
+    return MapSessions.create(state, now, totalExp).find((visit) => visit.active) || null;
+  }
+  function samplesForVisit(samples, visit, now) {
+    return MapSessions.samplesForVisit(samples, visit, now);
+  }
+  function metrics(state, now, required, totalExp, visit = null) {
+    const samples = samplesForVisit(Array.isArray(state.samples) ? state.samples : [], visit, now)
         .filter(
           (s) =>
             Number.isInteger(s.level) &&
@@ -3428,12 +3490,28 @@ return {detect,crop,anchors,percentageRegion};
             : "PAUSED",
     };
   }
-  function potionCostRates(state, now) {
-    const costs = PotionCosts.metrics(state, now);
-    return { hp: costs.hp, mp: costs.mp };
+  function potionCostRates(state, now, visit = null, storage = null) {
+    if (!visit) {
+      const costs = PotionCosts.metrics(state, now);
+      return { hp: costs.hp, mp: costs.mp };
+    }
+    const key = state?.inventoryKey,
+      fresh = state?.enabled === true && Number.isFinite(state.updatedAt) &&
+        state.updatedAt <= now && now - state.updatedAt <= 25000 &&
+        Array.isArray(QuickslotSession?.STORE_KEYS) && QuickslotSession.STORE_KEYS.includes(key);
+    let items = [];
+    if (fresh) {
+      try {
+        items = JSON.parse(storage?.getItem(key) || "{}").items || [];
+      } catch {}
+    }
+    const rates = fresh
+      ? QuickslotSession.costRatesForInterval(items, visit.start, now, now)
+      : { hp: null, mp: null, both: null };
+    return { hp: rates.hp, mp: rates.mp };
   }
-  function mesoMetrics(state, now) {
-    const samples = (Array.isArray(state.mesoSamples) ? state.mesoSamples : [])
+  function mesoMetrics(state, now, visit = null) {
+    const samples = samplesForVisit(Array.isArray(state.mesoSamples) ? state.mesoSamples : [], visit, now)
         .filter((s) => Number.isSafeInteger(s.amount) && s.amount >= 0 && Number.isFinite(s.t) && s.t <= now)
         .sort((a, b) => a.t - b.t),
       latest = samples.at(-1),
@@ -3449,8 +3527,8 @@ return {detect,crop,anchors,percentageRegion};
     };
   }
   // Normalize adjacent readings to thirty seconds; gaps stay empty rather than implying steady gains.
-  function graph(state, now, totalExp) {
-    const samples = (state.samples || [])
+  function graph(state, now, totalExp, visit = null) {
+    const samples = samplesForVisit(Array.isArray(state.samples) ? state.samples : [], visit, now)
         .filter(
           (s) =>
             Number.isFinite(s.t) &&
@@ -3511,11 +3589,11 @@ return {detect,crop,anchors,percentageRegion};
         <div class="stream-progress"><i id="cardFill"></i></div>
         <footer><span id="cardPercent">0.00%</span><span id="cardEta">Waiting for EXP</span></footer>
         <div id="cardMapName" class="stream-map-name"></div>
-        <div class="stream-metric-heading"><span>RUN RATES</span><span>TRAILING 5 MIN</span></div>
+        <div class="stream-metric-heading"><span>CURRENT MAP RATES</span><span>TRAILING 5 MIN</span></div>
         <div class="stream-metrics-line">
-          <div><span>HP COST / HR</span><strong id="cardHpPotionCost" title="Estimated HP potion cost in mesos per hour over the trailing five minutes">—</strong></div>
-          <div><span>MP COST / HR</span><strong id="cardMpPotionCost" title="Estimated MP potion cost in mesos per hour over the trailing five minutes">—</strong></div>
-          <div><span>MESO CHANGE / HR</span><strong id="cardMesoRate" title="Meso balance change per hour over the trailing five minutes">—</strong></div>
+          <div><span>HP COST / HR</span><strong id="cardHpPotionCost" title="Estimated HP potion cost per hour on this map over the trailing five minutes">—</strong></div>
+          <div><span>MP COST / HR</span><strong id="cardMpPotionCost" title="Estimated MP potion cost per hour on this map over the trailing five minutes">—</strong></div>
+          <div><span>MESO CHANGE / HR</span><strong id="cardMesoRate" title="Meso balance change per hour on this map over the trailing five minutes">—</strong></div>
         </div>
         <div class="stream-chart">
           <div class="stream-chart-label"><span>EXP GAIN / 30 SEC</span><span id="cardGraphPeak">—</span></div>
@@ -3542,14 +3620,19 @@ return {detect,crop,anchors,percentageRegion};
         potionState = JSON.parse(storage.getItem(PotionCosts.KEY) || "{}") || {};
       } catch {}
       const time = now(),
-        potionCosts = potionCostRates(potionState, time),
+        visit = currentMapVisit(state, time, totalExp) || {
+          start: Number.POSITIVE_INFINITY,
+          end: time,
+          active: false,
+        },
+        potionCosts = potionCostRates(potionState, time, visit, storage),
         compact = (value) => value === null || value === undefined
           ? "—"
           : Intl.NumberFormat("en-US", { notation: "compact", maximumFractionDigits: 1 }).format(Math.round(value));
       q("#cardHpPotionCost").textContent = compact(potionCosts.hp);
       q("#cardMpPotionCost").textContent = compact(potionCosts.mp);
-      q("#cardMesoRate").textContent = mesoMetrics(state, time).rate;
-      const m = metrics(state, time, required, totalExp);
+      q("#cardMesoRate").textContent = mesoMetrics(state, time, visit).rate;
+      const m = metrics(state, time, required, totalExp, visit);
       q("#cardLevel").textContent = m.level;
       q("#cardRate").textContent = m.rate;
       q("#cardPercent").textContent = m.percent.toFixed(2) + "%";
@@ -3560,7 +3643,7 @@ return {detect,crop,anchors,percentageRegion};
       q("#cardMapName").textContent = state.mapName
         ? "MAP · " + state.mapName
         : "MAP · SEARCHING FOR MAP";
-      const g = graph(state, time, totalExp);
+      const g = graph(state, time, totalExp, visit);
       q("#cardGraph").setAttribute("d", g.path);
       const axis = (n) =>
         Intl.NumberFormat("en-US", {
@@ -4460,12 +4543,7 @@ return {detect,crop,anchors,percentageRegion};
             (!Number.isFinite(state.startAt) || s.t >= state.startAt),
           )
           .sort((a, b) => a.t - b.t),
-        latestMeso = mesoSamples.at(-1),
-        mesoBase = mesoSamples.find((s) => s.t >= now - 300000),
-        mesoElapsed = latestMeso && mesoBase ? latestMeso.t - mesoBase.t : 0,
-        mesoRate = mesoElapsed >= 60000 && now - latestMeso.t <= 120000
-          ? ((latestMeso.amount - mesoBase.amount) * 3600000) / mesoElapsed
-          : null;
+        latestMeso = mesoSamples.at(-1);
       const potionInventoryFresh = potionState.enabled === true &&
           Number.isFinite(potionState.updatedAt) &&
           potionState.updatedAt <= now &&
@@ -4511,10 +4589,6 @@ return {detect,crop,anchors,percentageRegion};
         q("#mesoNet").textContent = mesoNet !== null
           ? (mesoNet > 0 ? "+" : mesoNet < 0 ? "−" : "") + fmt(Math.abs(mesoNet ?? 0))
           : "—";
-      if (q("#mesoRate"))
-        q("#mesoRate").textContent = mesoRate !== null
-          ? (mesoRate > 0 ? "+" : mesoRate < 0 ? "−" : "") + fmt(Math.abs(mesoRate))
-          : "—";
       if (q("#mesoNetHint"))
         q("#mesoNetHint").textContent = "wallet balance since session start";
       if (q("#netProfit"))
@@ -4527,24 +4601,17 @@ return {detect,crop,anchors,percentageRegion};
           : potionInventoryChange.known
             ? "Net mesos + ending potion value − starting value"
             : "Potion inventory baseline or current value unavailable";
-      if (q("#mesoRateHint"))
-        q("#mesoRateHint").textContent = "recent reads · trailing 5 minutes";
       if (q("#mesoHint"))
         q("#mesoHint").textContent = latestMeso && now - latestMeso.t > 120000
           ? "No recent meso read"
           : state.mesoStatus || "Keep inventory open to read mesos";
-      const potionMetrics = PotionCosts.metrics(potionState, now),
-        potionUsage = sessionPotionUsage(storage),
-        costText = (value) => value === null ? "—" : fmt(value),
+      const potionUsage = sessionPotionUsage(storage),
         useText = (value) => potionUsage.observed ? fmt(value) : "—";
-      if (q("#hpPotionCost")) q("#hpPotionCost").textContent = costText(potionMetrics.hp);
-      if (q("#mpPotionCost")) q("#mpPotionCost").textContent = costText(potionMetrics.mp);
-      if (q("#bothPotionCost")) q("#bothPotionCost").textContent = costText(potionMetrics.both);
       if (q("#hpPotsUsed")) q("#hpPotsUsed").textContent = useText(potionUsage.hp);
       if (q("#mpPotsUsed")) q("#mpPotsUsed").textContent = useText(potionUsage.mp);
       if (q("#bothPotsUsed")) q("#bothPotsUsed").textContent = useText(potionUsage.both);
       if (q("#potsRestocked")) q("#potsRestocked").textContent = useText(potionUsage.restocked);
-      renderMapSessions(mapVisits, now);
+      renderMapSessions(mapVisits, now, trackedPotionItems);
       renderDropNotices(now);
       const lvl = state.level,
         req = lvl ? required(lvl) : 0,
@@ -4631,7 +4698,7 @@ return {detect,crop,anchors,percentageRegion};
       updateRateHint(ss);
       save();
     }
-    function renderMapSessions(visits, now) {
+    function renderMapSessions(visits, now, potionItems = []) {
       const root = q("#mapSessions");
       if (!root) return;
       root.innerHTML = "";
@@ -4667,6 +4734,9 @@ return {detect,crop,anchors,percentageRegion};
         const elapsed = Math.max(0, Math.min(now, visit.end) - visit.start),
           xpRate = visit.expElapsed >= 30000 ? visit.expGain * 3600000 / visit.expElapsed : null,
           mesoRate = visit.mesoElapsed >= 60000 ? visit.mesoChange * 3600000 / visit.mesoElapsed : null,
+          potionRates = visit.active
+            ? QuickslotSession.costRatesForInterval(potionItems, visit.start, now, now)
+            : null,
           addStat = (label, value, hint = "") => {
             const item = document.createElement("div"), key = document.createElement("div"), val = document.createElement("div");
             item.className = "stat";
@@ -4689,6 +4759,11 @@ return {detect,crop,anchors,percentageRegion};
         addStat("Meso balance change", visit.mesoSamples ? signed(visit.mesoChange) : "—");
         addStat("Mesos / hour", mesoRate === null ? "—" : signed(mesoRate));
         addStat("Map time", duration(elapsed));
+        if (visit.active) {
+          addStat("HP potion cost / hour", potionRates?.hp === null || !potionRates ? "—" : fmt(potionRates.hp), "trailing 5 minutes");
+          addStat("MP potion cost / hour", potionRates?.mp === null || !potionRates ? "—" : fmt(potionRates.mp), "trailing 5 minutes");
+          addStat("HP + MP potion cost / hour", potionRates?.both === null || !potionRates ? "—" : fmt(potionRates.both), "trailing 5 minutes");
+        }
         section.appendChild(heading);
         section.appendChild(grid);
         root.appendChild(section);
@@ -8236,30 +8311,23 @@ return {detect,crop,anchors,percentageRegion};
   </section>
 </details>
 <section class="panel resource-panel" aria-label="Session economy">
-  <div class="panel-head"><span class="label">Session economy</span><span class="tag">MESOS · POTION USE & COST</span></div>
+  <div class="panel-head"><span class="label">Session totals</span><span class="tag">OVERALL · THIS SESSION</span></div>
   <div class="resource-grid">
     <div class="chart-wrap meso-wrap">
       <div class="chart-title"><span>Mesos</span><button class="btn" id="setMesoRegion">Adjust manually</button><span id="mesoHint" role="status">The tracker automatically searches for the standard inventory balance. Keep the item window visible.</span></div>
       <div class="meso-metrics-grid">
         <div class="stat"><div class="k">Current total</div><div class="v" id="mesoAmount">—</div></div>
         <div class="stat"><div class="k">Net meso change</div><div class="v" id="mesoNet" title="Current meso balance minus the meso balance at the start of this session.">—</div><div class="hint" id="mesoNetHint">wallet balance since session start</div></div>
-        <div class="stat"><div class="k">Meso balance change / hour</div><div class="v lime" id="mesoRate">—</div><div class="hint" id="mesoRateHint">recent reads · max 5 minutes</div></div>
         <div class="stat"><div class="k">Net profit</div><div class="v lime" id="netProfit" title="Net meso change plus ending potion inventory value minus starting potion inventory value.">—</div><div class="hint" id="netProfitHint">Net mesos + ending potion value − starting value</div></div>
       </div>
     </div>
     <div class="chart-wrap potion-use-wrap">
-      <div class="chart-title"><span>Potion use & cost</span><span class="subtle">SESSION TOTALS · COST / HOUR</span></div>
+      <div class="chart-title"><span>Potion use</span><span class="subtle">SESSION TOTALS</span></div>
       <div class="potion-use-grid">
         <div class="stat"><div class="k">HP pots used</div><div class="v" id="hpPotsUsed">—</div><div class="hint">observed use</div></div>
         <div class="stat"><div class="k">MP pots used</div><div class="v" id="mpPotsUsed">—</div><div class="hint">observed use</div></div>
         <div class="stat"><div class="k">HP + MP used</div><div class="v" id="bothPotsUsed">—</div><div class="hint">combined potions</div></div>
         <div class="stat"><div class="k">Restocked</div><div class="v" id="potsRestocked">—</div><div class="hint">tracked slots</div></div>
-      </div>
-      <div class="chart-title subhead"><span>Estimated meso cost / hour · trailing 5 minutes</span></div>
-      <div class="potion-cost-grid">
-        <div class="stat"><div class="k">HP potion cost / hour</div><div class="v" id="hpPotionCost">—</div></div>
-        <div class="stat"><div class="k">MP potion cost / hour</div><div class="v" id="mpPotionCost">—</div></div>
-        <div class="stat"><div class="k">HP + MP potion cost / hour</div><div class="v" id="bothPotionCost">—</div></div>
       </div>
     </div>
   </div>
@@ -8267,7 +8335,7 @@ return {detect,crop,anchors,percentageRegion};
 <section class="panel history-panel" aria-label="Session history and chart">
   <div class="panel-head"><span class="label">Session activity</span><span class="tag">MAP VISITS · EXP HISTORY</span></div>
   <div class="history-grid">
-    <div class="chart-wrap map-history"><div class="chart-title"><span>Map visits this session</span><span class="subtle">Rates use same-map readings; transition intervals are excluded.</span></div><div id="mapSessions"><p class="subtle">Map-specific readings will appear after the tracker recognizes your map.</p></div></div>
+  <div class="chart-wrap map-history"><div class="chart-title"><span>Map visits this session</span><span class="subtle">Hourly rates are map-specific; meso rates exclude map transitions. Potion costs use the current map’s trailing 5 minutes.</span></div><div id="mapSessions"><p class="subtle">Map-specific readings will appear after the tracker recognizes your map.</p></div></div>
     <div class="chart-wrap experience-history"><div class="chart-title"><span>Experience over time</span><span id="sampleCount">0 samples</span></div><svg class="chart" id="chart" viewBox="0 0 700 170" preserveAspectRatio="none" aria-label="EXP gain over time"><defs><linearGradient id="fill" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#c7f36b" stop-opacity=".2"/><stop offset="1" stop-color="#c7f36b" stop-opacity="0"/></linearGradient></defs><g id="chartContent"></g></svg></div>
     <div class="chart-wrap pickup-history"><div class="chart-title"><span>Pickup tracking · paused</span><span class="tag"><b id="dropNoticeCount">0</b> saved</span></div><div id="dropNotices" aria-live="polite"><p class="subtle">Pickup tracking is temporarily paused.</p></div><p class="hint pickup-note">Pickup notification scanning is paused. Previously detected notices remain saved.</p></div>
   </div>

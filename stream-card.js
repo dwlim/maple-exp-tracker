@@ -3,12 +3,24 @@
     typeof module === "object" && module.exports
       ? require("./potion-costs")
       : root.MaplePotionCosts,
+    typeof module === "object" && module.exports
+      ? require("./map-sessions")
+      : root.MapleMapSessions,
+    typeof module === "object" && module.exports
+      ? require("./quickslot-session")
+      : root.MapleQuickslotSession,
   );
   if (typeof module === "object" && module.exports) module.exports = api;
   else root.MapleStreamCard = api;
-})(typeof window === "undefined" ? globalThis : window, function (PotionCosts) {
-  function metrics(state, now, required, totalExp) {
-    const samples = (Array.isArray(state.samples) ? state.samples : [])
+})(typeof window === "undefined" ? globalThis : window, function (PotionCosts, MapSessions, QuickslotSession) {
+  function currentMapVisit(state, now, totalExp) {
+    return MapSessions.create(state, now, totalExp).find((visit) => visit.active) || null;
+  }
+  function samplesForVisit(samples, visit, now) {
+    return MapSessions.samplesForVisit(samples, visit, now);
+  }
+  function metrics(state, now, required, totalExp, visit = null) {
+    const samples = samplesForVisit(Array.isArray(state.samples) ? state.samples : [], visit, now)
         .filter(
           (s) =>
             Number.isInteger(s.level) &&
@@ -69,12 +81,28 @@
             : "PAUSED",
     };
   }
-  function potionCostRates(state, now) {
-    const costs = PotionCosts.metrics(state, now);
-    return { hp: costs.hp, mp: costs.mp };
+  function potionCostRates(state, now, visit = null, storage = null) {
+    if (!visit) {
+      const costs = PotionCosts.metrics(state, now);
+      return { hp: costs.hp, mp: costs.mp };
+    }
+    const key = state?.inventoryKey,
+      fresh = state?.enabled === true && Number.isFinite(state.updatedAt) &&
+        state.updatedAt <= now && now - state.updatedAt <= 25000 &&
+        Array.isArray(QuickslotSession?.STORE_KEYS) && QuickslotSession.STORE_KEYS.includes(key);
+    let items = [];
+    if (fresh) {
+      try {
+        items = JSON.parse(storage?.getItem(key) || "{}").items || [];
+      } catch {}
+    }
+    const rates = fresh
+      ? QuickslotSession.costRatesForInterval(items, visit.start, now, now)
+      : { hp: null, mp: null, both: null };
+    return { hp: rates.hp, mp: rates.mp };
   }
-  function mesoMetrics(state, now) {
-    const samples = (Array.isArray(state.mesoSamples) ? state.mesoSamples : [])
+  function mesoMetrics(state, now, visit = null) {
+    const samples = samplesForVisit(Array.isArray(state.mesoSamples) ? state.mesoSamples : [], visit, now)
         .filter((s) => Number.isSafeInteger(s.amount) && s.amount >= 0 && Number.isFinite(s.t) && s.t <= now)
         .sort((a, b) => a.t - b.t),
       latest = samples.at(-1),
@@ -90,8 +118,8 @@
     };
   }
   // Normalize adjacent readings to thirty seconds; gaps stay empty rather than implying steady gains.
-  function graph(state, now, totalExp) {
-    const samples = (state.samples || [])
+  function graph(state, now, totalExp, visit = null) {
+    const samples = samplesForVisit(Array.isArray(state.samples) ? state.samples : [], visit, now)
         .filter(
           (s) =>
             Number.isFinite(s.t) &&
@@ -152,11 +180,11 @@
         <div class="stream-progress"><i id="cardFill"></i></div>
         <footer><span id="cardPercent">0.00%</span><span id="cardEta">Waiting for EXP</span></footer>
         <div id="cardMapName" class="stream-map-name"></div>
-        <div class="stream-metric-heading"><span>RUN RATES</span><span>TRAILING 5 MIN</span></div>
+        <div class="stream-metric-heading"><span>CURRENT MAP RATES</span><span>TRAILING 5 MIN</span></div>
         <div class="stream-metrics-line">
-          <div><span>HP COST / HR</span><strong id="cardHpPotionCost" title="Estimated HP potion cost in mesos per hour over the trailing five minutes">—</strong></div>
-          <div><span>MP COST / HR</span><strong id="cardMpPotionCost" title="Estimated MP potion cost in mesos per hour over the trailing five minutes">—</strong></div>
-          <div><span>MESO CHANGE / HR</span><strong id="cardMesoRate" title="Meso balance change per hour over the trailing five minutes">—</strong></div>
+          <div><span>HP COST / HR</span><strong id="cardHpPotionCost" title="Estimated HP potion cost per hour on this map over the trailing five minutes">—</strong></div>
+          <div><span>MP COST / HR</span><strong id="cardMpPotionCost" title="Estimated MP potion cost per hour on this map over the trailing five minutes">—</strong></div>
+          <div><span>MESO CHANGE / HR</span><strong id="cardMesoRate" title="Meso balance change per hour on this map over the trailing five minutes">—</strong></div>
         </div>
         <div class="stream-chart">
           <div class="stream-chart-label"><span>EXP GAIN / 30 SEC</span><span id="cardGraphPeak">—</span></div>
@@ -183,14 +211,19 @@
         potionState = JSON.parse(storage.getItem(PotionCosts.KEY) || "{}") || {};
       } catch {}
       const time = now(),
-        potionCosts = potionCostRates(potionState, time),
+        visit = currentMapVisit(state, time, totalExp) || {
+          start: Number.POSITIVE_INFINITY,
+          end: time,
+          active: false,
+        },
+        potionCosts = potionCostRates(potionState, time, visit, storage),
         compact = (value) => value === null || value === undefined
           ? "—"
           : Intl.NumberFormat("en-US", { notation: "compact", maximumFractionDigits: 1 }).format(Math.round(value));
       q("#cardHpPotionCost").textContent = compact(potionCosts.hp);
       q("#cardMpPotionCost").textContent = compact(potionCosts.mp);
-      q("#cardMesoRate").textContent = mesoMetrics(state, time).rate;
-      const m = metrics(state, time, required, totalExp);
+      q("#cardMesoRate").textContent = mesoMetrics(state, time, visit).rate;
+      const m = metrics(state, time, required, totalExp, visit);
       q("#cardLevel").textContent = m.level;
       q("#cardRate").textContent = m.rate;
       q("#cardPercent").textContent = m.percent.toFixed(2) + "%";
@@ -201,7 +234,7 @@
       q("#cardMapName").textContent = state.mapName
         ? "MAP · " + state.mapName
         : "MAP · SEARCHING FOR MAP";
-      const g = graph(state, time, totalExp);
+      const g = graph(state, time, totalExp, visit);
       q("#cardGraph").setAttribute("d", g.path);
       const axis = (n) =>
         Intl.NumberFormat("en-US", {

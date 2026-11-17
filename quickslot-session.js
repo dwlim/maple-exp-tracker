@@ -22,6 +22,55 @@
     }
     return seconds >= 30 ? (used / seconds) * 3600 : null;
   }
+  function costRatesForInterval(items, start, end, now = Date.now()) {
+    const out = { hp: null, mp: null, both: null };
+    if (![start, end, now].every(Number.isFinite) || end < start || end > now)
+      return out;
+    const tracked = (Array.isArray(items) ? items : []).filter(
+      (item) => !!Costs.catalog[item?.potionType]?.group,
+    );
+    for (const group of ["hp", "mp", "both"]) {
+      const groupItems = tracked.filter(
+        (item) => Costs.catalog[item.potionType].group === group,
+      );
+      if (!groupItems.length) continue;
+      let total = 0,
+        known = true;
+      for (const item of groupItems) {
+        const unitCost = Costs.price(item),
+          windowStart = Math.max(start, now - 300000),
+          windowEnd = Math.min(end, now);
+        if (unitCost === null) {
+          known = false;
+          break;
+        }
+        let used = 0,
+          seconds = 0;
+        for (const sample of item.usageSamples || []) {
+          if (
+            !Number.isFinite(sample.t) || sample.t > now ||
+            !Number.isFinite(sample.seconds) || sample.seconds <= 0 ||
+            sample.seconds > 25 || !Number.isFinite(sample.used) ||
+            sample.used < 0
+          ) continue;
+          const observedStart = sample.t - sample.seconds * 1000,
+            overlapMs = Math.min(sample.t, windowEnd) -
+              Math.max(windowStart, observedStart);
+          if (overlapMs <= 0) continue;
+          const fraction = overlapMs / (sample.seconds * 1000);
+          seconds += overlapMs / 1000;
+          used += sample.used * fraction;
+        }
+        if (seconds < 30) {
+          known = false;
+          break;
+        }
+        total += unitCost * (used / seconds) * 3600;
+      }
+      if (known && Number.isFinite(total)) out[group] = total;
+    }
+    return out;
+  }
   function inventoryValue(items, start, end, startAtFirstSample) {
     if (!Number.isFinite(start) || !Number.isFinite(end) || end < start)
       return { value: null, known: false, configured: false };
@@ -360,6 +409,7 @@
     KEY,
     STORE_KEYS,
     create: createStore,
+    costRatesForInterval,
     inventoryValueSince,
     rate,
     validRegion,

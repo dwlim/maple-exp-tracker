@@ -8,6 +8,10 @@ const html = fs.readFileSync("index.html", "utf8"),
     for (let i = 1; i < s.level; i++) n += required(i);
     return n;
   };
+assert.match(html, /<span class="label">Session totals<\/span>/);
+assert.doesNotMatch(html, /id="mesoRate"/);
+assert.doesNotMatch(html, /id="hpPotionCost"/);
+assert.match(html, /Hourly rates are map-specific/);
 const now = Date.now(),
   state = {
     running: true,
@@ -103,6 +107,65 @@ assert.equal(
   null,
   "Meso hourly rate does not fall back to an out-of-window baseline",
 );
+const currentVisit = { start: now - 120000, end: now, active: true };
+assert.equal(
+  C.mesoMetrics(
+    { mesoSamples: [
+      { amount: 1000000, t: now - 180000 },
+      { amount: 1200, t: now - 60000 },
+      { amount: 1300, t: now },
+    ] },
+    now,
+    currentVisit,
+  ).rateValue,
+  6000,
+  "Stream-card meso/hour excludes balance readings from the previous map",
+);
+assert.equal(
+  C.metrics(
+    {
+      ...state,
+      samples: [
+        { level: 32, exp: 50000, t: now - 180000 },
+        { level: 32, exp: 1000, t: now - 60000 },
+        { level: 32, exp: 2000, t: now },
+      ],
+    },
+    now,
+    required,
+    totalExp,
+    currentVisit,
+  ).rate,
+  "60,000",
+  "Stream-card EXP/hour uses only samples from the current map visit",
+);
+const QuickslotSession = require("../quickslot-session"),
+  profileKey = QuickslotSession.STORE_KEYS[0],
+  activePotionSnapshot = {
+    enabled: true,
+    updatedAt: now,
+    inventoryKey: profileKey,
+  },
+  activePotionStorage = {
+    getItem: (key) => key === profileKey
+      ? JSON.stringify({ items: [{
+          potionType: "red",
+          unitCost: 50,
+          usageSamples: [
+            { t: now - 20000, seconds: 20, used: 1 },
+            { t: now, seconds: 20, used: 2 },
+          ],
+        }] })
+      : null,
+  };
+const scopedPotionRates = C.potionCostRates(
+  activePotionSnapshot,
+  now,
+  { ...currentVisit, start: now - 30000 },
+  activePotionStorage,
+);
+assert.ok(Math.abs(scopedPotionRates.hp - 15000) < 0.01);
+assert.equal(scopedPotionRates.mp, null);
 assert.equal(
   C.metrics({ level: 100, samples: [] }, now, required, totalExp).eta,
   "MAX LEVEL",
@@ -213,12 +276,12 @@ require("../app").mount({
 });
 assert.equal(writes, 0);
 assert.equal(q("#cardLevel").textContent, "32");
-assert.equal(q("#cardRate").textContent, "60,000");
+assert.equal(q("#cardRate").textContent, "—", "Rates stay blank without a recognized map visit");
 assert.equal(q("#cardMapName").textContent, "MAP · SEARCHING FOR MAP");
 assert.match(q(".app").innerHTML, /<div class="stream-metrics-line">/);
-assert.equal(q("#cardHpPotionCost").textContent, "24K");
-assert.equal(q("#cardMpPotionCost").textContent, "52.8K");
-assert.equal(q("#cardMesoRate").textContent, "+6M");
+assert.equal(q("#cardHpPotionCost").textContent, "—");
+assert.equal(q("#cardMpPotionCost").textContent, "—");
+assert.equal(q("#cardMesoRate").textContent, "—");
 for (const id of ["cardHpPotionCost", "cardMpPotionCost", "cardMesoRate"])
   assert.ok(q(".app").innerHTML.includes(`id="${id}"`));
 assert.match(q(".app").innerHTML, /TRAILING 5 MIN/);
@@ -227,14 +290,22 @@ assert.match(q(".app").innerHTML, /MP COST \/ HR/);
 assert.match(q(".app").innerHTML, /MESO CHANGE \/ HR/);
 assert.doesNotMatch(q(".app").innerHTML, /POTION SPENT/);
 assert.doesNotMatch(q(".app").innerHTML, /HP\+MP/);
+assert.match(q(".app").innerHTML, /CURRENT MAP RATES/);
 assert.match(fs.readFileSync("dashboard.js", "utf8"), /#netProfit/);
-stored = JSON.stringify({ ...state, mapName: "Kerning City Subway · Line 1 Area 1" });
+stored = JSON.stringify({
+  ...state,
+  startAt: now - 60000,
+  mapName: "Kerning City Subway · Line 1 Area 1",
+  mapHistory: [{ t: now - 60000, name: "Kerning City Subway · Line 1 Area 1" }],
+});
 events.get("storage")({ key: "maple-track-v1" });
 assert.equal(
   q("#cardMapName").textContent,
   "MAP · Kerning City Subway · Line 1 Area 1",
   "Recognized map names sync from the main dashboard into the stream card",
 );
+assert.equal(q("#cardRate").textContent, "60,000");
+assert.equal(q("#cardMesoRate").textContent, "+6M");
 assert.equal(intervals[0].ms, 5000);
 stored = JSON.stringify({ ...state, samples: [], level: 56, running: false });
 events.get("storage")({ key: "maple-track-v1" });
@@ -244,7 +315,7 @@ potionSnapshots.set("maple-track-potion-costs-v1", JSON.stringify({ enabled: fal
 events.get("storage")({ key: "maple-track-potion-costs-v1" });
 assert.equal(q("#cardHpPotionCost").textContent, "—");
 assert.equal(q("#cardMpPotionCost").textContent, "—");
-assert.equal(q("#cardMesoRate").textContent, "+6M");
+assert.equal(q("#cardMesoRate").textContent, "—");
 potionSnapshots.set("maple-track-potion-costs-v1", "invalid");
 events.get("storage")({ key: "maple-track-potion-costs-v1" });
 assert.equal(q("#cardHpPotionCost").textContent, "—");

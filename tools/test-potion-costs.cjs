@@ -175,6 +175,41 @@ assert.equal(
   false,
   "A late first potion reading cannot be mistaken for the session-start balance",
 );
+assert.deepEqual(
+  Items.costRatesForInterval(
+    [
+      {
+        potionType: "red",
+        unitCost: 50,
+        usageSamples: [
+          { t: now - 20000, seconds: 20, used: 1 },
+          { t: now, seconds: 20, used: 2 },
+        ],
+      },
+    ],
+    now - 60000,
+    now,
+    now,
+  ),
+  { hp: 13500, mp: null, both: null },
+  "Hourly potion cost uses only observations inside the selected map visit and trailing-five-minute window",
+);
+assert.equal(
+  Items.costRatesForInterval(
+    [
+      {
+        potionType: "red",
+        unitCost: 50,
+        usageSamples: [{ t: now - 40000, seconds: 20, used: 1 }],
+      },
+    ],
+    now - 10000,
+    now,
+    now,
+  ).hp,
+  null,
+  "Potion use recorded before the current map visit is excluded",
+);
 mp.at = now - 26000;
 assert.equal(get().mp, null);
 assert.equal(Costs.metrics(Costs.snapshot(store, false, now), now).hp, null);
