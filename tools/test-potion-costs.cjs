@@ -175,6 +175,50 @@ assert.equal(
   false,
   "A late first potion reading cannot be mistaken for the session-start balance",
 );
+let resetClock = 100000;
+const resetMemory = new Map(),
+  resetStorage = {
+    getItem: (key) => resetMemory.get(key) || null,
+    setItem: (key, value) => resetMemory.set(key, value),
+  },
+  resetStore = Items.create({ storage: resetStorage, now: () => resetClock }),
+  resetPotion = resetStore.add("Red Potion", region, 100, 100, null, {
+    potionType: "red",
+  });
+resetStore.enable(true);
+resetStore.observe(resetPotion.id, { count: 100, confidence: 99 }, resetClock);
+resetClock += 10000;
+resetStore.reset();
+assert.deepEqual(
+  resetStore.state.items[0].inventorySamples,
+  [{ t: resetClock, count: 100 }],
+  "New session seeds potion baseline from the latest fresh stock read",
+);
+resetStore.observe(
+  resetPotion.id,
+  { count: 80, confidence: 99 },
+  resetClock + 10000,
+);
+assert.deepEqual(
+  Items.inventoryValueSince(
+    resetStore.state.items.map((item) => ({
+      ...item,
+      group: Costs.catalog[item.potionType].group,
+      price: Costs.price(item),
+    })),
+    resetClock,
+    resetClock + 10000,
+  ),
+  { value: -1000, known: true, configured: true },
+  "Net profit can value potions consumed after starting a new session",
+);
+resetClock += 35001;
+resetStore.reset();
+assert.deepEqual(
+  resetStore.state.items[0].inventorySamples,
+  [],
+  "A stale potion count is not reused as a new session baseline",
+);
 assert.deepEqual(
   Items.costRatesForInterval(
     [

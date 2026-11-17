@@ -132,7 +132,7 @@
       r.y + r.h <= 1.00001
     );
   }
-  function createStore({ storage, key = KEY, onChange = () => {} } = {}) {
+  function createStore({ storage, key = KEY, onChange = () => {}, now = Date.now } = {}) {
     let saved;
     try {
       saved = JSON.parse(storage?.getItem(key) || "null");
@@ -386,6 +386,7 @@
         changed();
       },
       reset() {
+        const resetAt = now();
         state.totalSpent = 0;
         state.spendKnown = true;
         for (const i of state.items) {
@@ -394,7 +395,14 @@
           i.paidStock = 0;
           i.seconds = 0;
           i.usageSamples = [];
-          i.inventorySamples = [];
+          const hasRecentCount = Number.isInteger(i.count) &&
+            i.count >= 0 &&
+            Number.isFinite(i.at) &&
+            i.at <= resetAt &&
+            resetAt - i.at <= 25000;
+          i.inventorySamples = hasRecentCount
+            ? [{ t: resetAt, count: i.count }]
+            : [];
         }
         invalidate();
         changed();
