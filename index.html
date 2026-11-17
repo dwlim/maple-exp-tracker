@@ -4572,7 +4572,7 @@ return {detect,crop,anchors,percentageRegion};
         mesoStartAmount = Number.isSafeInteger(state.mesoStartAmount)
           ? state.mesoStartAmount
           : null,
-        mesoNet = latestMeso && now - latestMeso.t <= 120000 && mesoStartAmount !== null
+        walletChange = latestMeso && now - latestMeso.t <= 120000 && mesoStartAmount !== null
           ? latestMeso.amount - mesoStartAmount
           : null,
         sessionStart = Number.isFinite(state.startAt)
@@ -4581,25 +4581,19 @@ return {detect,crop,anchors,percentageRegion};
         potionInventoryChange = latestMeso && Number.isFinite(sessionStart)
           ? inventoryChange(sessionStart, latestMeso.t)
           : { value: null, known: false, configured: hasTrackedPotionInventory },
-        netProfit = mesoNet !== null && potionInventoryChange.known
-          ? mesoNet + potionInventoryChange.value
+        netProfit = walletChange !== null && potionInventoryChange.known
+          ? walletChange + potionInventoryChange.value
           : null;
       if (q("#mesoAmount")) q("#mesoAmount").textContent = latestMeso && now - latestMeso.t <= 120000 ? fmt(latestMeso.amount) : "—";
-      if (q("#mesoNet"))
-        q("#mesoNet").textContent = mesoNet !== null
-          ? (mesoNet > 0 ? "+" : mesoNet < 0 ? "−" : "") + fmt(Math.abs(mesoNet ?? 0))
-          : "—";
-      if (q("#mesoNetHint"))
-        q("#mesoNetHint").textContent = "wallet balance since session start";
       if (q("#netProfit"))
         q("#netProfit").textContent = netProfit !== null
           ? (netProfit > 0 ? "+" : netProfit < 0 ? "−" : "") + fmt(Math.abs(netProfit))
           : "—";
       if (q("#netProfitHint"))
         q("#netProfitHint").textContent = !potionInventoryChange.configured
-          ? "Net mesos · no tracked potion inventory"
+          ? "Wallet change · no tracked potion inventory"
           : potionInventoryChange.known
-            ? "Net mesos + ending potion value − starting value"
+            ? "Wallet change + ending potion value − starting value"
             : "Potion inventory baseline or current value unavailable";
       if (q("#mesoHint"))
         q("#mesoHint").textContent = latestMeso && now - latestMeso.t > 120000
@@ -8317,8 +8311,7 @@ return {detect,crop,anchors,percentageRegion};
       <div class="chart-title"><span>Mesos</span><button class="btn" id="setMesoRegion">Adjust manually</button><span id="mesoHint" role="status">The tracker automatically searches for the standard inventory balance. Keep the item window visible.</span></div>
       <div class="meso-metrics-grid">
         <div class="stat"><div class="k">Current total</div><div class="v" id="mesoAmount">—</div></div>
-        <div class="stat"><div class="k">Net meso change</div><div class="v" id="mesoNet" title="Current meso balance minus the meso balance at the start of this session.">—</div><div class="hint" id="mesoNetHint">wallet balance since session start</div></div>
-        <div class="stat"><div class="k">Net profit</div><div class="v lime" id="netProfit" title="Net meso change plus ending potion inventory value minus starting potion inventory value.">—</div><div class="hint" id="netProfitHint">Net mesos + ending potion value − starting value</div></div>
+        <div class="stat"><div class="k">Net profit</div><div class="v lime" id="netProfit" title="Wallet balance change plus ending potion inventory value minus starting potion inventory value.">—</div><div class="hint" id="netProfitHint">Wallet change + ending potion value − starting value</div></div>
       </div>
     </div>
     <div class="chart-wrap potion-use-wrap">

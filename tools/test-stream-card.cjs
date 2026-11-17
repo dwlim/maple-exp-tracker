@@ -10,7 +10,9 @@ const html = fs.readFileSync("index.html", "utf8"),
   };
 assert.match(html, /<span class="label">Session totals<\/span>/);
 assert.doesNotMatch(html, /id="mesoRate"/);
+assert.doesNotMatch(html, /id="mesoNet"/);
 assert.doesNotMatch(html, /id="hpPotionCost"/);
+assert.match(html, /id="netProfit"/);
 assert.match(html, /Hourly rates are map-specific/);
 const now = Date.now(),
   state = {
