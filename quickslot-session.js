@@ -22,7 +22,7 @@
     }
     return seconds >= 30 ? (used / seconds) * 3600 : null;
   }
-  function inventoryValueChange(items, start, end) {
+  function inventoryValue(items, start, end, startAtFirstSample) {
     if (!Number.isFinite(start) || !Number.isFinite(end) || end < start)
       return { value: null, known: false, configured: false };
     const tracked = (Array.isArray(items) ? items : []).filter(
@@ -46,8 +46,15 @@
       return sample && t - sample.t <= 25000 ? sample.count : null;
     };
     for (const item of tracked) {
-      const startCount = countAt(item, start),
-        endCount = countAt(item, end);
+      const samples = item.inventorySamples || [];
+      let startCount = countAt(item, start);
+      if (startAtFirstSample) {
+        const baseline = samples.find(
+          (sample) => sample.t >= start && sample.t - start <= 25000,
+        );
+        startCount = baseline ? baseline.count : null;
+      }
+      const endCount = countAt(item, end);
       if (startCount === null || endCount === null)
         return { value: null, known: false, configured: true };
       const quantityChange = endCount - startCount;
@@ -60,6 +67,9 @@
       value += quantityChange * unitCost;
     }
     return { value, known: Number.isFinite(value), configured: true };
+  }
+  function inventoryValueSince(items, start, end) {
+    return inventoryValue(items, start, end, true);
   }
   function validRegion(r) {
     return (
@@ -350,7 +360,7 @@
     KEY,
     STORE_KEYS,
     create: createStore,
-    inventoryValueChange,
+    inventoryValueSince,
     rate,
     validRegion,
   };
