@@ -219,6 +219,42 @@ assert.deepEqual(
   [],
   "A stale potion count is not reused as a new session baseline",
 );
+let refillClock = 1000000;
+const refillStore = Items.create({
+    storage: { getItem: () => null, setItem: () => {} },
+    now: () => refillClock,
+  }),
+  refillPotion = refillStore.add("Red Potion", region, 100, 100, null, {
+    potionType: "red",
+  });
+refillStore.enable(true);
+for (let i = 0; i <= 3; i++)
+  refillStore.observe(
+    refillPotion.id,
+    { count: 100, confidence: 99 },
+    refillClock + i * 10000,
+  );
+const validUsageBeforeRefill = refillPotion.usageSamples.slice();
+refillStore.observe(
+  refillPotion.id,
+  { count: 184, confidence: 99 },
+  refillClock + 40000,
+);
+assert.deepEqual(
+  refillPotion.usageSamples,
+  validUsageBeforeRefill,
+  "A refill omits its ambiguous interval without clearing earlier valid usage samples",
+);
+assert.equal(
+  Items.costRatesForInterval(
+    [{ ...refillPotion, price: Costs.price(refillPotion) }],
+    refillClock,
+    refillClock + 40000,
+    refillClock + 40000,
+  ).hp,
+  0,
+  "A recently refilled slot with prior valid reads does not blank the HP cost total",
+);
 assert.deepEqual(
   Items.costRatesForInterval(
     [

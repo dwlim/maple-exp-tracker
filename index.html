@@ -3317,8 +3317,10 @@ return {detect,crop,anchors,percentageRegion};
         item.usageSamples ||= [];
         if (restocked) {
           // The interval containing a refill has an unknown use/refill order.
-          // Start a fresh rate window so replenishment cannot dilute usage/hour.
-          item.usageSamples = [];
+          // Omit that interval, but retain earlier valid samples in the trailing window.
+          item.usageSamples = item.usageSamples
+            .filter((s) => s.t > t - 300000)
+            .slice(-200);
         } else {
           item.seconds += dt;
           item.usageSamples.push({ t, seconds: dt, used });
