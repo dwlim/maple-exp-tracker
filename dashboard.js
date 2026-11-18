@@ -67,13 +67,19 @@
   }) {
     const q = (s) => document.querySelector(s),
       { state, samples, save } = session,
+      updateState = session.update || ((patch) => {
+        Object.assign(state, patch);
+        save();
+      }),
       { required, totalExp } = session.math;
     const fmt = (n) => Math.round(n || 0).toLocaleString("en-US"),
       setTimeout = window.setTimeout.bind(window);
     const currentRegions = (image) => recognition.currentRegions(image);
     let selecting = null,
       dragStart = null,
-      dragCurrent = null;
+      dragCurrent = null,
+      lastMapSessionRenderKey = null,
+      lastDropNoticeRenderKey = null;
     function update() {
       const captureStream = getCapture()?.stream,
         now = clock(),
@@ -254,25 +260,50 @@
       draw(ss);
       drawLog(ss);
       updateRateHint(ss);
-      save();
     }
     function renderMapSessions(visits, now, potionItems = []) {
       const root = q("#mapSessions");
       if (!root) return;
+      const signed = (value) => (value > 0 ? "+" : value < 0 ? "−" : "") + fmt(Math.abs(value)),
+        duration = (ms) => {
+          const minutes = Math.max(0, Math.floor(ms / 60000));
+          return minutes < 60 ? minutes + " min" : Math.floor(minutes / 60) + "h " + (minutes % 60) + "m";
+        },
+        rows = visits.map((visit) => {
+          const elapsed = Math.max(0, Math.min(now, visit.end) - visit.start),
+            xpRate = visit.expElapsed >= 30000 ? visit.expGain * 3600000 / visit.expElapsed : null,
+            mesoRate = visit.mesoElapsed >= 60000 ? visit.mesoChange * 3600000 / visit.mesoElapsed : null,
+            potionRates = visit.active
+              ? QuickslotSession.costRatesForInterval(potionItems, visit.start, now, now)
+              : null,
+            stats = [
+              ["EXP gained", visit.expSamples ? (visit.expEstimated ? "~" : "") + fmt(visit.expGain) : "—", ""],
+              ["EXP / hour", xpRate === null ? "—" : (visit.expEstimated ? "~" : "") + fmt(xpRate), ""],
+              ["Meso balance change", visit.mesoSamples ? signed(visit.mesoChange) : "—", ""],
+              ["Mesos / hour", mesoRate === null ? "—" : signed(mesoRate), ""],
+              ["Map time", duration(elapsed), ""],
+            ];
+          if (visit.active) {
+            stats.push(
+              ["HP potion cost / hour", potionRates?.hp === null || !potionRates ? "—" : fmt(potionRates.hp), "trailing 5 minutes"],
+              ["MP potion cost / hour", potionRates?.mp === null || !potionRates ? "—" : fmt(potionRates.mp), "trailing 5 minutes"],
+              ["HP + MP potion cost / hour", potionRates?.both === null || !potionRates ? "—" : fmt(potionRates.both), "trailing 5 minutes"],
+            );
+          }
+          return { key: `${visit.start}:${visit.name}:${visit.active ? 1 : 0}`, name: visit.name, active: visit.active, stats };
+        }),
+        renderKey = JSON.stringify(rows);
+      if (renderKey === lastMapSessionRenderKey) return;
+      lastMapSessionRenderKey = renderKey;
       root.innerHTML = "";
-      if (!visits.length) {
+      if (!rows.length) {
         const empty = document.createElement("p");
         empty.className = "subtle";
         empty.textContent = "Map-specific readings will appear after the tracker recognizes your map.";
         root.appendChild(empty);
         return;
       }
-      const signed = (value) => (value > 0 ? "+" : value < 0 ? "−" : "") + fmt(Math.abs(value)),
-        duration = (ms) => {
-          const minutes = Math.max(0, Math.floor(ms / 60000));
-          return minutes < 60 ? minutes + " min" : Math.floor(minutes / 60) + "h " + (minutes % 60) + "m";
-        };
-      for (const visit of visits) {
+      for (const row of rows) {
         const section = document.createElement("section"),
           heading = document.createElement("div"),
           title = document.createElement("strong"),
@@ -282,20 +313,14 @@
         section.style.cssText = "padding:12px 0;border-top:1px solid var(--line)";
         heading.className = "map-session-head";
         heading.style.cssText = "display:flex;align-items:center;justify-content:space-between;gap:10px";
-        title.textContent = visit.name;
+        title.textContent = row.name;
         status.className = "tag";
-        status.textContent = visit.active ? "CURRENT MAP" : "MAP VISIT";
+        status.textContent = row.active ? "CURRENT MAP" : "MAP VISIT";
         heading.appendChild(title);
         heading.appendChild(status);
         grid.className = "map-session-grid";
         grid.style.cssText = "display:grid;grid-template-columns:repeat(auto-fit,minmax(115px,1fr));gap:8px;margin-top:10px";
-        const elapsed = Math.max(0, Math.min(now, visit.end) - visit.start),
-          xpRate = visit.expElapsed >= 30000 ? visit.expGain * 3600000 / visit.expElapsed : null,
-          mesoRate = visit.mesoElapsed >= 60000 ? visit.mesoChange * 3600000 / visit.mesoElapsed : null,
-          potionRates = visit.active
-            ? QuickslotSession.costRatesForInterval(potionItems, visit.start, now, now)
-            : null,
-          addStat = (label, value, hint = "") => {
+        const addStat = (label, value, hint = "") => {
             const item = document.createElement("div"), key = document.createElement("div"), val = document.createElement("div");
             item.className = "stat";
             item.style.minHeight = "72px";
@@ -303,6 +328,7 @@
             key.textContent = label;
             val.className = "v";
             val.textContent = value;
+            item.dataset.stat = label;
             item.append(key, val);
             if (hint) {
               const note = document.createElement("div");
@@ -312,16 +338,7 @@
             }
             grid.appendChild(item);
           };
-        addStat("EXP gained", visit.expSamples ? (visit.expEstimated ? "~" : "") + fmt(visit.expGain) : "—");
-        addStat("EXP / hour", xpRate === null ? "—" : (visit.expEstimated ? "~" : "") + fmt(xpRate));
-        addStat("Meso balance change", visit.mesoSamples ? signed(visit.mesoChange) : "—");
-        addStat("Mesos / hour", mesoRate === null ? "—" : signed(mesoRate));
-        addStat("Map time", duration(elapsed));
-        if (visit.active) {
-          addStat("HP potion cost / hour", potionRates?.hp === null || !potionRates ? "—" : fmt(potionRates.hp), "trailing 5 minutes");
-          addStat("MP potion cost / hour", potionRates?.mp === null || !potionRates ? "—" : fmt(potionRates.mp), "trailing 5 minutes");
-          addStat("HP + MP potion cost / hour", potionRates?.both === null || !potionRates ? "—" : fmt(potionRates.both), "trailing 5 minutes");
-        }
+        for (const [label, value, hint] of row.stats) addStat(label, value, hint);
         section.appendChild(heading);
         section.appendChild(grid);
         root.appendChild(section);
@@ -333,6 +350,10 @@
         notices = Array.isArray(state.dropNotices) ? state.dropNotices : [];
       if (count) count.textContent = notices.length.toLocaleString("en-US");
       if (!root) return;
+      const visible = notices.slice(-12).reverse(),
+        renderKey = JSON.stringify(visible.map((notice) => [notice.t, notice.text, notice.map || null]));
+      if (renderKey === lastDropNoticeRenderKey) return;
+      lastDropNoticeRenderKey = renderKey;
       root.innerHTML = "";
       if (!notices.length) {
         const empty = document.createElement("p");
@@ -341,7 +362,7 @@
         root.appendChild(empty);
         return;
       }
-      for (const notice of notices.slice(-12).reverse()) {
+      for (const notice of visible) {
         const row = document.createElement("div"),
           time = document.createElement("span"),
           text = document.createElement("strong"),
@@ -450,7 +471,7 @@
 
     function beginRegionSelection(name) {
       if (name !== "meso" && state.calibration.auto !== false)
-        state.calibration = { ...currentRegions(), auto: false };
+        updateState({ calibration: { ...currentRegions(), auto: false } });
       selecting = selecting === name ? null : name;
       document.body.classList.toggle("meso-selecting", selecting === "meso");
       dragStart = dragCurrent = null;
@@ -670,19 +691,16 @@
         beginRegionSelection("meso"),
       );
       q("#clearMeso")?.addEventListener("click", () => {
-        state.mesoRegion = null;
-        state.mesoAnchor = null;
+        updateState({ mesoRegion: null, mesoAnchor: null });
         selecting = dragStart = dragCurrent = null;
         document.body.classList.remove("meso-selecting");
-        save();
         updateRegionStatus();
         drawRegions();
       });
       q("#clearRegions")?.addEventListener("click", () => {
-        state.calibration = { level: null, exp: null, auto: true };
+        updateState({ calibration: { level: null, exp: null, auto: true } });
         selecting = dragStart = dragCurrent = null;
         recognition.reset();
-        save();
         updateRegionStatus();
         drawRegions();
       });
@@ -714,10 +732,11 @@
           y = Math.min(dragStart.y, dragCurrent.y),
           w = Math.abs(dragStart.x - dragCurrent.x),
           h = Math.abs(dragStart.y - dragCurrent.y);
+        let statePatch = null;
         if (w > 0.005 && h > 0.005) {
           if (selecting === "meso") {
-            state.mesoRegion = { x, y, w, h };
-            state.mesoAnchor = null;
+            const region = { x, y, w, h };
+            let anchor = null;
             try {
               const image = q("#latestFrame"),
                 pixelsCanvas = document.createElement("canvas");
@@ -725,22 +744,26 @@
               pixelsCanvas.height = image.naturalHeight;
               const ctx = pixelsCanvas.getContext("2d", { willReadFrequently: true });
               ctx.drawImage(image, 0, 0);
-              state.mesoAnchor = localOcr?.createMesoAnchor(
+              anchor = localOcr?.createMesoAnchor(
                 ctx.getImageData(0, 0, pixelsCanvas.width, pixelsCanvas.height),
-                state.mesoRegion,
+                region,
               ) || null;
               pixelsCanvas.width = 0;
               pixelsCanvas.height = 0;
             } catch {}
-            state.mesoStatus = state.mesoAnchor
+            statePatch = {
+              mesoRegion: region,
+              mesoAnchor: anchor,
+              mesoStatus: anchor
               ? "Inventory anchor saved · aligning total automatically"
-              : "Manual amount area saved · automatic inventory scan remains available";
+              : "Manual amount area saved · automatic inventory scan remains available",
+            };
           }
-          else state.calibration[selecting] = { x, y, w, h };
+          else statePatch = { calibration: { ...state.calibration, [selecting]: { x, y, w, h } } };
         }
         selecting = dragStart = dragCurrent = null;
         document.body.classList.remove("meso-selecting");
-        save();
+        if (statePatch) updateState(statePatch);
         updateRegionStatus();
         drawRegions();
       });

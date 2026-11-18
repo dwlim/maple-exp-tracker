@@ -63,6 +63,10 @@
       dropReadActive = false,
       dropReadQueue = [],
       lastDropReadAt = 0;
+    const updateSession = (patch) => {
+      if (typeof session.update === "function") session.update(patch);
+      else Object.assign(session.state, patch);
+    };
     const DROP_NOTICE_MIN_INTERVAL_MS = 150,
       DROP_NOTICE_QUEUE_LIMIT = 4;
     function mapProbeFingerprint(image) {
@@ -341,8 +345,7 @@
             readAt,
           );
         if (recovered.valid) {
-          session.state.calibration = { level: null, exp: null, auto: true };
-          session.save();
+          updateSession({ calibration: { level: null, exp: null, auto: true } });
           customRegionFailureStreak = 0;
           view.updateRegionStatus?.();
           view.drawRegions?.();
@@ -465,9 +468,7 @@
           // Migrate old saved anchors: the amount crop now includes the full
           // white balance box, so its previous coordinates must be rediscovered.
           if (session.state.mesoAnchor && session.state.mesoAnchor.version !== 3) {
-            session.state.mesoAnchor = null;
-            session.state.mesoRegion = null;
-            session.save();
+            updateSession({ mesoAnchor: null, mesoRegion: null });
           }
           let mesoRegion = session.state.mesoRegion;
           if (session.state.mesoAnchor && mesoRegion) {
@@ -477,7 +478,10 @@
               session.state.mesoRegion,
             );
             mesoRegion = match?.region || null;
-            if (mesoRegion) session.state.mesoRegion = mesoRegion;
+            if (mesoRegion) {
+              if (typeof session.setMesoRegion === "function") session.setMesoRegion(mesoRegion);
+              else session.state.mesoRegion = mesoRegion;
+            }
             if (!mesoRegion)
               session.setMesoStatus("Inventory anchor not found · keep the item window visible");
           }

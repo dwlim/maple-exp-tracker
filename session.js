@@ -49,7 +49,20 @@
     now = Date.now,
     onChange = () => {},
   } = {}) {
+    const SCHEMA_VERSION = 1,
+      UPDATABLE_FIELDS = new Set([
+        "running", "paused", "source", "startAt", "mesoRegion", "mesoAnchor", "mesoStatus", "calibration",
+      ]),
+      validTime = (value) => Number.isFinite(value) && value >= 0,
+      validRegion = (value) =>
+        value &&
+        [value.x, value.y, value.w, value.h].every(Number.isFinite) &&
+        value.x >= 0 && value.y >= 0 && value.w > 0 && value.h > 0 &&
+        value.x + value.w <= 1.001 && value.y + value.h <= 1.001
+          ? { x: value.x, y: value.y, w: value.w, h: value.h }
+          : null;
     const defaults = {
+      schemaVersion: SCHEMA_VERSION,
       samples: [],
       mesoSamples: [],
       mesoStartAmount: null,
@@ -68,12 +81,56 @@
     try {
       saved = JSON.parse(storage?.getItem(key) || "{}") || {};
     } catch {}
+    if (!saved || typeof saved !== "object" || Array.isArray(saved)) saved = {};
     const state = {
       ...defaults,
       ...saved,
       running: false,
       source: null,
       paused: false,
+    };
+    state.schemaVersion = SCHEMA_VERSION;
+    state.samples = Array.isArray(state.samples)
+      ? state.samples
+          .filter((sample) =>
+            validTime(sample?.t) &&
+            Number.isInteger(sample.level) && sample.level >= 1 && sample.level <= 100 &&
+            Number.isFinite(sample.exp) && sample.exp >= 0,
+          )
+          .map((sample) => ({
+            t: sample.t,
+            level: sample.level,
+            exp: sample.exp,
+            ...(sample.estimated === true
+              ? { estimated: true, ...(Number.isFinite(sample.pct) ? { pct: sample.pct } : {}) }
+              : {}),
+          }))
+          .sort((a, b) => a.t - b.t)
+          .slice(-240)
+      : [];
+    state.mesoSamples = Array.isArray(state.mesoSamples)
+      ? state.mesoSamples
+          .filter((sample) => validTime(sample?.t) && Number.isSafeInteger(sample.amount) && sample.amount >= 0)
+          .map((sample) => ({ t: sample.t, amount: sample.amount }))
+          .sort((a, b) => a.t - b.t)
+          .slice(-720)
+      : [];
+    state.level = Number.isInteger(state.level) && state.level >= 1 && state.level <= 100
+      ? state.level
+      : null;
+    state.startAt = validTime(state.startAt) ? state.startAt : null;
+    state.mapUpdatedAt = validTime(state.mapUpdatedAt) ? state.mapUpdatedAt : null;
+    state.mapName = typeof state.mapName === "string" ? state.mapName.trim() : "";
+    state.mesoStatus = typeof state.mesoStatus === "string"
+      ? state.mesoStatus.slice(0, 180)
+      : defaults.mesoStatus;
+    state.mesoRegion = validRegion(state.mesoRegion);
+    if (!state.mesoRegion || !state.mesoAnchor || typeof state.mesoAnchor !== "object" || Array.isArray(state.mesoAnchor))
+      state.mesoAnchor = null;
+    state.calibration = {
+      level: validRegion(state.calibration?.level),
+      exp: validRegion(state.calibration?.exp),
+      auto: state.calibration?.auto !== false,
     };
     state.mapHistory = Array.isArray(state.mapHistory)
       ? state.mapHistory
@@ -102,6 +159,16 @@
               Number.isFinite(entry.t) &&
               isValidDropNotice(entry.text),
           )
+          .map((entry) => ({
+            t: entry.t,
+            text: entry.text.replace(/\s+/g, " ").trim().slice(0, 180),
+            map: typeof entry.map === "string" && isCanonicalMapName(entry.map.trim())
+              ? entry.map.trim()
+              : null,
+            ...(Number.isFinite(entry.confidence)
+              ? { confidence: Math.max(0, Math.min(100, entry.confidence)) }
+              : {}),
+          }))
           .slice(-100)
       : [];
     if (
@@ -117,25 +184,50 @@
       (!state.calibration.level || !state.calibration.exp)
     )
       state.calibration = { level: null, exp: null, auto: true };
-    for (const sample of state.samples || []) {
+    for (const sample of state.samples) {
       const start = levelStartExp(sample.level);
       if (sample.exp > required(sample.level) && sample.exp >= start)
         sample.exp -= start;
     }
     let inferredLevelPending = null,
       pendingLevel = null,
-      pendingLevelFrame = null;
+      pendingLevelFrame = null,
+      lastSavedPayload = null;
     const samples = () => state.samples.slice().sort((a, b) => a.t - b.t);
-    const save = () =>
-      storage?.setItem(
-        key,
-        JSON.stringify({
+    const save = () => {
+      if (!storage?.setItem) return false;
+      try {
+        const payload = {
           ...state,
+          schemaVersion: SCHEMA_VERSION,
           screen: null,
           interval: null,
-          updatedAt: now(),
-        }),
-      );
+        };
+        const serialized = JSON.stringify(payload);
+        if (serialized === lastSavedPayload) return true;
+        storage.setItem(key, JSON.stringify({ ...payload, updatedAt: now() }));
+        lastSavedPayload = serialized;
+        return true;
+      } catch {
+        // Keep in-memory tracking available when browser storage is full or blocked.
+        return false;
+      }
+    };
+    const update = (patch) => {
+      if (!patch || typeof patch !== "object" || Array.isArray(patch)) return false;
+      const entries = Object.entries(patch);
+      if (entries.some(([name]) => !UPDATABLE_FIELDS.has(name))) return false;
+      let changed = false;
+      for (const [name, value] of entries) {
+        if (Object.is(state[name], value)) continue;
+        state[name] = value;
+        changed = true;
+      }
+      if (!changed) return false;
+      save();
+      onChange();
+      return true;
+    };
     function clearPending() {
       inferredLevelPending = null;
       pendingLevel = pendingLevelFrame = null;
@@ -158,6 +250,7 @@
         ...(reading.estimated ? { estimated: true, pct: reading.pct } : {}),
       });
       if (state.samples.length > 240) state.samples = state.samples.slice(-240);
+      save();
       onChange();
       return true;
     }
@@ -173,6 +266,7 @@
       state.mapHistory = state.mapName ? [{ t, name: state.mapName }] : [];
       state.mapUpdatedAt = state.mapName ? t : null;
       clearPending();
+      save();
       onChange();
     }
     function addMesoSample(amount, t = now()) {
@@ -185,6 +279,7 @@
       if (state.mesoSamples.length > 720)
         state.mesoSamples = state.mesoSamples.slice(-720);
       state.mesoStatus = "Meso total read";
+      save();
       onChange();
       return true;
     }
@@ -215,8 +310,9 @@
       return true;
     }
     function setMesoStatus(status) {
-      state.mesoStatus = status;
-      onChange();
+      const value = typeof status === "string" ? status.slice(0, 180) : defaults.mesoStatus;
+      if (state.mesoStatus === value) return false;
+      return update({ mesoStatus: value });
     }
     function setMapName(name, t = now()) {
       const value = String(name || "").trim();
@@ -242,20 +338,22 @@
       return true;
     }
     function setMesoRegion(region) {
-      if (!region) return false;
-      state.mesoRegion = region;
-      save();
-      onChange();
-      return true;
+      const value = validRegion(region);
+      if (!value) return false;
+      const prior = state.mesoRegion;
+      if (prior && ["x", "y", "w", "h"].every((key) => Math.abs(prior[key] - value[key]) < 0.001))
+        return false;
+      return update({ mesoRegion: value });
     }
     function setMesoAnchor(region, anchor) {
       if (!region || !anchor) return false;
-      state.mesoRegion = region;
-      state.mesoAnchor = anchor;
-      state.mesoStatus = "Inventory balance found · aligning automatically";
-      save();
-      onChange();
-      return true;
+      const value = validRegion(region);
+      if (!value || typeof anchor !== "object" || Array.isArray(anchor)) return false;
+      return update({
+        mesoRegion: value,
+        mesoAnchor: anchor,
+        mesoStatus: "Inventory balance found · aligning automatically",
+      });
     }
     function validate(levelResult, expResult, expectedDigits, readAt) {
       const independent = parseHudReading("", expResult.rawText),
@@ -353,10 +451,13 @@
           !(continuity.reason || "").includes("differs from saved level"),
       };
     }
+    // Persist the normalized schema once on load; later writes are change-driven.
+    save();
     return {
       state,
       key,
       samples,
+      update,
       addMesoSample,
       addDropNotice,
       setMesoStatus,

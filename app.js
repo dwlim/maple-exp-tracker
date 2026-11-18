@@ -71,8 +71,8 @@
         document,
         new URL("assets/meso-balance-reference.png", location.href).href,
       ) || Promise.resolve(null);
-      let view, capture;
-      const session = Session.create({
+      let view, capture, session;
+      session = Session.create({
         storage,
         key,
         levelOcr,
@@ -184,8 +184,9 @@
         )
           return;
         capture.invalidate();
-        session.reset();
         items.resetSession();
+        // Clear the potion baseline before publishing the new session snapshot.
+        session.reset();
         view.status("waiting", "New session · Waiting for the next reading");
       });
       on("#streamCardBtn", () => {
@@ -205,15 +206,14 @@
       view.bindCalibration();
       view.updateRegionStatus();
       view.update();
-      const timer = window.setInterval(() => {
-        view.update();
-        items.render();
-      }, 5000);
+      const timer = window.setInterval(() => view.update(), 5000),
+        itemsTimer = window.setInterval(() => items.render(), 10000);
       let disposed = false;
       function dispose() {
         if (disposed) return;
         disposed = true;
         window.clearInterval(timer);
+        window.clearInterval(itemsTimer);
         if (capture.stream) capture.stop();
         view.dispose();
         items.dispose();

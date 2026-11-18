@@ -241,7 +241,7 @@ function fixture(getDisplayMedia, { pickupTrackingEnabled = false } = {}) {
     assert.ok(d.events.has("#shareGameBtn:click"));
     assert.equal(d.node(".app").innerHTML, "");
     assert.equal(d.node("#liveState").textContent, "READY");
-    assert.deepEqual(d.timers.map((t) => t.ms), [5000]);
+    assert.deepEqual(d.timers.map((t) => t.ms), [5000, 10000]);
     assert.ok(stored.has("maple-track-v1"));
     app.dispose();
     assert.ok(!d.events.has("window:pagehide"));

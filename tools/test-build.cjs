@@ -70,5 +70,5 @@ assert.equal(
   "Assembled browser script order must boot the dashboard",
 );
 assert.ok(d.events.has("#shareGameBtn:click"));
-assert.equal(d.timers.at(-1).ms, 5000);
+assert.deepEqual(d.timers.map((timer) => timer.ms), [5000, 10000]);
 console.log("Assembled browser entry point boots with the embedded modules.");

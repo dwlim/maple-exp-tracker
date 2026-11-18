@@ -44,6 +44,10 @@
       busy = false,
       connecting = false,
       itemTask = null;
+    const updateSession = (patch) => {
+      if (typeof session.update === "function") session.update(patch);
+      else Object.assign(session.state, patch);
+    };
     const delay = (ms) =>
       new Promise((resolve) => timers.setTimeout(resolve, ms));
     function invalidate() {
@@ -82,9 +86,7 @@
       video.pause();
       video.srcObject = null;
       recognition.reset();
-      session.state.running = false;
-      session.state.paused = false;
-      session.state.source = null;
+      updateSession({ running: false, paused: false, source: null });
       view.status(
         "waiting",
         "Sharing stopped. Your session readings are saved.",
@@ -419,9 +421,11 @@
           },
           { once: true },
         );
-        session.state.running = true;
-        session.state.source = "GAME WINDOW SHARED";
-        session.state.startAt ||= now();
+        updateSession({
+          running: true,
+          source: "GAME WINDOW SHARED",
+          startAt: session.state.startAt || now(),
+        });
         view.status("waiting", "Reading your game window…");
         view.update();
         timer = timers.setInterval(captureFrame, FULL_SCAN_INTERVAL_MS);
@@ -448,8 +452,8 @@
     }
     function togglePause() {
       if (!stream) return;
-      session.state.paused = !session.state.paused;
-      session.state.running = !session.state.paused;
+      const paused = !session.state.paused;
+      updateSession({ paused, running: !paused });
       invalidate();
       view.status(
         "waiting",

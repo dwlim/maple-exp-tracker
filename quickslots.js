@@ -72,6 +72,7 @@
         worker = null,
         waiter = null,
         serial = 0,
+        lastCostSnapshotAt = Number.NEGATIVE_INFINITY,
         workerFailed = false;
       function getStore(kind) {
         if (!profiles.has(kind))
@@ -80,7 +81,7 @@
             Session.create({
               storage,
               key: Session.KEY + ":" + kind,
-              onChange: () => render(),
+              onChange: () => render(true),
             }),
           );
         return profiles.get(kind);
@@ -266,22 +267,26 @@
         }
         drawnKind = layout.kind;
       }
-      function render() {
+      function render(forceSnapshot = false) {
         if (!q("#quickslotItems")) return;
-        try {
-          const inventoryLayout = live || last;
-          storage?.setItem(
-            Costs.KEY,
-            JSON.stringify(
-              Costs.snapshot(
-                store,
-                !!live,
-                now(),
-                inventoryLayout ? Session.KEY + ":" + inventoryLayout.kind : null,
+        const snapshotTime = now();
+        if (forceSnapshot || snapshotTime - lastCostSnapshotAt >= 10000) {
+          try {
+            const inventoryLayout = live || last;
+            storage?.setItem(
+              Costs.KEY,
+              JSON.stringify(
+                Costs.snapshot(
+                  store,
+                  !!live,
+                  snapshotTime,
+                  inventoryLayout ? Session.KEY + ":" + inventoryLayout.kind : null,
+                ),
               ),
-            ),
-          );
-        } catch {}
+            );
+            lastCostSnapshotAt = snapshotTime;
+          } catch {}
+        }
         q("#trackItems").checked = store?.state.enabled === true;
         q("#trackItems").disabled = !live;
         q("#quickslotLayoutState").textContent = live

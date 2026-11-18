@@ -3775,7 +3775,20 @@ return {detect,crop,anchors,percentageRegion};
     now = Date.now,
     onChange = () => {},
   } = {}) {
+    const SCHEMA_VERSION = 1,
+      UPDATABLE_FIELDS = new Set([
+        "running", "paused", "source", "startAt", "mesoRegion", "mesoAnchor", "mesoStatus", "calibration",
+      ]),
+      validTime = (value) => Number.isFinite(value) && value >= 0,
+      validRegion = (value) =>
+        value &&
+        [value.x, value.y, value.w, value.h].every(Number.isFinite) &&
+        value.x >= 0 && value.y >= 0 && value.w > 0 && value.h > 0 &&
+        value.x + value.w <= 1.001 && value.y + value.h <= 1.001
+          ? { x: value.x, y: value.y, w: value.w, h: value.h }
+          : null;
     const defaults = {
+      schemaVersion: SCHEMA_VERSION,
       samples: [],
       mesoSamples: [],
       mesoStartAmount: null,
@@ -3794,12 +3807,56 @@ return {detect,crop,anchors,percentageRegion};
     try {
       saved = JSON.parse(storage?.getItem(key) || "{}") || {};
     } catch {}
+    if (!saved || typeof saved !== "object" || Array.isArray(saved)) saved = {};
     const state = {
       ...defaults,
       ...saved,
       running: false,
       source: null,
       paused: false,
+    };
+    state.schemaVersion = SCHEMA_VERSION;
+    state.samples = Array.isArray(state.samples)
+      ? state.samples
+          .filter((sample) =>
+            validTime(sample?.t) &&
+            Number.isInteger(sample.level) && sample.level >= 1 && sample.level <= 100 &&
+            Number.isFinite(sample.exp) && sample.exp >= 0,
+          )
+          .map((sample) => ({
+            t: sample.t,
+            level: sample.level,
+            exp: sample.exp,
+            ...(sample.estimated === true
+              ? { estimated: true, ...(Number.isFinite(sample.pct) ? { pct: sample.pct } : {}) }
+              : {}),
+          }))
+          .sort((a, b) => a.t - b.t)
+          .slice(-240)
+      : [];
+    state.mesoSamples = Array.isArray(state.mesoSamples)
+      ? state.mesoSamples
+          .filter((sample) => validTime(sample?.t) && Number.isSafeInteger(sample.amount) && sample.amount >= 0)
+          .map((sample) => ({ t: sample.t, amount: sample.amount }))
+          .sort((a, b) => a.t - b.t)
+          .slice(-720)
+      : [];
+    state.level = Number.isInteger(state.level) && state.level >= 1 && state.level <= 100
+      ? state.level
+      : null;
+    state.startAt = validTime(state.startAt) ? state.startAt : null;
+    state.mapUpdatedAt = validTime(state.mapUpdatedAt) ? state.mapUpdatedAt : null;
+    state.mapName = typeof state.mapName === "string" ? state.mapName.trim() : "";
+    state.mesoStatus = typeof state.mesoStatus === "string"
+      ? state.mesoStatus.slice(0, 180)
+      : defaults.mesoStatus;
+    state.mesoRegion = validRegion(state.mesoRegion);
+    if (!state.mesoRegion || !state.mesoAnchor || typeof state.mesoAnchor !== "object" || Array.isArray(state.mesoAnchor))
+      state.mesoAnchor = null;
+    state.calibration = {
+      level: validRegion(state.calibration?.level),
+      exp: validRegion(state.calibration?.exp),
+      auto: state.calibration?.auto !== false,
     };
     state.mapHistory = Array.isArray(state.mapHistory)
       ? state.mapHistory
@@ -3828,6 +3885,16 @@ return {detect,crop,anchors,percentageRegion};
               Number.isFinite(entry.t) &&
               isValidDropNotice(entry.text),
           )
+          .map((entry) => ({
+            t: entry.t,
+            text: entry.text.replace(/\s+/g, " ").trim().slice(0, 180),
+            map: typeof entry.map === "string" && isCanonicalMapName(entry.map.trim())
+              ? entry.map.trim()
+              : null,
+            ...(Number.isFinite(entry.confidence)
+              ? { confidence: Math.max(0, Math.min(100, entry.confidence)) }
+              : {}),
+          }))
           .slice(-100)
       : [];
     if (
@@ -3843,25 +3910,50 @@ return {detect,crop,anchors,percentageRegion};
       (!state.calibration.level || !state.calibration.exp)
     )
       state.calibration = { level: null, exp: null, auto: true };
-    for (const sample of state.samples || []) {
+    for (const sample of state.samples) {
       const start = levelStartExp(sample.level);
       if (sample.exp > required(sample.level) && sample.exp >= start)
         sample.exp -= start;
     }
     let inferredLevelPending = null,
       pendingLevel = null,
-      pendingLevelFrame = null;
+      pendingLevelFrame = null,
+      lastSavedPayload = null;
     const samples = () => state.samples.slice().sort((a, b) => a.t - b.t);
-    const save = () =>
-      storage?.setItem(
-        key,
-        JSON.stringify({
+    const save = () => {
+      if (!storage?.setItem) return false;
+      try {
+        const payload = {
           ...state,
+          schemaVersion: SCHEMA_VERSION,
           screen: null,
           interval: null,
-          updatedAt: now(),
-        }),
-      );
+        };
+        const serialized = JSON.stringify(payload);
+        if (serialized === lastSavedPayload) return true;
+        storage.setItem(key, JSON.stringify({ ...payload, updatedAt: now() }));
+        lastSavedPayload = serialized;
+        return true;
+      } catch {
+        // Keep in-memory tracking available when browser storage is full or blocked.
+        return false;
+      }
+    };
+    const update = (patch) => {
+      if (!patch || typeof patch !== "object" || Array.isArray(patch)) return false;
+      const entries = Object.entries(patch);
+      if (entries.some(([name]) => !UPDATABLE_FIELDS.has(name))) return false;
+      let changed = false;
+      for (const [name, value] of entries) {
+        if (Object.is(state[name], value)) continue;
+        state[name] = value;
+        changed = true;
+      }
+      if (!changed) return false;
+      save();
+      onChange();
+      return true;
+    };
     function clearPending() {
       inferredLevelPending = null;
       pendingLevel = pendingLevelFrame = null;
@@ -3884,6 +3976,7 @@ return {detect,crop,anchors,percentageRegion};
         ...(reading.estimated ? { estimated: true, pct: reading.pct } : {}),
       });
       if (state.samples.length > 240) state.samples = state.samples.slice(-240);
+      save();
       onChange();
       return true;
     }
@@ -3899,6 +3992,7 @@ return {detect,crop,anchors,percentageRegion};
       state.mapHistory = state.mapName ? [{ t, name: state.mapName }] : [];
       state.mapUpdatedAt = state.mapName ? t : null;
       clearPending();
+      save();
       onChange();
     }
     function addMesoSample(amount, t = now()) {
@@ -3911,6 +4005,7 @@ return {detect,crop,anchors,percentageRegion};
       if (state.mesoSamples.length > 720)
         state.mesoSamples = state.mesoSamples.slice(-720);
       state.mesoStatus = "Meso total read";
+      save();
       onChange();
       return true;
     }
@@ -3941,8 +4036,9 @@ return {detect,crop,anchors,percentageRegion};
       return true;
     }
     function setMesoStatus(status) {
-      state.mesoStatus = status;
-      onChange();
+      const value = typeof status === "string" ? status.slice(0, 180) : defaults.mesoStatus;
+      if (state.mesoStatus === value) return false;
+      return update({ mesoStatus: value });
     }
     function setMapName(name, t = now()) {
       const value = String(name || "").trim();
@@ -3968,20 +4064,22 @@ return {detect,crop,anchors,percentageRegion};
       return true;
     }
     function setMesoRegion(region) {
-      if (!region) return false;
-      state.mesoRegion = region;
-      save();
-      onChange();
-      return true;
+      const value = validRegion(region);
+      if (!value) return false;
+      const prior = state.mesoRegion;
+      if (prior && ["x", "y", "w", "h"].every((key) => Math.abs(prior[key] - value[key]) < 0.001))
+        return false;
+      return update({ mesoRegion: value });
     }
     function setMesoAnchor(region, anchor) {
       if (!region || !anchor) return false;
-      state.mesoRegion = region;
-      state.mesoAnchor = anchor;
-      state.mesoStatus = "Inventory balance found · aligning automatically";
-      save();
-      onChange();
-      return true;
+      const value = validRegion(region);
+      if (!value || typeof anchor !== "object" || Array.isArray(anchor)) return false;
+      return update({
+        mesoRegion: value,
+        mesoAnchor: anchor,
+        mesoStatus: "Inventory balance found · aligning automatically",
+      });
     }
     function validate(levelResult, expResult, expectedDigits, readAt) {
       const independent = parseHudReading("", expResult.rawText),
@@ -4079,10 +4177,13 @@ return {detect,crop,anchors,percentageRegion};
           !(continuity.reason || "").includes("differs from saved level"),
       };
     }
+    // Persist the normalized schema once on load; later writes are change-driven.
+    save();
     return {
       state,
       key,
       samples,
+      update,
       addMesoSample,
       addDropNotice,
       setMesoStatus,
@@ -4536,13 +4637,19 @@ return {detect,crop,anchors,percentageRegion};
   }) {
     const q = (s) => document.querySelector(s),
       { state, samples, save } = session,
+      updateState = session.update || ((patch) => {
+        Object.assign(state, patch);
+        save();
+      }),
       { required, totalExp } = session.math;
     const fmt = (n) => Math.round(n || 0).toLocaleString("en-US"),
       setTimeout = window.setTimeout.bind(window);
     const currentRegions = (image) => recognition.currentRegions(image);
     let selecting = null,
       dragStart = null,
-      dragCurrent = null;
+      dragCurrent = null,
+      lastMapSessionRenderKey = null,
+      lastDropNoticeRenderKey = null;
     function update() {
       const captureStream = getCapture()?.stream,
         now = clock(),
@@ -4723,25 +4830,50 @@ return {detect,crop,anchors,percentageRegion};
       draw(ss);
       drawLog(ss);
       updateRateHint(ss);
-      save();
     }
     function renderMapSessions(visits, now, potionItems = []) {
       const root = q("#mapSessions");
       if (!root) return;
+      const signed = (value) => (value > 0 ? "+" : value < 0 ? "−" : "") + fmt(Math.abs(value)),
+        duration = (ms) => {
+          const minutes = Math.max(0, Math.floor(ms / 60000));
+          return minutes < 60 ? minutes + " min" : Math.floor(minutes / 60) + "h " + (minutes % 60) + "m";
+        },
+        rows = visits.map((visit) => {
+          const elapsed = Math.max(0, Math.min(now, visit.end) - visit.start),
+            xpRate = visit.expElapsed >= 30000 ? visit.expGain * 3600000 / visit.expElapsed : null,
+            mesoRate = visit.mesoElapsed >= 60000 ? visit.mesoChange * 3600000 / visit.mesoElapsed : null,
+            potionRates = visit.active
+              ? QuickslotSession.costRatesForInterval(potionItems, visit.start, now, now)
+              : null,
+            stats = [
+              ["EXP gained", visit.expSamples ? (visit.expEstimated ? "~" : "") + fmt(visit.expGain) : "—", ""],
+              ["EXP / hour", xpRate === null ? "—" : (visit.expEstimated ? "~" : "") + fmt(xpRate), ""],
+              ["Meso balance change", visit.mesoSamples ? signed(visit.mesoChange) : "—", ""],
+              ["Mesos / hour", mesoRate === null ? "—" : signed(mesoRate), ""],
+              ["Map time", duration(elapsed), ""],
+            ];
+          if (visit.active) {
+            stats.push(
+              ["HP potion cost / hour", potionRates?.hp === null || !potionRates ? "—" : fmt(potionRates.hp), "trailing 5 minutes"],
+              ["MP potion cost / hour", potionRates?.mp === null || !potionRates ? "—" : fmt(potionRates.mp), "trailing 5 minutes"],
+              ["HP + MP potion cost / hour", potionRates?.both === null || !potionRates ? "—" : fmt(potionRates.both), "trailing 5 minutes"],
+            );
+          }
+          return { key: `${visit.start}:${visit.name}:${visit.active ? 1 : 0}`, name: visit.name, active: visit.active, stats };
+        }),
+        renderKey = JSON.stringify(rows);
+      if (renderKey === lastMapSessionRenderKey) return;
+      lastMapSessionRenderKey = renderKey;
       root.innerHTML = "";
-      if (!visits.length) {
+      if (!rows.length) {
         const empty = document.createElement("p");
         empty.className = "subtle";
         empty.textContent = "Map-specific readings will appear after the tracker recognizes your map.";
         root.appendChild(empty);
         return;
       }
-      const signed = (value) => (value > 0 ? "+" : value < 0 ? "−" : "") + fmt(Math.abs(value)),
-        duration = (ms) => {
-          const minutes = Math.max(0, Math.floor(ms / 60000));
-          return minutes < 60 ? minutes + " min" : Math.floor(minutes / 60) + "h " + (minutes % 60) + "m";
-        };
-      for (const visit of visits) {
+      for (const row of rows) {
         const section = document.createElement("section"),
           heading = document.createElement("div"),
           title = document.createElement("strong"),
@@ -4751,20 +4883,14 @@ return {detect,crop,anchors,percentageRegion};
         section.style.cssText = "padding:12px 0;border-top:1px solid var(--line)";
         heading.className = "map-session-head";
         heading.style.cssText = "display:flex;align-items:center;justify-content:space-between;gap:10px";
-        title.textContent = visit.name;
+        title.textContent = row.name;
         status.className = "tag";
-        status.textContent = visit.active ? "CURRENT MAP" : "MAP VISIT";
+        status.textContent = row.active ? "CURRENT MAP" : "MAP VISIT";
         heading.appendChild(title);
         heading.appendChild(status);
         grid.className = "map-session-grid";
         grid.style.cssText = "display:grid;grid-template-columns:repeat(auto-fit,minmax(115px,1fr));gap:8px;margin-top:10px";
-        const elapsed = Math.max(0, Math.min(now, visit.end) - visit.start),
-          xpRate = visit.expElapsed >= 30000 ? visit.expGain * 3600000 / visit.expElapsed : null,
-          mesoRate = visit.mesoElapsed >= 60000 ? visit.mesoChange * 3600000 / visit.mesoElapsed : null,
-          potionRates = visit.active
-            ? QuickslotSession.costRatesForInterval(potionItems, visit.start, now, now)
-            : null,
-          addStat = (label, value, hint = "") => {
+        const addStat = (label, value, hint = "") => {
             const item = document.createElement("div"), key = document.createElement("div"), val = document.createElement("div");
             item.className = "stat";
             item.style.minHeight = "72px";
@@ -4772,6 +4898,7 @@ return {detect,crop,anchors,percentageRegion};
             key.textContent = label;
             val.className = "v";
             val.textContent = value;
+            item.dataset.stat = label;
             item.append(key, val);
             if (hint) {
               const note = document.createElement("div");
@@ -4781,16 +4908,7 @@ return {detect,crop,anchors,percentageRegion};
             }
             grid.appendChild(item);
           };
-        addStat("EXP gained", visit.expSamples ? (visit.expEstimated ? "~" : "") + fmt(visit.expGain) : "—");
-        addStat("EXP / hour", xpRate === null ? "—" : (visit.expEstimated ? "~" : "") + fmt(xpRate));
-        addStat("Meso balance change", visit.mesoSamples ? signed(visit.mesoChange) : "—");
-        addStat("Mesos / hour", mesoRate === null ? "—" : signed(mesoRate));
-        addStat("Map time", duration(elapsed));
-        if (visit.active) {
-          addStat("HP potion cost / hour", potionRates?.hp === null || !potionRates ? "—" : fmt(potionRates.hp), "trailing 5 minutes");
-          addStat("MP potion cost / hour", potionRates?.mp === null || !potionRates ? "—" : fmt(potionRates.mp), "trailing 5 minutes");
-          addStat("HP + MP potion cost / hour", potionRates?.both === null || !potionRates ? "—" : fmt(potionRates.both), "trailing 5 minutes");
-        }
+        for (const [label, value, hint] of row.stats) addStat(label, value, hint);
         section.appendChild(heading);
         section.appendChild(grid);
         root.appendChild(section);
@@ -4802,6 +4920,10 @@ return {detect,crop,anchors,percentageRegion};
         notices = Array.isArray(state.dropNotices) ? state.dropNotices : [];
       if (count) count.textContent = notices.length.toLocaleString("en-US");
       if (!root) return;
+      const visible = notices.slice(-12).reverse(),
+        renderKey = JSON.stringify(visible.map((notice) => [notice.t, notice.text, notice.map || null]));
+      if (renderKey === lastDropNoticeRenderKey) return;
+      lastDropNoticeRenderKey = renderKey;
       root.innerHTML = "";
       if (!notices.length) {
         const empty = document.createElement("p");
@@ -4810,7 +4932,7 @@ return {detect,crop,anchors,percentageRegion};
         root.appendChild(empty);
         return;
       }
-      for (const notice of notices.slice(-12).reverse()) {
+      for (const notice of visible) {
         const row = document.createElement("div"),
           time = document.createElement("span"),
           text = document.createElement("strong"),
@@ -4919,7 +5041,7 @@ return {detect,crop,anchors,percentageRegion};
 
     function beginRegionSelection(name) {
       if (name !== "meso" && state.calibration.auto !== false)
-        state.calibration = { ...currentRegions(), auto: false };
+        updateState({ calibration: { ...currentRegions(), auto: false } });
       selecting = selecting === name ? null : name;
       document.body.classList.toggle("meso-selecting", selecting === "meso");
       dragStart = dragCurrent = null;
@@ -5139,19 +5261,16 @@ return {detect,crop,anchors,percentageRegion};
         beginRegionSelection("meso"),
       );
       q("#clearMeso")?.addEventListener("click", () => {
-        state.mesoRegion = null;
-        state.mesoAnchor = null;
+        updateState({ mesoRegion: null, mesoAnchor: null });
         selecting = dragStart = dragCurrent = null;
         document.body.classList.remove("meso-selecting");
-        save();
         updateRegionStatus();
         drawRegions();
       });
       q("#clearRegions")?.addEventListener("click", () => {
-        state.calibration = { level: null, exp: null, auto: true };
+        updateState({ calibration: { level: null, exp: null, auto: true } });
         selecting = dragStart = dragCurrent = null;
         recognition.reset();
-        save();
         updateRegionStatus();
         drawRegions();
       });
@@ -5183,10 +5302,11 @@ return {detect,crop,anchors,percentageRegion};
           y = Math.min(dragStart.y, dragCurrent.y),
           w = Math.abs(dragStart.x - dragCurrent.x),
           h = Math.abs(dragStart.y - dragCurrent.y);
+        let statePatch = null;
         if (w > 0.005 && h > 0.005) {
           if (selecting === "meso") {
-            state.mesoRegion = { x, y, w, h };
-            state.mesoAnchor = null;
+            const region = { x, y, w, h };
+            let anchor = null;
             try {
               const image = q("#latestFrame"),
                 pixelsCanvas = document.createElement("canvas");
@@ -5194,22 +5314,26 @@ return {detect,crop,anchors,percentageRegion};
               pixelsCanvas.height = image.naturalHeight;
               const ctx = pixelsCanvas.getContext("2d", { willReadFrequently: true });
               ctx.drawImage(image, 0, 0);
-              state.mesoAnchor = localOcr?.createMesoAnchor(
+              anchor = localOcr?.createMesoAnchor(
                 ctx.getImageData(0, 0, pixelsCanvas.width, pixelsCanvas.height),
-                state.mesoRegion,
+                region,
               ) || null;
               pixelsCanvas.width = 0;
               pixelsCanvas.height = 0;
             } catch {}
-            state.mesoStatus = state.mesoAnchor
+            statePatch = {
+              mesoRegion: region,
+              mesoAnchor: anchor,
+              mesoStatus: anchor
               ? "Inventory anchor saved · aligning total automatically"
-              : "Manual amount area saved · automatic inventory scan remains available";
+              : "Manual amount area saved · automatic inventory scan remains available",
+            };
           }
-          else state.calibration[selecting] = { x, y, w, h };
+          else statePatch = { calibration: { ...state.calibration, [selecting]: { x, y, w, h } } };
         }
         selecting = dragStart = dragCurrent = null;
         document.body.classList.remove("meso-selecting");
-        save();
+        if (statePatch) updateState(statePatch);
         updateRegionStatus();
         drawRegions();
       });
@@ -5610,6 +5734,10 @@ return {detect,crop,anchors,percentageRegion};
       dropReadActive = false,
       dropReadQueue = [],
       lastDropReadAt = 0;
+    const updateSession = (patch) => {
+      if (typeof session.update === "function") session.update(patch);
+      else Object.assign(session.state, patch);
+    };
     const DROP_NOTICE_MIN_INTERVAL_MS = 150,
       DROP_NOTICE_QUEUE_LIMIT = 4;
     function mapProbeFingerprint(image) {
@@ -5888,8 +6016,7 @@ return {detect,crop,anchors,percentageRegion};
             readAt,
           );
         if (recovered.valid) {
-          session.state.calibration = { level: null, exp: null, auto: true };
-          session.save();
+          updateSession({ calibration: { level: null, exp: null, auto: true } });
           customRegionFailureStreak = 0;
           view.updateRegionStatus?.();
           view.drawRegions?.();
@@ -6012,9 +6139,7 @@ return {detect,crop,anchors,percentageRegion};
           // Migrate old saved anchors: the amount crop now includes the full
           // white balance box, so its previous coordinates must be rediscovered.
           if (session.state.mesoAnchor && session.state.mesoAnchor.version !== 3) {
-            session.state.mesoAnchor = null;
-            session.state.mesoRegion = null;
-            session.save();
+            updateSession({ mesoAnchor: null, mesoRegion: null });
           }
           let mesoRegion = session.state.mesoRegion;
           if (session.state.mesoAnchor && mesoRegion) {
@@ -6024,7 +6149,10 @@ return {detect,crop,anchors,percentageRegion};
               session.state.mesoRegion,
             );
             mesoRegion = match?.region || null;
-            if (mesoRegion) session.state.mesoRegion = mesoRegion;
+            if (mesoRegion) {
+              if (typeof session.setMesoRegion === "function") session.setMesoRegion(mesoRegion);
+              else session.state.mesoRegion = mesoRegion;
+            }
             if (!mesoRegion)
               session.setMesoStatus("Inventory anchor not found · keep the item window visible");
           }
@@ -6228,6 +6356,10 @@ return {detect,crop,anchors,percentageRegion};
       busy = false,
       connecting = false,
       itemTask = null;
+    const updateSession = (patch) => {
+      if (typeof session.update === "function") session.update(patch);
+      else Object.assign(session.state, patch);
+    };
     const delay = (ms) =>
       new Promise((resolve) => timers.setTimeout(resolve, ms));
     function invalidate() {
@@ -6266,9 +6398,7 @@ return {detect,crop,anchors,percentageRegion};
       video.pause();
       video.srcObject = null;
       recognition.reset();
-      session.state.running = false;
-      session.state.paused = false;
-      session.state.source = null;
+      updateSession({ running: false, paused: false, source: null });
       view.status(
         "waiting",
         "Sharing stopped. Your session readings are saved.",
@@ -6603,9 +6733,11 @@ return {detect,crop,anchors,percentageRegion};
           },
           { once: true },
         );
-        session.state.running = true;
-        session.state.source = "GAME WINDOW SHARED";
-        session.state.startAt ||= now();
+        updateSession({
+          running: true,
+          source: "GAME WINDOW SHARED",
+          startAt: session.state.startAt || now(),
+        });
         view.status("waiting", "Reading your game window…");
         view.update();
         timer = timers.setInterval(captureFrame, FULL_SCAN_INTERVAL_MS);
@@ -6632,8 +6764,8 @@ return {detect,crop,anchors,percentageRegion};
     }
     function togglePause() {
       if (!stream) return;
-      session.state.paused = !session.state.paused;
-      session.state.running = !session.state.paused;
+      const paused = !session.state.paused;
+      updateSession({ paused, running: !paused });
       invalidate();
       view.status(
         "waiting",
@@ -7511,6 +7643,7 @@ return {detect,crop,anchors,percentageRegion};
         worker = null,
         waiter = null,
         serial = 0,
+        lastCostSnapshotAt = Number.NEGATIVE_INFINITY,
         workerFailed = false;
       function getStore(kind) {
         if (!profiles.has(kind))
@@ -7519,7 +7652,7 @@ return {detect,crop,anchors,percentageRegion};
             Session.create({
               storage,
               key: Session.KEY + ":" + kind,
-              onChange: () => render(),
+              onChange: () => render(true),
             }),
           );
         return profiles.get(kind);
@@ -7705,22 +7838,26 @@ return {detect,crop,anchors,percentageRegion};
         }
         drawnKind = layout.kind;
       }
-      function render() {
+      function render(forceSnapshot = false) {
         if (!q("#quickslotItems")) return;
-        try {
-          const inventoryLayout = live || last;
-          storage?.setItem(
-            Costs.KEY,
-            JSON.stringify(
-              Costs.snapshot(
-                store,
-                !!live,
-                now(),
-                inventoryLayout ? Session.KEY + ":" + inventoryLayout.kind : null,
+        const snapshotTime = now();
+        if (forceSnapshot || snapshotTime - lastCostSnapshotAt >= 10000) {
+          try {
+            const inventoryLayout = live || last;
+            storage?.setItem(
+              Costs.KEY,
+              JSON.stringify(
+                Costs.snapshot(
+                  store,
+                  !!live,
+                  snapshotTime,
+                  inventoryLayout ? Session.KEY + ":" + inventoryLayout.kind : null,
+                ),
               ),
-            ),
-          );
-        } catch {}
+            );
+            lastCostSnapshotAt = snapshotTime;
+          } catch {}
+        }
         q("#trackItems").checked = store?.state.enabled === true;
         q("#trackItems").disabled = !live;
         q("#quickslotLayoutState").textContent = live
@@ -8038,8 +8175,8 @@ return {detect,crop,anchors,percentageRegion};
         document,
         new URL("assets/meso-balance-reference.png", location.href).href,
       ) || Promise.resolve(null);
-      let view, capture;
-      const session = Session.create({
+      let view, capture, session;
+      session = Session.create({
         storage,
         key,
         levelOcr,
@@ -8151,8 +8288,9 @@ return {detect,crop,anchors,percentageRegion};
         )
           return;
         capture.invalidate();
-        session.reset();
         items.resetSession();
+        // Clear the potion baseline before publishing the new session snapshot.
+        session.reset();
         view.status("waiting", "New session · Waiting for the next reading");
       });
       on("#streamCardBtn", () => {
@@ -8172,15 +8310,14 @@ return {detect,crop,anchors,percentageRegion};
       view.bindCalibration();
       view.updateRegionStatus();
       view.update();
-      const timer = window.setInterval(() => {
-        view.update();
-        items.render();
-      }, 5000);
+      const timer = window.setInterval(() => view.update(), 5000),
+        itemsTimer = window.setInterval(() => items.render(), 10000);
       let disposed = false;
       function dispose() {
         if (disposed) return;
         disposed = true;
         window.clearInterval(timer);
+        window.clearInterval(itemsTimer);
         if (capture.stream) capture.stop();
         view.dispose();
         items.dispose();
