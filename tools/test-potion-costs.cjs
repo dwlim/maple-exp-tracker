@@ -188,6 +188,7 @@ const resetMemory = new Map(),
 resetStore.enable(true);
 resetStore.observe(resetPotion.id, { count: 100, confidence: 99 }, resetClock);
 resetClock += 10000;
+resetStore.invalidate();
 resetStore.reset();
 assert.deepEqual(
   resetStore.state.items[0].inventorySamples,

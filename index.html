@@ -3386,13 +3386,24 @@ return {detect,crop,anchors,percentageRegion};
           i.paidStock = 0;
           i.seconds = 0;
           i.usageSamples = [];
-          const hasRecentCount = Number.isInteger(i.count) &&
-            i.count >= 0 &&
-            Number.isFinite(i.at) &&
-            i.at <= resetAt &&
-            resetAt - i.at <= 25000;
-          i.inventorySamples = hasRecentCount
-            ? [{ t: resetAt, count: i.count }]
+          const lastInventorySample = i.inventorySamples?.at(-1),
+            liveCountIsFresh = Number.isInteger(i.count) &&
+              i.count >= 0 &&
+              Number.isFinite(i.at) &&
+              i.at <= resetAt &&
+              resetAt - i.at <= 25000,
+            savedCountIsFresh = Number.isInteger(lastInventorySample?.count) &&
+              lastInventorySample.count >= 0 &&
+              Number.isFinite(lastInventorySample.t) &&
+              lastInventorySample.t <= resetAt &&
+              resetAt - lastInventorySample.t <= 25000,
+            baselineCount = liveCountIsFresh
+              ? i.count
+              : savedCountIsFresh
+                ? lastInventorySample.count
+                : null;
+          i.inventorySamples = baselineCount !== null
+            ? [{ t: resetAt, count: baselineCount }]
             : [];
         }
         invalidate();
