@@ -38,6 +38,15 @@ const knownPotionCosts = {
   ],
 };
 assert.deepEqual(C.potionCostRates(knownPotionCosts, now), { hp: 24000, mp: 52800 });
+assert.deepEqual(
+  C.potionCostRates({
+    enabled: true,
+    updatedAt: now,
+    items: [{ group: "both", price: 100, rate: 2, lastReadAt: now }],
+  }, now),
+  { hp: 100, mp: 100 },
+  "Combined HP/MP potion cost is split evenly across the stream card's separate rows",
+);
 assert.equal(
   C.potionCostRates({ ...knownPotionCosts, items: [...knownPotionCosts.items, { group: "hp", price: null, rate: 1, lastReadAt: now }] }, now).hp,
   null,
@@ -168,6 +177,26 @@ const scopedPotionRates = C.potionCostRates(
 );
 assert.ok(Math.abs(scopedPotionRates.hp - 15000) < 0.01);
 assert.equal(scopedPotionRates.mp, null);
+const combinedPotionStorage = {
+    getItem: (key) => key === profileKey
+      ? JSON.stringify({ items: [{
+          potionType: "both",
+          unitCost: 500,
+          usageSamples: [
+            { t: now - 20000, seconds: 20, used: 1 },
+            { t: now, seconds: 20, used: 1 },
+          ],
+        }] })
+      : null,
+  },
+  combinedPotionRates = C.potionCostRates(
+    activePotionSnapshot,
+    now,
+    { ...currentVisit, start: now - 30000 },
+    combinedPotionStorage,
+  );
+assert.equal(combinedPotionRates.hp, 45000);
+assert.equal(combinedPotionRates.mp, 45000);
 assert.equal(
   C.metrics({ level: 100, samples: [] }, now, required, totalExp).eta,
   "MAX LEVEL",

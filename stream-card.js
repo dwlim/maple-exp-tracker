@@ -81,10 +81,25 @@
             : "PAUSED",
     };
   }
+  function splitCombinedPotionCosts(items, rates) {
+    const groups = new Set((Array.isArray(items) ? items : []).map(
+      (item) => PotionCosts.catalog[item?.potionType]?.group || item?.group,
+    ));
+    const hasBoth = groups.has("both"),
+      hasHp = groups.has("hp"),
+      hasMp = groups.has("mp");
+    const sum = (group, hasGroup) => {
+      if (!hasGroup && !hasBoth) return null;
+      if ((hasGroup && rates[group] === null) || (hasBoth && rates.both === null))
+        return null;
+      return (hasGroup ? rates[group] : 0) + (hasBoth ? rates.both / 2 : 0);
+    };
+    return { hp: sum("hp", hasHp), mp: sum("mp", hasMp) };
+  }
   function potionCostRates(state, now, visit = null, storage = null) {
     if (!visit) {
       const costs = PotionCosts.metrics(state, now);
-      return { hp: costs.hp, mp: costs.mp };
+      return splitCombinedPotionCosts(state?.items, costs);
     }
     const key = state?.inventoryKey,
       fresh = state?.enabled === true && Number.isFinite(state.updatedAt) &&
@@ -99,7 +114,7 @@
     const rates = fresh
       ? QuickslotSession.costRatesForInterval(items, visit.start, now, now)
       : { hp: null, mp: null, both: null };
-    return { hp: rates.hp, mp: rates.mp };
+    return splitCombinedPotionCosts(items, rates);
   }
   function mesoMetrics(state, now, visit = null) {
     const samples = samplesForVisit(Array.isArray(state.mesoSamples) ? state.mesoSamples : [], visit, now)
@@ -182,8 +197,8 @@
         <div id="cardMapName" class="stream-map-name"></div>
         <div class="stream-metric-heading"><span>CURRENT MAP RATES</span><span>TRAILING 5 MIN</span></div>
         <div class="stream-metrics-line">
-          <div><span>HP COST / HR</span><strong id="cardHpPotionCost" title="Estimated HP potion cost per hour on this map over the trailing five minutes">—</strong></div>
-          <div><span>MP COST / HR</span><strong id="cardMpPotionCost" title="Estimated MP potion cost per hour on this map over the trailing five minutes">—</strong></div>
+          <div><span>HP COST / HR</span><strong id="cardHpPotionCost" title="Estimated HP potion cost per hour on this map over the trailing five minutes. Combined HP/MP potion cost is split evenly between HP and MP.">—</strong></div>
+          <div><span>MP COST / HR</span><strong id="cardMpPotionCost" title="Estimated MP potion cost per hour on this map over the trailing five minutes. Combined HP/MP potion cost is split evenly between HP and MP.">—</strong></div>
           <div><span>MESO CHANGE / HR</span><strong id="cardMesoRate" title="Meso balance change per hour on this map over the trailing five minutes">—</strong></div>
         </div>
         <div class="stream-chart">
@@ -274,5 +289,5 @@
     );
     render();
   }
-  return { metrics, mesoMetrics, potionCostRates, graph, mount };
+  return { metrics, mesoMetrics, potionCostRates, splitCombinedPotionCosts, graph, mount };
 });
