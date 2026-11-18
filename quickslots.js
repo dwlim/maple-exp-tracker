@@ -269,6 +269,7 @@
       function render() {
         if (!q("#quickslotItems")) return;
         try {
+          const inventoryLayout = live || last;
           storage?.setItem(
             Costs.KEY,
             JSON.stringify(
@@ -276,7 +277,7 @@
                 store,
                 !!live,
                 now(),
-                live ? Session.KEY + ":" + live.kind : null,
+                inventoryLayout ? Session.KEY + ":" + inventoryLayout.kind : null,
               ),
             ),
           );

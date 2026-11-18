@@ -40,6 +40,20 @@
       return {};
     }
   }
+  function readPotionInventory(storage, state) {
+    const key = state?.inventoryKey;
+    if (
+      storage?.getItem &&
+      Array.isArray(QuickslotSession?.STORE_KEYS) &&
+      QuickslotSession.STORE_KEYS.includes(key)
+    ) {
+      try {
+        const saved = JSON.parse(storage.getItem(key) || "{}");
+        if (Array.isArray(saved?.items)) return saved.items;
+      } catch {}
+    }
+    return Array.isArray(state?.items) ? state.items : [];
+  }
   function create({
     document,
     window,
@@ -111,24 +125,7 @@
           )
           .sort((a, b) => a.t - b.t),
         latestMeso = mesoSamples.at(-1);
-      const potionInventoryFresh = potionState.enabled === true &&
-          Number.isFinite(potionState.updatedAt) &&
-          potionState.updatedAt <= now &&
-          now - potionState.updatedAt <= 25000,
-        activeStore = potionInventoryFresh &&
-            Array.isArray(QuickslotSession?.STORE_KEYS) &&
-            QuickslotSession.STORE_KEYS.includes(potionState.inventoryKey)
-          ? (() => {
-              try {
-                return JSON.parse(storage?.getItem(potionState.inventoryKey) || "{}") || {};
-              } catch {
-                return {};
-              }
-            })()
-          : {},
-        trackedPotionItems = potionInventoryFresh && Array.isArray(activeStore.items)
-          ? activeStore.items
-          : (Array.isArray(potionState.items) ? potionState.items : []),
+      const trackedPotionItems = readPotionInventory(storage, potionState),
         hasTrackedPotionInventory = trackedPotionItems.some(
           (item) =>
             !!PotionCosts.catalog[item?.potionType]?.group ||
@@ -780,5 +777,5 @@
       isAutomatic: () => q("#autoOcr").checked,
     };
   }
-  return { create, sessionPotionUsage };
+  return { create, readPotionInventory, sessionPotionUsage };
 });

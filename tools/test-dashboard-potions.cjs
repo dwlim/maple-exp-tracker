@@ -28,6 +28,32 @@ const values = new Map([
 ]);
 const storage = { getItem: (key) => values.get(key) || null };
 
+const originalProfile = values.get(QuickslotSession.STORE_KEYS[0]),
+  savedInventory = [{
+  potionType: "red",
+  inventorySamples: [{ t: 1000, count: 25 }],
+}];
+values.set(QuickslotSession.STORE_KEYS[0], JSON.stringify({ items: savedInventory }));
+assert.deepEqual(
+  Dashboard.readPotionInventory(storage, {
+    enabled: false,
+    updatedAt: 0,
+    inventoryKey: QuickslotSession.STORE_KEYS[0],
+    items: [{ group: "hp", price: 50 }],
+  }),
+  savedInventory,
+  "Dashboard uses timestamped inventory history even when the lightweight live snapshot is temporarily stale",
+);
+assert.deepEqual(
+  Dashboard.readPotionInventory(storage, {
+    inventoryKey: "unrecognized-profile",
+    items: [{ group: "hp", price: 50 }],
+  }),
+  [{ group: "hp", price: 50 }],
+  "Dashboard safely falls back when no saved quickslot profile is identified",
+);
+values.set(QuickslotSession.STORE_KEYS[0], originalProfile);
+
 assert.deepEqual(Dashboard.sessionPotionUsage(storage), {
   hp: 7,
   mp: 8,
