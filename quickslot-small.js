@@ -288,10 +288,7 @@
   function recognize(image, font) {
     const { palette, templates, adaptiveTemplates, adaptiveGroups } = model(font),
       reading = recognizeWithTemplates(image, palette, templates);
-    // First use the broadly calibrated font. Real-HUD supplemental glyphs are
-    // only a fallback for crops the base model cannot read, so they cannot
-    // change previously accepted counts or create new false positives there.
-    if (reading || !adaptiveTemplates.length) return reading;
+    if (!adaptiveTemplates.length) return reading;
     let red = 0,
       blue = 0;
     for (let i = 0; i < image.data.length; i += 4) {
@@ -313,10 +310,18 @@
     );
     // A supplemental real-HUD glyph is not enough evidence for short counts:
     // cursor art can resemble a second glyph. Require at least three fully
-    // matched digits so a partial 330 cannot be accepted as 3 or 33.
-    return adaptiveReading && String(adaptiveReading.count).length >= 3
-      ? adaptiveReading
-      : null;
+    // matched digits so a partial 330 cannot be accepted as 3 or 33. A
+    // color-matched full count may replace a shorter generic prefix (for
+    // example, the first red glyph mistaken for 8); otherwise preserve the
+    // broadly calibrated reading.
+    if (
+      adaptiveReading &&
+      String(adaptiveReading.count).length >= 3 &&
+      (!reading ||
+        String(adaptiveReading.count).length > String(reading.count).length)
+    )
+      return adaptiveReading;
+    return reading;
   }
   return { value, cell, recognize };
 });
