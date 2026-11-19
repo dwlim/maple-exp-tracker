@@ -76,6 +76,7 @@ for (const f of fixtures) {
         ...(f.adaptive && (!f.adaptiveDigits || f.adaptiveDigits.includes(f.text[k]))
           ? { adaptive: true }
           : {}),
+        ...(f.adaptiveGroup ? { adaptiveGroup: f.adaptiveGroup } : {}),
       });
       cursor += f.text[k] === "1" ? 5 : 8;
       continue;

@@ -15,7 +15,19 @@
       m = {
         palette: native[0]?.palette,
         templates: makeTemplates(native.filter((t) => !t.adaptive)),
-        adaptiveTemplates: makeTemplates(native.filter((t) => t.adaptive)),
+        adaptiveTemplates: makeTemplates(
+          native.filter((t) => t.adaptive && !t.adaptiveGroup),
+        ),
+        adaptiveGroups: new Map(
+          [...new Set(native.map((t) => t.adaptiveGroup).filter(Boolean))].map(
+            (group) => [
+              group,
+              makeTemplates(
+                native.filter((t) => t.adaptive && t.adaptiveGroup === group),
+              ),
+            ],
+          ),
+        ),
       };
     models.set(font, m);
     return m;
@@ -55,7 +67,14 @@
       }
     return shape;
   }
-  function hasText(image, palette, cursor, top, end = image.width) {
+  function hasText(
+    image,
+    palette,
+    cursor,
+    top,
+    end = image.width,
+    ignoreSaturatedPixels = false,
+  ) {
     let first = false,
       last = false,
       ink = 0,
@@ -65,6 +84,10 @@
       for (let x = 2; x < 9 && cursor + x < Math.min(image.width, end); x++) {
         const i = ((top + y) * image.width + cursor + x) * 4;
         if (
+          (!ignoreSaturatedPixels ||
+            Math.max(image.data[i], image.data[i + 1], image.data[i + 2]) -
+              Math.min(image.data[i], image.data[i + 1], image.data[i + 2]) <=
+              72) &&
           value(
             image.data[i],
             image.data[i + 1],
@@ -82,7 +105,13 @@
     }
     return first && last && ink >= 6 && rows >= 6;
   }
-  function recognizeWithTemplates(image, palette, templates, adaptiveTemplates = []) {
+  function recognizeWithTemplates(
+    image,
+    palette,
+    templates,
+    adaptiveTemplates = [],
+    ignoreSaturatedPixels = false,
+  ) {
     if (
       !palette ||
       image.height < 12 ||
@@ -94,7 +123,17 @@
       unresolvedPrefixes = new Set();
     for (let top = 0; top <= image.height - 12; top++)
       for (let left = 0; left <= 4; left++) {
-        if (hasText(image, palette, 0, top, left + 2)) continue;
+        if (
+          hasText(
+            image,
+            palette,
+            0,
+            top,
+            left + 2,
+            ignoreSaturatedPixels,
+          )
+        )
+          continue;
         let cursor = left,
           text = "",
           error = 0,
@@ -102,6 +141,7 @@
           valid = true;
         for (let n = 0; n < 6; n++) {
           const strength = new Map(),
+            evidence = new Map(),
             scores = new Map(),
             wide = cell(image, cursor, top, "0"),
             narrow = cell(image, cursor, top, "1");
@@ -118,8 +158,23 @@
               aa = 0,
               bb = 0,
               ab = 0;
-            for (let i = 0; i < shape.length; i++)
-              if (t.mask[i]) {
+            for (let i = 0; i < shape.length; i++) {
+              const glyphWidth = t.digit === "1" ? 3 : 7,
+                px = cursor + (i % glyphWidth) + 2,
+                py = top + Math.floor(i / glyphWidth) + 1,
+                source = (py * image.width + px) * 4,
+                chroma =
+                  Math.max(
+                    image.data[source],
+                    image.data[source + 1],
+                    image.data[source + 2],
+                  ) -
+                  Math.min(
+                    image.data[source],
+                    image.data[source + 1],
+                    image.data[source + 2],
+                  );
+              if (t.mask[i] && (!ignoreSaturatedPixels || chroma <= 72)) {
                 const x = shape[i],
                   y = t.shape[i];
                 n++;
@@ -129,6 +184,7 @@
                 bb += y * y;
                 ab += x * y;
               }
+            }
             const av = aa - (a * a) / n,
               bv = bb - (b * b) / n;
             const e =
@@ -141,6 +197,7 @@
                   );
             if (!scores.has(t.digit) || e < scores.get(t.digit)) {
               scores.set(t.digit, e);
+              evidence.set(t.digit, n);
               // A tiny mask cannot win by ignoring distinguishing strokes.
               strength.set(
                 t.digit,
@@ -159,13 +216,28 @@
             strength.get(sorted[0][0]) - strength.get(sorted[1][0]) <
               Math.log(100)
           ) {
-            // Color alone is not proof of an empty tail. A weak masked match
-            // still means a possible continuation, so reject the whole count.
-            const visibleTail = text && hasText(image, palette, cursor, top);
+            // A colored potion icon can look like a weak extra digit. In the
+            // adaptive pass, ignore that possibility unless enough uncolored
+            // pixels support it; this keeps the full-count check conservative.
+            const visibleTail =
+              text &&
+              hasText(
+                image,
+                palette,
+                cursor,
+                top,
+                image.width,
+                ignoreSaturatedPixels,
+              );
             if (visibleTail) unresolvedPrefixes.add(text);
             if (
               visibleTail ||
-              [...scores.values()].some((e) => e <= 0.25)
+              [...scores].some(
+                ([digit, e]) =>
+                  e <= 0.25 &&
+                  // Require a meaningful fraction of the 7x9 glyph mask.
+                  (!ignoreSaturatedPixels || evidence.get(digit) >= 24),
+              )
             )
               valid = false;
             break;
@@ -214,17 +286,30 @@
     return sorted[0];
   }
   function recognize(image, font) {
-    const { palette, templates, adaptiveTemplates } = model(font),
+    const { palette, templates, adaptiveTemplates, adaptiveGroups } = model(font),
       reading = recognizeWithTemplates(image, palette, templates);
     // First use the broadly calibrated font. Real-HUD supplemental glyphs are
     // only a fallback for crops the base model cannot read, so they cannot
     // change previously accepted counts or create new false positives there.
     if (reading || !adaptiveTemplates.length) return reading;
+    let red = 0,
+      blue = 0;
+    for (let i = 0; i < image.data.length; i += 4) {
+      const r = image.data[i],
+        g = image.data[i + 1],
+        b = image.data[i + 2],
+        chroma = Math.max(r, g, b) - Math.min(r, g, b);
+      if (chroma > 72 && r > g * 1.25 && r > b * 1.2) red++;
+      else if (chroma > 72 && b > r * 1.2 && b > g * 1.1) blue++;
+    }
+    const group = red > blue * 1.2 ? "red" : blue > red * 1.2 ? "blue" : null,
+      groupedTemplates = group ? adaptiveGroups.get(group) || [] : [];
     const adaptiveReading = recognizeWithTemplates(
       image,
       palette,
       templates,
-      adaptiveTemplates,
+      adaptiveTemplates.concat(groupedTemplates),
+      group !== null,
     );
     // A supplemental real-HUD glyph is not enough evidence for short counts:
     // cursor art can resemble a second glyph. Require at least three fully
