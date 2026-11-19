@@ -1167,6 +1167,7 @@
               kind,
               text: String(reading?.text || "").trim(),
               confidence: Number.isFinite(reading?.confidence) ? reading.confidence : null,
+              words: reading?.words || [],
             });
             return reading;
           };
@@ -1178,7 +1179,10 @@
             // Full-block OCR can merge the two tiny pixel-font lines. When it
             // cannot canonicalize a result, OCR each detected line separately
             // with single-line segmentation before falling back to raw text.
-            if (!result.map?.canonicalized) {
+            if (
+              !result.map?.canonicalized ||
+              MapName.hasRomanMapVariants(result.map?.text)
+            ) {
               const lines = MapName.splitLabelLines(input.mapImage);
               const originalLines = String(reading?.text || "")
                 .replace(/\r/g, "")
@@ -1208,10 +1212,11 @@
                   .map((line) => line.trim())
                   .find((line) => line.length >= 3 && /[A-Za-z]{3}/.test(line));
                 fullStreet ||= segmentedStreet;
-                const corrected = [
+                const correctedCandidates = [
                     MapName.parse(
                       `${street?.text || ""}\n${name?.text || ""}`,
                       confidence,
+                      name,
                     ),
                     // Sometimes block segmentation reads the street cleanly
                     // while the isolated second line reads the map name more
@@ -1220,8 +1225,12 @@
                     MapName.parse(
                       `${fullStreet || ""}\n${name?.text || ""}`,
                       Math.min(reading?.confidence ?? 0, name?.confidence ?? 0),
+                      name,
                     ),
-                  ].find((candidate) => candidate?.canonicalized);
+                  ].filter((candidate) => candidate?.canonicalized),
+                  corrected =
+                    correctedCandidates.find((candidate) => candidate.romanGlyphEvidence) ||
+                    correctedCandidates[0];
                 if (
                   corrected &&
                   !MapName.hasConflictingRomanEvidence(corrected, mapObservations)
@@ -1509,12 +1518,19 @@
           const { data } = await w.recognize(
             c,
             {},
-            kind === "drop-notice" ? { text: true, blocks: true } : { text: true },
+            kind === "drop-notice" || kind === "map-line"
+              ? { text: true, blocks: true }
+              : { text: true },
+          );
+          const words = data.blocks?.flatMap((block) =>
+            (block.paragraphs || []).flatMap((paragraph) =>
+              (paragraph.lines || []).flatMap((line) => line.words || []),
+            ),
           );
           return {
             text: data.text,
             confidence: data.confidence,
-            words: data.words || [],
+            words,
             blocks: data.blocks || [],
           };
         } finally {

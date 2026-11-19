@@ -308,8 +308,19 @@ const Reader = require("../reader");
         height: pixels.height,
         data: Buffer.from(pixels.data),
       }),
+      {},
+      kind === "map-line" ? { text: true, blocks: true } : { text: true },
     );
-    return { text: result.data.text, confidence: result.data.confidence };
+    const words = result.data.blocks?.flatMap((block) =>
+      (block.paragraphs || []).flatMap((paragraph) =>
+        (paragraph.lines || []).flatMap((line) => line.words || []),
+      ),
+    );
+    return {
+      text: result.data.text,
+      confidence: result.data.confidence,
+      words,
+    };
   });
   try {
     const overlayHeader = PNG.sync.read(
@@ -370,6 +381,23 @@ const Reader = require("../reader");
       "Dungeon · Damp Forest",
       "the failed Damp Forest HUD crop reads after restoring left padding past the emblem",
     );
+
+    const forgottenMapCases = [
+      ["map-header-forgotten-primeval-ii.png", "Shallow Passage · Primeval Forest II"],
+      ["map-header-forgotten-primeval-iii.png", "Shallow Passage · Primeval Forest III"],
+      ["map-header-forgotten-entrance-ii.png", "Shallow Passage · Forgotten Entrance II"],
+    ];
+    for (const [filename, expected] of forgottenMapCases) {
+      const image = PNG.sync.read(
+          fs.readFileSync(path.join(__dirname, "fixtures", filename)),
+        ),
+        forgotten = await reader.read({ mapImage: image, includeMapDebug: true });
+      assert.equal(
+        forgotten.map?.text,
+        expected,
+        `${filename} uses isolated glyph width to resolve merged Roman-I suffixes`,
+      );
+    }
 
     for (const { filename, expected, crop } of compactHeaderCases) {
       const compactResult = await reader.read({ mapImage: crop, includeMapDebug: true });
