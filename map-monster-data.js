@@ -1,5 +1,6 @@
 // Derived from OSMS Data Explorer data/current/maps.json on 2026-11-02.
-// Includes only map titles with one or more monster spawn points. See MAP-NAMES-ATTRIBUTION.md.
+// Optional reference index for maps with monster spawn points; it does not
+// determine which known maps the tracker can recognize. See MAP-NAMES-ATTRIBUTION.md.
 // Forgotten Hollow v2.0 populated maps were added from the November 2026
 // game-data changelog and patch notes.
 (function (root) {

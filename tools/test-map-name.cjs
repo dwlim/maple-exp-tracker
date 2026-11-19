@@ -50,9 +50,9 @@ const Reader = require("../reader");
     confidence: 95,
   }));
   assert.equal(
-    (await townOnly.read({ mapImage: mapCrop })).map,
-    null,
-    "a recognized map with no monster spawn points is not trackable",
+    (await townOnly.read({ mapImage: mapCrop })).map?.text,
+    "Victoria Road · Henesys",
+    "a recognized town without monster spawns remains trackable",
   );
 
   // The minimap logo anchors the two-line label. A larger pale-blue panel
@@ -154,6 +154,7 @@ const Reader = require("../reader");
     ["Shallow Passage", "Forgotten Dungeon Tunnel"],
     ["Shallow Passage", "The Faded Canopy"],
     ["Shallow Passage", "Forbidden Entrance"],
+    ["Shallow Passage", "Cave Fairy Sanctuary"],
     ["Deep Passage", "Perilous Descent I"],
     ["Deep Passage", "Perilous Descent II"],
     ["Deep Passage", "Perilous Descent III"],
@@ -177,8 +178,8 @@ const Reader = require("../reader");
   }
   assert.equal(
     MapName.isCanonicalName("Shallow Passage · Cave Fairy Sanctuary"),
-    false,
-    "NPC-only Forgotten Hollow rooms remain excluded from map tracking",
+    true,
+    "NPC-only Forgotten Hollow locations are still trackable",
   );
   assert.equal(
     MapName.isCanonicalName("Victoria Road · Tree Dungeon, Forest Up North IX"),
@@ -187,8 +188,8 @@ const Reader = require("../reader");
   );
   assert.equal(
     MapName.isCanonicalName("Victoria Road · Henesys"),
-    false,
-    "a canonical town name without monster spawns is excluded from tracking",
+    true,
+    "a canonical town name is trackable even without monster spawns",
   );
   assert.equal(
     MapName.isCanonicalName("Victoria Road · Tree lnmgeon, Forest Up North IX"),
@@ -343,9 +344,9 @@ const Reader = require("../reader");
       overlayResult = await reader.read({ mapImage: overlayCrop, includeMapDebug: true });
     assert.ok(overlayBox, "find the minimap header beside a character-stat overlay");
     assert.equal(
-      overlayResult.map,
-      null,
-      "a town map stays untracked even when OCR reads its label correctly",
+      overlayResult.map?.text,
+      "Victoria Road · Kerning City",
+      "a town map is tracked when OCR reads its label correctly",
     );
     assert.equal(
       overlayResult.mapDebug?.some((reading) => /Victoria Road|Kerning City/.test(reading.text)),
@@ -355,12 +356,12 @@ const Reader = require("../reader");
 
     const result = await reader.read({ mapImage: mapCrop });
     assert.equal(
-      result.map,
-      null,
-      "a town with no monster spawns is not accepted as a tracked map",
+      result.map?.text,
+      "Victoria Road · Henesys",
+      "a known town is accepted as a tracked map without monster spawns",
     );
     const debugResult = await reader.read({ mapImage: mapCrop, includeMapDebug: true });
-    assert.equal(debugResult.map, null);
+    assert.equal(debugResult.map?.text, "Victoria Road · Henesys");
     assert.ok(debugResult.mapDebug?.length, "debug reads retain the browser OCR attempts");
     assert.match(debugResult.mapDebug[0].text, /Victoria Road|Henesys/);
     assert.ok(debugResult.mapDebug[0].confidence >= 0);
@@ -369,11 +370,11 @@ const Reader = require("../reader");
 
     const anchoredResult = await reader.read({ mapImage: anchoredCrop, includeMapDebug: true });
     assert.equal(
-      anchoredResult.map,
-      null,
-      "a no-monster Free Market map is not a trackable map",
+      anchoredResult.map?.text,
+      "Hidden Street · Free Market <14>",
+      "a known Free Market location is trackable without monster spawns",
     );
-    assert.ok(anchoredResult.mapDebug?.length, "the excluded map remains available in OCR diagnostics");
+    assert.ok(anchoredResult.mapDebug?.length, "the map remains available in OCR diagnostics");
 
     const dampResult = await reader.read({ mapImage: dampCrop });
     assert.equal(
@@ -402,12 +403,12 @@ const Reader = require("../reader");
     for (const { filename, expected, crop } of compactHeaderCases) {
       const compactResult = await reader.read({ mapImage: crop, includeMapDebug: true });
       assert.equal(
-        compactResult.map,
-        null,
-        `the no-monster map in ${filename} is excluded from tracking`,
+        compactResult.map?.text,
+        expected,
+        `the known map in ${filename} is trackable without monster spawns`,
       );
       assert.ok(compactResult.mapDebug?.length, `keep OCR readings for ${filename} diagnostics`);
-      assert.equal(MapName.isCanonicalName(expected), false, `${filename} is not a monster map`);
+      assert.equal(MapName.isCanonicalName(expected), true, `${filename} is in the full map catalog`);
     }
 
     const freeMarketThree = PNG.sync.read(
@@ -417,9 +418,9 @@ const Reader = require("../reader");
     );
     const freeMarketThreeResult = await reader.read({ mapImage: freeMarketThree, includeMapDebug: true });
     assert.equal(
-      freeMarketThreeResult.map,
-      null,
-      "a no-monster Free Market map is rejected by the real OCR pipeline",
+      freeMarketThreeResult.map?.text,
+      "Hidden Street · Free Market <3>",
+      "the real OCR pipeline recognizes a cataloged Free Market map",
     );
     assert.ok(freeMarketThreeResult.mapDebug?.length);
 
@@ -430,9 +431,9 @@ const Reader = require("../reader");
     );
     const freeMarketSevenResult = await reader.read({ mapImage: freeMarketSeven, includeMapDebug: true });
     assert.equal(
-      freeMarketSevenResult.map,
-      null,
-      "a no-monster Free Market map stays excluded after alternate-scale OCR",
+      freeMarketSevenResult.map?.text,
+      "Hidden Street · Free Market <7>",
+      "a cataloged Free Market map stays recognized after alternate-scale OCR",
     );
     assert.ok(freeMarketSevenResult.mapDebug?.length);
 
@@ -445,9 +446,9 @@ const Reader = require("../reader");
     const dimmedCrop = MapName.cropHeaderText(dimmedFrame, dimmedHeader);
     const dimmedResult = await reader.read({ mapImage: dimmedCrop, includeMapDebug: true });
     assert.equal(
-      dimmedResult.map,
-      null,
-      "a no-monster Free Market map stays excluded after thresholded OCR",
+      dimmedResult.map?.text,
+      "Hidden Street · Free Market Entrance",
+      "a cataloged Free Market map stays recognized after thresholded OCR",
     );
     assert.ok(dimmedResult.mapDebug?.length);
 

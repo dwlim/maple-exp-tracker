@@ -1,11 +1,8 @@
 (function (root, factory) {
   if (typeof module === "object" && module.exports)
-    module.exports = factory(
-      require("./map-name-data"),
-      require("./map-monster-data"),
-    );
-  else root.MapleMapName = factory(root.MapleMapNames || [], root.MapleMonsterMapNames || []);
-})(typeof window === "undefined" ? globalThis : window, function (mapNames, monsterMapNames) {
+    module.exports = factory(require("./map-name-data"));
+  else root.MapleMapName = factory(root.MapleMapNames || []);
+})(typeof window === "undefined" ? globalThis : window, function (mapNames) {
   "use strict";
 
   // The minimap's title field is a distinctive pale blue. Search only the
@@ -563,7 +560,7 @@
     if (separator < 0) return false;
     const street = value.slice(0, separator),
       name = value.slice(separator + 3);
-    return monsterMapNames.some(([knownStreet, knownName]) =>
+    return mapNames.some(([knownStreet, knownName]) =>
       knownStreet === street && knownName === name,
     );
   }
