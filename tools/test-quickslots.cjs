@@ -45,6 +45,28 @@ for (const f of require("./quickslot-gray-fallback-fixtures.json")) {
     f.name + " is recovered by the luminance-only retry",
   );
 }
+for (const f of require("./quickslot-red-icon-fixtures.json")) {
+  const image = { ...f, data: Buffer.from(f.rgba, "base64") };
+  assert.equal(
+    Q.recognizeSlot(image)?.count ?? null,
+    f.expectedCount,
+    f.name + " suppresses overlapping red potion art before OCR",
+  );
+  const iconOnly = { ...image, data: new Uint8ClampedArray(image.data) };
+  for (let i = 0; i < iconOnly.data.length; i += 4) {
+    const r = iconOnly.data[i],
+      g = iconOnly.data[i + 1],
+      b = iconOnly.data[i + 2],
+      chroma = Math.max(r, g, b) - Math.min(r, g, b);
+    if (!(chroma > 35 && r > g * 1.12 && r > b * 1.1))
+      iconOnly.data[i] = iconOnly.data[i + 1] = iconOnly.data[i + 2] = 32;
+  }
+  assert.equal(
+    Q.recognizeSlot(iconOnly),
+    null,
+    f.name + " cannot become a count from red icon pixels alone",
+  );
+}
 assert.deepEqual(
   new Set(require("../quickslot-font").map((v) => v.digit)),
   new Set("0123456789"),
@@ -396,7 +418,7 @@ const eight = packedFrame(cases.find((f) => f.name === "native-8-10")),
     getCapture: () => capture,
   });
   const pending = ui2.process(frame(eight), 1000);
-  assert.match(active.url.href, /tracker\/quickslot-worker.js\?v=10$/);
+  assert.match(active.url.href, /tracker\/quickslot-worker.js\?v=11$/);
   ui2.invalidate();
   await pending;
   assert.equal(active.stopped, true);

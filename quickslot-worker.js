@@ -4,7 +4,7 @@ importScripts(
   "quickslot-layout.js?v=10",
   "quickslot-font.js?v=10",
   "quickslot-small.js?v=10",
-  "quickslot-ocr.js?v=10",
+  "quickslot-ocr.js?v=11",
 );
 self.onmessage = ({ data: { id, kind, image, geometry } }) => {
   try {

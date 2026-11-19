@@ -17,6 +17,28 @@
       digit: t.digit,
       data: Float32Array.from(t.mask, (c) => parseInt(c, 16) / 15),
     }));
+  function suppressRedIcon(image, neutral) {
+    const data = new Uint8ClampedArray(image.data),
+      pixels = image.width * image.height;
+    let red = 0,
+      blue = 0;
+    for (let p = 0; p < pixels; p++) {
+      const i = p * 4,
+        r = data[i],
+        g = data[i + 1],
+        b = data[i + 2],
+        chroma = Math.max(r, g, b) - Math.min(r, g, b);
+      if (chroma <= 35) continue;
+      if (r > g * 1.12 && r > b * 1.1) {
+        data[i] = data[i + 1] = data[i + 2] = neutral;
+        red++;
+      } else if (b > r * 1.2 && b > g * 1.1) blue++;
+    }
+    // This fallback is specifically for a red icon touching the count. Require
+    // a clear red-pixel majority so unrelated colored crops are left alone.
+    if (red < 10 || red < blue * 1.5) return null;
+    return Small.recognize({ ...image, data }, font);
+  }
   function recognizeSmall(image) {
     const reading = Small.recognize(image, font);
     if (reading) return reading;
@@ -31,7 +53,20 @@
       data[i] = data[i + 1] = data[i + 2] = gray;
       data[i + 3] = image.data[i + 3];
     }
-    return Small.recognize({ ...image, data }, font);
+    const luminanceReading = Small.recognize({ ...image, data }, font);
+    if (luminanceReading) return luminanceReading;
+    // Red potion art can overlap the rightmost count glyph. Neutralize only
+    // red-dominant pixels, then require the same high-confidence count with
+    // two different neutral fills before accepting the OCR result.
+    const redA = suppressRedIcon(image, 112),
+      redB = suppressRedIcon(image, 144);
+    return redA &&
+      redB &&
+      redA.count === redB.count &&
+      redA.confidence >= 90 &&
+      redB.confidence >= 90
+      ? redA
+      : null;
   }
   function recognize(image, { digits = null, diagnostic = false } = {}) {
     if (image.height <= 15 && font.some((t) => t.smallCell))
