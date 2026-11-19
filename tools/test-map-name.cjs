@@ -141,6 +141,45 @@ const Reader = require("../reader");
     "Victoria Road · Henesys",
   );
   assert.equal(MapName.isCanonicalName("Maple Road · Snail Hunting Ground II"), true);
+  const forgottenHollowMaps = [
+    ["Shallow Passage", "Primeval Forest I"],
+    ["Shallow Passage", "Primeval Forest II"],
+    ["Shallow Passage", "Primeval Forest III"],
+    ["Hidden Street", "Hanging Gardens of Rot"],
+    ["Hidden Street", "The Valley of Death"],
+    ["Shallow Passage", "Forgotten Entrance I"],
+    ["Shallow Passage", "Forgotten Entrance II"],
+    ["Shallow Passage", "Forgotten Entrance III"],
+    ["Shallow Passage", "The End of Fleeting Light"],
+    ["Shallow Passage", "Forgotten Dungeon Tunnel"],
+    ["Shallow Passage", "The Faded Canopy"],
+    ["Shallow Passage", "Forbidden Entrance"],
+    ["Deep Passage", "Perilous Descent I"],
+    ["Deep Passage", "Perilous Descent II"],
+    ["Deep Passage", "Perilous Descent III"],
+    ["Deep Passage", "Decayed Tunnel I"],
+    ["Deep Passage", "Decayed Tunnel II"],
+    ["Deep Passage", "Decayed Tunnel III"],
+    ["Hidden Street", "Someone Else's Grave"],
+    ["Deep Passage", "Lingering Regret"],
+    ["Deep Passage", "Precipice of Darkness"],
+    ["Deep Passage", "Dilapidated Tomb"],
+    ["Deep Passage", "Another Sanctuary"],
+  ];
+  for (const [street, name] of forgottenHollowMaps) {
+    const expected = `${street} · ${name}`;
+    assert.equal(MapName.isCanonicalName(expected), true, `${expected} is trackable`);
+    assert.equal(
+      MapName.parse(`${street}\n${name}`, 95)?.text,
+      expected,
+      `${expected} resolves from the minimap label`,
+    );
+  }
+  assert.equal(
+    MapName.isCanonicalName("Shallow Passage · Cave Fairy Sanctuary"),
+    false,
+    "NPC-only Forgotten Hollow rooms remain excluded from map tracking",
+  );
   assert.equal(
     MapName.isCanonicalName("Victoria Road · Tree Dungeon, Forest Up North IX"),
     true,

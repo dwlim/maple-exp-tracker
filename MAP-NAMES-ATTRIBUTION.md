@@ -18,3 +18,8 @@ The monster map index is a bundled snapshot. Unknown map data is not treated as
 proof that a map has no monsters; refresh this file when the OSMS map dataset
 changes. OSMS describes its data as extracted from the game client and not
 guaranteed to appear in-game.
+
+The Forgotten Hollow v2.0 map titles and street labels were added from the
+November 2026 game-data changelog and patch notes, cross-checked against the
+published map pages. Only maps reported with monster spawns are included in
+the trackable-map index; town and NPC-only rooms remain excluded.
