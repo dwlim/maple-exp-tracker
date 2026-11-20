@@ -2361,6 +2361,13 @@ return {detect,crop,anchors,percentageRegion};
   async function readMesoAmount(image, recognize) {
     if (!isMesoField(image)) return null;
     const results = [], ocrResults = [];
+    const preferStrongNativeGlyph = (glyph) =>
+      glyph?.confidence >= 98 &&
+      ocrResults.length > 0 &&
+      ocrResults.every((reading) => reading.confidence < 75) &&
+      ocrResults.some((reading) => reading.amount !== glyph.amount)
+        ? glyph
+        : null;
     for (const [threshold, kind] of [[null, "meso-value"], [155, "meso-value-binary"]]) {
       const pixels = prepareMeso(image, threshold),
         reading = await recognize(pixels, kind),
@@ -2373,7 +2380,8 @@ return {detect,crop,anchors,percentageRegion};
     }
     const initialGlyph = recognizeMesoDigits(image);
     if (ocrResults.length === 2 && ocrResults[0].amount === ocrResults[1].amount) {
-      if (initialGlyph && initialGlyph.amount !== ocrResults[0].amount) return null;
+      if (initialGlyph && initialGlyph.amount !== ocrResults[0].amount)
+        return preferStrongNativeGlyph(initialGlyph);
       return {
         amount: ocrResults[0].amount,
         confidence: Math.round(Math.min(ocrResults[0].confidence, ocrResults[1].confidence)),
@@ -2397,7 +2405,8 @@ return {detect,crop,anchors,percentageRegion};
     const winner = [...votes.entries()].filter(([, confidences]) => confidences.length >= 2);
     // A disagreement between native-font matching and OCR is ambiguous; keep
     // the prior balance rather than accepting correlated OCR guesses.
-    if (glyph && ocrResults.some((reading) => reading.amount !== glyph.amount)) return null;
+    if (glyph && ocrResults.some((reading) => reading.amount !== glyph.amount))
+      return preferStrongNativeGlyph(glyph);
     if (winner.length === 1)
       return { amount: winner[0][0], confidence: Math.round(Math.min(...winner[0][1])) };
     // Short balances can be too small for Tesseract to segment. Use verified

@@ -153,6 +153,38 @@ assert.deepEqual(
   assert.equal(actual?.amount, 1135117, "captured balance-box fixture should read 1,135,117 using bundled Tesseract");
   assert.ok(actual.confidence >= 40);
 
+  const lowConfidenceConflict = PNG.sync.read(
+      fs.readFileSync(path.join(__dirname, "fixtures/meso-low-confidence-conflict-3894774.png")),
+    ),
+    nativeWins = await Ocr.readMesoAmount(lowConfidenceConflict, async (pixels) => {
+      await worker.setParameters({
+        tessedit_pageseg_mode: 7,
+        tessedit_char_whitelist: "0123456789,.",
+      });
+      const input = new PNG({ width: pixels.width, height: pixels.height });
+      input.data = Buffer.from(pixels.data);
+      const { data } = await worker.recognize(PNG.sync.write(input));
+      return { text: data.text, confidence: data.confidence };
+    });
+  assert.deepEqual(
+    Ocr.recognizeMesoDigits(lowConfidenceConflict),
+    { amount: 3894774, confidence: 100 },
+    "the native matcher has an exact read for the real low-confidence capture",
+  );
+  assert.equal(
+    nativeWins?.amount,
+    3894774,
+    "an exact native glyph match can resolve conflicting low-confidence OCR",
+  );
+  assert.equal(
+    await Ocr.readMesoAmount(lowConfidenceConflict, async () => ({
+      text: "3,694,774",
+      confidence: 92,
+    })),
+    null,
+    "high-confidence OCR disagreement remains unreadable",
+  );
+
   const actualSingle = await Ocr.readMesoAmount(singleFive, async (pixels) => {
     await worker.setParameters({ tessedit_pageseg_mode: 7, tessedit_char_whitelist: "0123456789,." });
     const input = new PNG({ width: pixels.width, height: pixels.height });
