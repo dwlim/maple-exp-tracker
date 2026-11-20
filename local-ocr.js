@@ -956,7 +956,7 @@
     const preferStrongNativeGlyph = (glyph) =>
       glyph?.confidence >= 98 &&
       ocrResults.length > 0 &&
-      ocrResults.every((reading) => reading.confidence < 75) &&
+      ocrResults.every((reading) => reading.confidence < 90) &&
       ocrResults.some((reading) => reading.amount !== glyph.amount)
         ? glyph
         : null;

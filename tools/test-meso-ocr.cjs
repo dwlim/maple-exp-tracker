@@ -176,6 +176,29 @@ assert.deepEqual(
     3894774,
     "an exact native glyph match can resolve conflicting low-confidence OCR",
   );
+  const moderateConfidenceConflict = PNG.sync.read(
+      fs.readFileSync(path.join(__dirname, "fixtures/meso-native-84-conflict-3874723.png")),
+    ),
+    moderateNativeWins = await Ocr.readMesoAmount(moderateConfidenceConflict, async (pixels) => {
+      await worker.setParameters({
+        tessedit_pageseg_mode: 7,
+        tessedit_char_whitelist: "0123456789,.",
+      });
+      const input = new PNG({ width: pixels.width, height: pixels.height });
+      input.data = Buffer.from(pixels.data);
+      const { data } = await worker.recognize(PNG.sync.write(input));
+      return { text: data.text, confidence: data.confidence };
+    });
+  assert.deepEqual(
+    Ocr.recognizeMesoDigits(moderateConfidenceConflict),
+    { amount: 3874723, confidence: 100 },
+    "the newest failure capture has an exact native glyph read",
+  );
+  assert.equal(
+    moderateNativeWins?.amount,
+    3874723,
+    "an exact native read can resolve unanimous but moderately confident OCR errors",
+  );
   assert.equal(
     await Ocr.readMesoAmount(lowConfidenceConflict, async () => ({
       text: "3,694,774",
