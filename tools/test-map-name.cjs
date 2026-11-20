@@ -595,8 +595,11 @@ const Reader = require("../reader");
     await retryReader.read(sameFrame, 1700000000000, { report: false });
     await flush();
     assert.equal(retrySession.state.mapName, "", "a failed OCR attempt leaves the map unset");
-    assert.equal(mapFailures.length, 1, "a failed map OCR reading requests a debug screenshot");
-    assert.equal(mapFailures[0].reason, "map-name-not-found");
+    assert.equal(
+      mapFailures.filter((failure) => failure.reason === "map-name-not-found").length,
+      1,
+      "a failed map OCR reading requests a debug screenshot",
+    );
     assert.match(mapStatuses[0], /map: Victoria Road \(83%\)/);
     assert.deepEqual(
       mapPreviews[0],
@@ -606,7 +609,11 @@ const Reader = require("../reader");
     await retryReader.read(sameFrame, 1700000010000, { report: false });
     await flush();
     assert.equal(attempts, 2, "an unchanged header is retried after a transient OCR miss");
-    assert.equal(mapFailures.length, 1, "the same failed crop does not download repeatedly");
+    assert.equal(
+      mapFailures.filter((failure) => failure.reason === "map-name-not-found").length,
+      1,
+      "the same failed map crop does not download repeatedly",
+    );
     await retryReader.read(sameFrame, 1700000020000, { report: false });
     await flush();
     assert.equal(attempts, 3, "map OCR keeps retrying after its one diagnostic download");

@@ -171,7 +171,8 @@ assert.deepEqual(
   assert.equal(actualNineteen?.amount, 19, "two-digit balance fixture should recover when bundled Tesseract drops both glyphs");
   await worker.terminate();
 
-  let mesoReads = 0;
+  let mesoReads = 0,
+    mesoDiagnostics = [];
   const capture = { generation: 1, stream: {} },
     state = {
       paused: false,
@@ -200,6 +201,13 @@ assert.deepEqual(
       recognition: { async decodeFrame() {} },
       view,
       getCapture: () => capture,
+      debug: true,
+      debugTools: {
+        rejectFrame(...args) {
+          mesoDiagnostics.push(args);
+          return Promise.resolve(true);
+        },
+      },
       localOcr: {
         read() {
           mesoReads++;
@@ -220,8 +228,14 @@ assert.deepEqual(
   assert.equal((await reader.read(frame, 1700000010000)).accepted, true);
   await new Promise((resolve) => setImmediate(resolve));
   assert.equal(state.mesoStatus, "Meso read unavailable · EXP tracking continues");
+  assert.equal(
+    mesoDiagnostics.filter((args) => args[2] === "meso-ocr-error").length,
+    1,
+    "Meso OCR errors save a debug frame",
+  );
 
   const scanInputs = [],
+    scanDiagnostics = [],
     scanState = { paused: false, startAt: 20, samples: [], mesoSamples: [] },
     scanCapture = { generation: 2, stream: {} },
     scanSession = {
@@ -237,6 +251,13 @@ assert.deepEqual(
       recognition: { async decodeFrame() {} },
       view,
       getCapture: () => scanCapture,
+      debug: true,
+      debugTools: {
+        rejectFrame(...args) {
+          scanDiagnostics.push(args);
+          return Promise.resolve(true);
+        },
+      },
       getMesoReference: async () => ({ features: ["loaded-reference"] }),
       localOcr: {
         read(input) { scanInputs.push(input); return Promise.resolve(null); },
@@ -246,5 +267,10 @@ assert.deepEqual(
   await new Promise((resolve) => setImmediate(resolve));
   assert.equal(scanInputs.length, 1, "reference loading must invoke OCR once");
   assert.deepEqual(scanInputs[0].mesoReference, { features: ["loaded-reference"] });
+  assert.equal(
+    scanDiagnostics.filter((args) => args[2] === "meso-amount-unreadable").length,
+    1,
+    "An unreadable meso crop saves a debug frame",
+  );
   console.log("Meso OCR: grouped amounts, bundled Tesseract fixture, confidence and adaptive consensus passed.");
 })();

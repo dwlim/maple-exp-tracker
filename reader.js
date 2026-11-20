@@ -50,6 +50,8 @@
       lastCustomRegionFailureAt = null,
       lastAutoRegionRecoveryAt = null,
       lastMesoReadAt = 0,
+      lastMesoDiagnosticAt = 0,
+      lastMesoFailureHash = null,
       lastMapDetectAt = 0,
       lastMapAttemptAt = 0,
       lastMapCropHash = null,
@@ -375,6 +377,38 @@
           .catch(() => {});
       } catch {}
     }
+    function reportMesoFailure(frame, readAt, preview, reason) {
+      if (!debug || !debugTools?.rejectFrame || !frame?._pixels) return;
+      try {
+        const diagnosticImage =
+            preview ||
+            (session.state.mesoRegion
+              ? cropNormalized(frame._pixels, session.state.mesoRegion)
+              : null),
+          failureHash = `${reason}:${
+            diagnosticImage && mapNameApi?.hash
+              ? mapNameApi.hash(diagnosticImage)
+              : "no-candidate"
+          }`;
+        if (
+          failureHash === lastMesoFailureHash ||
+          readAt - lastMesoDiagnosticAt < 60000
+        )
+          return;
+        void Promise.resolve(
+          debugTools.rejectFrame(frame, readAt, reason),
+        )
+          .then((saved) => {
+            // Store the fingerprint only after a download was actually
+            // requested, so disabled or blocked downloads can retry later.
+            if (saved) {
+              lastMesoFailureHash = failureHash;
+              lastMesoDiagnosticAt = readAt;
+            }
+          })
+          .catch(() => {});
+      } catch {}
+    }
     function readMapName(frame, readAt, generation, force = false) {
       if (!localOcr || !mapNameApi || !frame?._pixels || (!force && readAt - lastMapDetectAt < 9000))
         return;
@@ -518,22 +552,32 @@
                 view.drawRegions?.();
                 view.updateRegionStatus?.();
               }
-              if (mesoResult?.meso)
+              if (mesoResult?.meso) {
+                lastMesoFailureHash = null;
                 session.addMesoSample(mesoResult.meso.amount, readAt);
-              else
+              } else {
                 session.setMesoStatus(
                   session.state.mesoAnchor
                     ? "Meso total unreadable · keep the inventory open and amount unobstructed"
                     : "Searching for the inventory balance · keep the inventory visible",
                 );
+                reportMesoFailure(
+                  frame,
+                  readAt,
+                  mesoResult?.mesoPreview,
+                  "meso-amount-unreadable",
+                );
+              }
             })
             .catch(() => {
               if (
                 !session.state.paused &&
                 generation === getCapture().generation &&
                 sessionStartAt === session.state.startAt
-              )
+              ) {
                 session.setMesoStatus("Meso read unavailable · EXP tracking continues");
+                reportMesoFailure(frame, readAt, null, "meso-ocr-error");
+              }
             })
             .finally(() => {
               mesoReading = false;
