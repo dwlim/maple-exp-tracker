@@ -400,6 +400,22 @@ const Reader = require("../reader");
       );
     }
 
+    const perilousDescent = PNG.sync.read(
+      fs.readFileSync(
+        path.join(__dirname, "fixtures/map-header-deep-passage-perilous-descent-iii.png"),
+      ),
+    );
+    const perilousResult = await reader.read({ mapImage: perilousDescent, includeMapDebug: true });
+    assert.equal(
+      perilousResult.map?.text,
+      "Deep Passage · Perilous Descent III",
+      "word-level stem evidence and measured Roman-I width recover the failed live map capture",
+    );
+    assert.ok(
+      perilousResult.map?.romanGlyphEvidence,
+      "the recovered Roman numeral is backed by measured glyph width",
+    );
+
     for (const { filename, expected, crop } of compactHeaderCases) {
       const compactResult = await reader.read({ mapImage: crop, includeMapDebug: true });
       assert.equal(

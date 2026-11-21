@@ -1199,7 +1199,8 @@
                 .map((line) => line.trim())
                 .filter((line) => line.length >= 3 && /[A-Za-z]{3}/.test(line));
               let fullStreet = originalLines[0],
-                segmentedStreet = "";
+                segmentedStreet = "",
+                nameLineReading = null;
               if (lines.length === 2) {
                 // The Tesseract worker is shared and its parameters change per
                 // request, so keep these reads sequential to avoid PSM races.
@@ -1211,6 +1212,7 @@
                     MapName.prepare(lines[1], 8),
                     "map-line",
                   );
+                nameLineReading = name;
                 const confidence = Math.min(
                   street?.confidence ?? 0,
                   name?.confidence ?? 0,
@@ -1266,20 +1268,24 @@
                   // Prefer the isolated street row over block OCR. The latter
                   // can merge letters in the first line while the other row
                   // remains readable at an alternate scale.
-                  streetLine = segmentedStreet || fullStreet || alternateLines[0],
                   alternateLine = alternateLines[1],
+                  alternateCorrections = [...new Set(
+                    [segmentedStreet, fullStreet, alternateLines[0]].filter(Boolean),
+                  )]
+                    .map((streetLine) =>
+                      MapName.parse(
+                        `${streetLine}\n${nameLineReading?.text || alternateLine || ""}`,
+                        Math.min(
+                          alternate?.confidence ?? 0,
+                          nameLineReading?.confidence ?? alternate?.confidence ?? 0,
+                        ),
+                        nameLineReading,
+                      ),
+                    )
+                    .filter((candidate) => candidate?.canonicalized),
                   alternateCorrection =
-                    streetLine && alternateLine
-                      ? MapName.parse(
-                          `${streetLine}\n${alternateLine}`,
-                          fullStreet
-                            ? Math.min(
-                                reading?.confidence ?? 0,
-                                alternate?.confidence ?? 0,
-                              )
-                            : alternate?.confidence,
-                        )
-                      : null;
+                    alternateCorrections.find((candidate) => candidate.romanGlyphEvidence) ||
+                    alternateCorrections[0];
                 if (
                   alternateDirect?.canonicalized &&
                   !MapName.hasConflictingRomanEvidence(alternateDirect, mapObservations)

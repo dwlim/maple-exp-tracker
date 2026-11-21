@@ -692,22 +692,33 @@
               ? 1
               : 0,
       observedToken = lines[1].trim().match(/([a-z0-9]+)$/i)?.[1]?.toLowerCase() || "",
-      observedStem = normalizeName(
-        lines[1].trim().slice(0, -observedToken.length),
-      );
+      observedStemText = lines[1].trim().slice(0, -observedToken.length);
     if (
       measuredSuffixLength &&
-      nameLineEvidence?.confidence >= 60 &&
+      nameLineEvidence?.confidence >= 50 &&
+      finalWord?.confidence >= 55 &&
       /^[il]+$/.test(observedToken)
     ) {
-      const measured = mapNames.filter(([street, name]) => {
+      // In tiny minimap text, the street line can be unreadable while the
+      // map-name stem still has a strong word anchor. Use the measured Roman
+      // glyph width to select a suffix variant, then require one unique
+      // catalog entry rather than guessing between II and III.
+      const measured = mapNames.filter(([, name]) => {
         const roman = name.match(/(?:^|\s)(I{1,3})$/i),
-          stem = roman && normalizeName(name.slice(0, roman.index));
+          stemText = roman && name.slice(0, roman.index).trim(),
+          stemDistance = stemText && editDistance(stemText, observedStemText),
+          finalStemWord = stemText?.split(/\s+/).at(-1),
+          hasStrongStemWord = words
+            .slice(0, -1)
+            .some((word) =>
+              word?.confidence >= 80 &&
+              normalizeName(word.text) === normalizeName(finalStemWord),
+            );
         return (
           roman &&
           roman[1].length === measuredSuffixLength &&
-          stem === observedStem &&
-          normalizeName(lines[0]) === normalizeName(street)
+          stemDistance <= 2 &&
+          hasStrongStemWord
         );
       });
       if (measured.length === 1)
