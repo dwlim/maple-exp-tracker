@@ -151,6 +151,7 @@ const Reader = require("../reader");
     ["Shallow Passage", "Forgotten Entrance II"],
     ["Shallow Passage", "Forgotten Entrance III"],
     ["Shallow Passage", "The End of Fleeting Light"],
+    ["Shallow Passage", "Forgotten Hollow"],
     ["Shallow Passage", "Forgotten Dungeon Tunnel"],
     ["Shallow Passage", "The Faded Canopy"],
     ["Shallow Passage", "Forbidden Entrance"],
@@ -176,6 +177,24 @@ const Reader = require("../reader");
       `${expected} resolves from the minimap label`,
     );
   }
+  assert.equal(
+    MapName.parse(
+      "Shallow Passage\nIe End of Fleeting Light",
+      79,
+      { confidence: 84 },
+    )?.text,
+    "Shallow Passage · The End of Fleeting Light",
+    "an exact street and high-confidence isolated long title can recover two clear OCR substitutions",
+  );
+  assert.equal(
+    MapName.parse(
+      "Shallow Passage\nIe End of Fleeting Light",
+      79,
+      { confidence: 79 },
+    )?.canonicalized,
+    false,
+    "fuzzy recovery stays conservative without a high-confidence isolated line",
+  );
   assert.equal(
     MapName.isCanonicalName("Shallow Passage · Cave Fairy Sanctuary"),
     true,
@@ -324,6 +343,22 @@ const Reader = require("../reader");
     };
   });
   try {
+    for (const [filename, expected] of [
+      [
+        "map-header-shallow-passage-forgotten-hollow.png",
+        "Shallow Passage · Forgotten Hollow",
+      ],
+      [
+        "map-header-shallow-passage-end-of-fleeting-light.png",
+        "Shallow Passage · The End of Fleeting Light",
+      ],
+    ]) {
+      const crop = PNG.sync.read(
+          fs.readFileSync(path.join(__dirname, "fixtures", filename)),
+        ),
+        result = await reader.read({ mapImage: crop, includeMapDebug: true });
+      assert.equal(result.map?.text, expected, `${filename} resolves to its catalog map`);
+    }
     const overlayHeader = PNG.sync.read(
         fs.readFileSync(path.join(__dirname, "fixtures/map-header-kerning-city-overlay.png")),
       ),

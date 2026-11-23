@@ -747,6 +747,10 @@
           !!numericSuffix && observedName.endsWith(numericSuffix),
         maxNameDistance =
           streetDistance === 0 &&
+          normalizedName.length >= 18 &&
+          nameLineEvidence?.confidence >= 80
+            ? 2
+            : streetDistance === 0 &&
           (hasExactNumericSuffix ||
             (normalizedName.length >= 25 &&
               /(?:^|\s)[IVX]{1,4}$/i.test(name) &&
