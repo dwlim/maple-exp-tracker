@@ -630,7 +630,7 @@ body:not(.stream-card) .history-grid > .chart-wrap {
 
 body:not(.stream-card) .meso-metrics-grid {
   display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
+  grid-template-columns: repeat(3, minmax(0, 1fr));
   gap: 8px;
 }
 
@@ -902,7 +902,7 @@ body:not(.stream-card) .quickslot-card canvas {
   }
 
   body:not(.stream-card) .meso-metrics-grid {
-    grid-template-columns: repeat(2, minmax(0, 1fr));
+    grid-template-columns: 1fr;
   }
 
   body:not(.stream-card) .chart-wrap {

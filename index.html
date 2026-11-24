@@ -3221,16 +3221,17 @@ return {detect,crop,anchors,percentageRegion};
     }
     return out;
   }
-  function inventoryValue(items, start, end, startAtFirstSample) {
+  function inventoryValue(items, start, end, startAtFirstSample, includeTotals = false) {
     if (!Number.isFinite(start) || !Number.isFinite(end) || end < start)
-      return { value: null, known: false, configured: false };
+      return { value: null, known: false, configured: false, startValue: null, endValue: null };
     const tracked = (Array.isArray(items) ? items : []).filter(
       (item) =>
         !!Costs.catalog[item?.potionType]?.group ||
         ["hp", "mp", "both"].includes(item?.group),
     );
-    if (!tracked.length) return { value: 0, known: true, configured: false };
-    let value = 0;
+    if (!tracked.length)
+      return { value: 0, known: true, configured: false, startValue: 0, endValue: 0 };
+    let value = 0, startValue = 0, endValue = 0;
     const countAt = (item, t) => {
       const samples = item.inventorySamples || [];
       let low = 0, high = samples.length - 1, sample = null;
@@ -3255,20 +3256,41 @@ return {detect,crop,anchors,percentageRegion};
       }
       const endCount = countAt(item, end);
       if (startCount === null || endCount === null)
-        return { value: null, known: false, configured: true };
+        return { value: null, known: false, configured: true, startValue: null, endValue: null };
       const quantityChange = endCount - startCount;
-      if (!quantityChange) continue;
+      if (!quantityChange && !includeTotals) continue;
       const unitCost = Costs.validPrice(item.price)
         ? item.price
         : Costs.price(item);
-      if (unitCost === null)
-        return { value: null, known: false, configured: true };
+      if (unitCost === null && (includeTotals || quantityChange))
+        return { value: null, known: false, configured: true, startValue: null, endValue: null };
+      if (includeTotals) {
+        startValue += startCount * unitCost;
+        endValue += endCount * unitCost;
+      }
+      if (!quantityChange) continue;
       value += quantityChange * unitCost;
     }
-    return { value, known: Number.isFinite(value), configured: true };
+    return {
+      value,
+      known: Number.isFinite(value) && (!includeTotals || Number.isFinite(startValue) && Number.isFinite(endValue)),
+      configured: true,
+      startValue: includeTotals ? startValue : null,
+      endValue: includeTotals ? endValue : null,
+    };
   }
   function inventoryValueSince(items, start, end) {
-    return inventoryValue(items, start, end, true);
+    const result = inventoryValue(items, start, end, true);
+    return { value: result.value, known: result.known, configured: result.configured };
+  }
+  function inventoryTotalsSince(items, start, end) {
+    const result = inventoryValue(items, start, end, true, true);
+    return {
+      startValue: result.startValue,
+      endValue: result.endValue,
+      known: result.known,
+      configured: result.configured,
+    };
   }
   function validRegion(r) {
     return (
@@ -3582,6 +3604,7 @@ return {detect,crop,anchors,percentageRegion};
     create: createStore,
     costRatesForInterval,
     inventoryValueSince,
+    inventoryTotalsSince,
     rate,
     validRegion,
   };
@@ -4868,34 +4891,42 @@ return {detect,crop,anchors,percentageRegion};
             !!PotionCosts.catalog[item?.potionType]?.group ||
             ["hp", "mp", "both"].includes(item?.group),
         ),
-        inventoryChange = (start, end) =>
-          QuickslotSession.inventoryValueSince(trackedPotionItems, start, end),
+        inventoryTotals = (start, end) =>
+          QuickslotSession.inventoryTotalsSince(trackedPotionItems, start, end),
         mesoStartAmount = Number.isSafeInteger(state.mesoStartAmount)
           ? state.mesoStartAmount
           : null,
-        walletChange = latestMeso && now - latestMeso.t <= 120000 && mesoStartAmount !== null
-          ? latestMeso.amount - mesoStartAmount
-          : null,
+        walletAmount = latestMeso && now - latestMeso.t <= 120000 ? latestMeso.amount : null,
         sessionStart = Number.isFinite(state.startAt)
           ? state.startAt
           : mesoSamples[0]?.t,
-        potionInventoryChange = latestMeso && Number.isFinite(sessionStart)
-          ? inventoryChange(sessionStart, latestMeso.t)
-          : { value: null, known: false, configured: hasTrackedPotionInventory },
-        netProfit = walletChange !== null && potionInventoryChange.known
-          ? walletChange + potionInventoryChange.value
+        potionTotals = latestMeso && Number.isFinite(sessionStart)
+          ? inventoryTotals(sessionStart, latestMeso.t)
+          : { startValue: null, endValue: null, known: false, configured: hasTrackedPotionInventory },
+        currentTotal = walletAmount !== null && potionTotals.known
+          ? walletAmount + potionTotals.endValue
+          : null,
+        startingTotal = mesoStartAmount !== null && potionTotals.known
+          ? mesoStartAmount + potionTotals.startValue
+          : null,
+        netProfit = currentTotal !== null && startingTotal !== null
+          ? currentTotal - startingTotal
           : null;
-      if (q("#mesoAmount")) q("#mesoAmount").textContent = latestMeso && now - latestMeso.t <= 120000 ? fmt(latestMeso.amount) : "—";
+      if (q("#mesoAmount")) q("#mesoAmount").textContent = walletAmount === null ? "—" : fmt(walletAmount);
+      if (q("#sessionTotal"))
+        q("#sessionTotal").textContent = currentTotal === null ? "—" : fmt(currentTotal);
+      if (q("#sessionTotalHint"))
+        q("#sessionTotalHint").textContent = potionTotals.configured
+          ? potionTotals.known ? "Wallet + current potion inventory" : "Potion inventory value unavailable"
+          : "Wallet only · no tracked potion inventory";
       if (q("#netProfit"))
         q("#netProfit").textContent = netProfit !== null
           ? (netProfit > 0 ? "+" : netProfit < 0 ? "−" : "") + fmt(Math.abs(netProfit))
           : "—";
       if (q("#netProfitHint"))
-        q("#netProfitHint").textContent = !potionInventoryChange.configured
-          ? "Wallet change · no tracked potion inventory"
-          : potionInventoryChange.known
-            ? "Wallet change + ending potion value − starting value"
-            : "Potion inventory baseline or current value unavailable";
+        q("#netProfitHint").textContent = netProfit === null
+          ? "Session start or current total unavailable"
+          : `Start ${fmt(startingTotal)} → current ${fmt(currentTotal)}`;
       if (q("#mesoHint"))
         q("#mesoHint").textContent = latestMeso && now - latestMeso.t > 120000
           ? "No recent meso read"
@@ -8811,8 +8842,9 @@ return {detect,crop,anchors,percentageRegion};
     <div class="chart-wrap meso-wrap">
       <div class="chart-title"><span>Mesos</span><button class="btn" id="setMesoRegion">Adjust manually</button><span id="mesoHint" role="status">The tracker automatically searches for the standard inventory balance. Keep the item window visible.</span></div>
       <div class="meso-metrics-grid">
-        <div class="stat"><div class="k">Current total</div><div class="v" id="mesoAmount">—</div></div>
-        <div class="stat"><div class="k">Net profit</div><div class="v lime" id="netProfit" title="Wallet balance change plus ending potion inventory value minus starting potion inventory value.">—</div><div class="hint" id="netProfitHint">Wallet change + ending potion value − starting value</div></div>
+        <div class="stat"><div class="k">Wallet mesos</div><div class="v" id="mesoAmount">—</div></div>
+        <div class="stat"><div class="k">Current total</div><div class="v" id="sessionTotal">—</div><div class="hint" id="sessionTotalHint">Wallet + current potion inventory</div></div>
+        <div class="stat"><div class="k">Net profit</div><div class="v lime" id="netProfit" title="Current wallet plus current potion inventory value, minus the same combined total at session start.">—</div><div class="hint" id="netProfitHint">Session start total → current total</div></div>
       </div>
     </div>
     <div class="chart-wrap potion-use-wrap">

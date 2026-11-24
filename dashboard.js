@@ -137,34 +137,42 @@
             !!PotionCosts.catalog[item?.potionType]?.group ||
             ["hp", "mp", "both"].includes(item?.group),
         ),
-        inventoryChange = (start, end) =>
-          QuickslotSession.inventoryValueSince(trackedPotionItems, start, end),
+        inventoryTotals = (start, end) =>
+          QuickslotSession.inventoryTotalsSince(trackedPotionItems, start, end),
         mesoStartAmount = Number.isSafeInteger(state.mesoStartAmount)
           ? state.mesoStartAmount
           : null,
-        walletChange = latestMeso && now - latestMeso.t <= 120000 && mesoStartAmount !== null
-          ? latestMeso.amount - mesoStartAmount
-          : null,
+        walletAmount = latestMeso && now - latestMeso.t <= 120000 ? latestMeso.amount : null,
         sessionStart = Number.isFinite(state.startAt)
           ? state.startAt
           : mesoSamples[0]?.t,
-        potionInventoryChange = latestMeso && Number.isFinite(sessionStart)
-          ? inventoryChange(sessionStart, latestMeso.t)
-          : { value: null, known: false, configured: hasTrackedPotionInventory },
-        netProfit = walletChange !== null && potionInventoryChange.known
-          ? walletChange + potionInventoryChange.value
+        potionTotals = latestMeso && Number.isFinite(sessionStart)
+          ? inventoryTotals(sessionStart, latestMeso.t)
+          : { startValue: null, endValue: null, known: false, configured: hasTrackedPotionInventory },
+        currentTotal = walletAmount !== null && potionTotals.known
+          ? walletAmount + potionTotals.endValue
+          : null,
+        startingTotal = mesoStartAmount !== null && potionTotals.known
+          ? mesoStartAmount + potionTotals.startValue
+          : null,
+        netProfit = currentTotal !== null && startingTotal !== null
+          ? currentTotal - startingTotal
           : null;
-      if (q("#mesoAmount")) q("#mesoAmount").textContent = latestMeso && now - latestMeso.t <= 120000 ? fmt(latestMeso.amount) : "—";
+      if (q("#mesoAmount")) q("#mesoAmount").textContent = walletAmount === null ? "—" : fmt(walletAmount);
+      if (q("#sessionTotal"))
+        q("#sessionTotal").textContent = currentTotal === null ? "—" : fmt(currentTotal);
+      if (q("#sessionTotalHint"))
+        q("#sessionTotalHint").textContent = potionTotals.configured
+          ? potionTotals.known ? "Wallet + current potion inventory" : "Potion inventory value unavailable"
+          : "Wallet only · no tracked potion inventory";
       if (q("#netProfit"))
         q("#netProfit").textContent = netProfit !== null
           ? (netProfit > 0 ? "+" : netProfit < 0 ? "−" : "") + fmt(Math.abs(netProfit))
           : "—";
       if (q("#netProfitHint"))
-        q("#netProfitHint").textContent = !potionInventoryChange.configured
-          ? "Wallet change · no tracked potion inventory"
-          : potionInventoryChange.known
-            ? "Wallet change + ending potion value − starting value"
-            : "Potion inventory baseline or current value unavailable";
+        q("#netProfitHint").textContent = netProfit === null
+          ? "Session start or current total unavailable"
+          : `Start ${fmt(startingTotal)} → current ${fmt(currentTotal)}`;
       if (q("#mesoHint"))
         q("#mesoHint").textContent = latestMeso && now - latestMeso.t > 120000
           ? "No recent meso read"

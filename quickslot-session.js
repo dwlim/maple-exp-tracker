@@ -71,16 +71,17 @@
     }
     return out;
   }
-  function inventoryValue(items, start, end, startAtFirstSample) {
+  function inventoryValue(items, start, end, startAtFirstSample, includeTotals = false) {
     if (!Number.isFinite(start) || !Number.isFinite(end) || end < start)
-      return { value: null, known: false, configured: false };
+      return { value: null, known: false, configured: false, startValue: null, endValue: null };
     const tracked = (Array.isArray(items) ? items : []).filter(
       (item) =>
         !!Costs.catalog[item?.potionType]?.group ||
         ["hp", "mp", "both"].includes(item?.group),
     );
-    if (!tracked.length) return { value: 0, known: true, configured: false };
-    let value = 0;
+    if (!tracked.length)
+      return { value: 0, known: true, configured: false, startValue: 0, endValue: 0 };
+    let value = 0, startValue = 0, endValue = 0;
     const countAt = (item, t) => {
       const samples = item.inventorySamples || [];
       let low = 0, high = samples.length - 1, sample = null;
@@ -105,20 +106,41 @@
       }
       const endCount = countAt(item, end);
       if (startCount === null || endCount === null)
-        return { value: null, known: false, configured: true };
+        return { value: null, known: false, configured: true, startValue: null, endValue: null };
       const quantityChange = endCount - startCount;
-      if (!quantityChange) continue;
+      if (!quantityChange && !includeTotals) continue;
       const unitCost = Costs.validPrice(item.price)
         ? item.price
         : Costs.price(item);
-      if (unitCost === null)
-        return { value: null, known: false, configured: true };
+      if (unitCost === null && (includeTotals || quantityChange))
+        return { value: null, known: false, configured: true, startValue: null, endValue: null };
+      if (includeTotals) {
+        startValue += startCount * unitCost;
+        endValue += endCount * unitCost;
+      }
+      if (!quantityChange) continue;
       value += quantityChange * unitCost;
     }
-    return { value, known: Number.isFinite(value), configured: true };
+    return {
+      value,
+      known: Number.isFinite(value) && (!includeTotals || Number.isFinite(startValue) && Number.isFinite(endValue)),
+      configured: true,
+      startValue: includeTotals ? startValue : null,
+      endValue: includeTotals ? endValue : null,
+    };
   }
   function inventoryValueSince(items, start, end) {
-    return inventoryValue(items, start, end, true);
+    const result = inventoryValue(items, start, end, true);
+    return { value: result.value, known: result.known, configured: result.configured };
+  }
+  function inventoryTotalsSince(items, start, end) {
+    const result = inventoryValue(items, start, end, true, true);
+    return {
+      startValue: result.startValue,
+      endValue: result.endValue,
+      known: result.known,
+      configured: result.configured,
+    };
   }
   function validRegion(r) {
     return (
@@ -432,6 +454,7 @@
     create: createStore,
     costRatesForInterval,
     inventoryValueSince,
+    inventoryTotalsSince,
     rate,
     validRegion,
   };

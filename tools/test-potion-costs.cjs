@@ -98,12 +98,13 @@ for (const [t, count] of [
 ])
   stockStore.observe(stock.id, { count, confidence: 99 }, t);
 const stockSnapshot = Costs.snapshot(stockStore, true, now, "active-profile"),
+  stockItems = JSON.parse(stockStorage.getItem("active-profile")).items.map((item) => ({
+    ...item,
+    group: Costs.catalog[item.potionType].group,
+    price: Costs.price(item),
+  })),
   inventoryDelta = Items.inventoryValueSince(
-    JSON.parse(stockStorage.getItem("active-profile")).items.map((item) => ({
-      ...item,
-      group: Costs.catalog[item.potionType].group,
-      price: Costs.price(item),
-    })),
+    stockItems,
     now - 5000,
     now,
   );
@@ -128,6 +129,26 @@ assert.equal(
   0,
   "Adding consumed stock cost reconstructs gross mesos without double-counting a restock",
 );
+const stockTotals = Items.inventoryTotalsSince(stockItems, now - 5000, now);
+const restockTotals = Items.inventoryTotalsSince(
+  stockItems.map((item) => ({
+    ...item,
+    inventorySamples: [{ t: now - 4000, count: 100 }, { t: now, count: 200 }],
+  })),
+  now - 5000,
+  now,
+);
+assert.deepEqual(stockTotals, {
+  startValue: 5000,
+  endValue: 7500,
+  known: true,
+  configured: true,
+}, "Combined totals expose the session-start and current potion values");
+assert.equal(
+  (10000 - 5000 + restockTotals.endValue) - (10000 + restockTotals.startValue),
+  0,
+  "Buying potion stock reduces wallet mesos but does not change the combined total",
+);
 assert.equal(
   Items.inventoryValueSince(
     [{ group: "hp", price: 50, inventorySamples: [] }],
@@ -145,6 +166,15 @@ assert.equal(
   ).known,
   false,
   "Unknown potion prices cannot create a fabricated inventory value",
+);
+assert.equal(
+  Items.inventoryTotalsSince(
+    [{ group: "hp", price: null, inventorySamples: [{ t: now - 2000, count: 100 }, { t: now, count: 100 }] }],
+    now - 2000,
+    now,
+  ).known,
+  false,
+  "Current inventory totals require a known unit value even if stock is unchanged",
 );
 const sessionInventory = Items.inventoryValueSince(
   [
