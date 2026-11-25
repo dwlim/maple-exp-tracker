@@ -25,6 +25,8 @@ The level normally stays unchanged. A one-level increase needs confirmation on a
 
 For calibration and raw diagnostics, use `?debug=1`. Window borders, a different game resolution or HUD layout may require adjusting the regions in debug mode. The in-app preview may not expose screen sharing; use desktop Chrome or Edge if the app reports it unavailable. Manual entry remains available.
 
+Map-name OCR is most reliable when the minimap title is sharp and fully visible. If the map is missed, try windowed mode at 1920×1080 and the game's **Default Ratio (Filter Applied)** UI setting, then reconnect sharing so the tracker reacquires the capture. Turn off HDR if the shared preview looks washed out. The title probe waits for a changed label to remain stable across two captures before starting a map read. Debug mode shows the exact map crop used by OCR.
+
 The app is published on GitHub Pages. Any ordinary HTTPS static host can serve `index.html` and the `assets/` directory; no application backend or local bridge is required. For local development, run `python -m http.server 8000 --bind 127.0.0.1` and open `http://127.0.0.1:8000/`.
 
 Run `node tools/test-browser-capture.cjs` for capture lifecycle checks. Live game-window sharing requires a manual browser picker test.
@@ -105,7 +107,7 @@ The EXP matcher reuses template sampling grids and repeated candidate-boundary s
 
 For very small full-amount text (green brackets at most eight pixels tall), the contextual OCR path compares two sharpened resamplings to avoid antialiasing producing extra digits. Larger text retains grayscale detail. This changes input preparation, not EXP limits, mathematical validation, continuity, confidence requirements, or fresh-frame agreement.
 
-References reviewed: [Maple Classic Exp Overlay preprocessing](https://github.com/beanguri/Maple-Classic-Exp-Overlay/blob/main/maple_exp.py) measures glyph scale and offers multiple OCR masks; [Maple Classic Tracker's guide](https://mapleclassictracker.app/guide) describes compensating for stretched fullscreen captures. The latter's authenticated recognition implementation was not inspected.
+References reviewed: [Maple Classic Exp Overlay preprocessing](https://github.com/beanguri/Maple-Classic-Exp-Overlay/blob/main/maple_exp.py) measures glyph scale and offers multiple OCR masks; [Maple Classic Tracker's guide](https://mapleclassictracker.app/guide) describes compensating for stretched fullscreen captures; [mpl-ocr's design notes](https://github.com/Shonitbar/mpl-ocr/blob/main/docs/design.md) describe stable-frame detection and a learned map-title atlas. The latter's map-font atlas is a promising follow-up once more labeled title crops are available.
 
 ### Single-frame capture and conditional confirmation
 

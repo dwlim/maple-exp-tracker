@@ -27,6 +27,18 @@ const Reader = require("../reader");
     mapCrop = MapName.cropHeaderText(frame, header);
   assert.ok(header, "find the blue minimap header in a full game frame");
   assert.ok(mapCrop, "crop the map-name text area, excluding the icon");
+  const colorKeyedMapCrop = MapName.prepareColorThreshold(mapCrop, 4);
+  assert.ok(colorKeyedMapCrop, "prepare an achromatic text-keyed map OCR variant");
+  assert.equal(colorKeyedMapCrop.width, mapCrop.width * 4 + 40);
+  assert.equal(colorKeyedMapCrop.height, mapCrop.height * 4 + 40);
+  for (let i = 0; i < colorKeyedMapCrop.data.length; i += 4) {
+    assert.ok(
+      colorKeyedMapCrop.data[i] === 0 || colorKeyedMapCrop.data[i] === 255,
+      "the color-keyed map variant is binary",
+    );
+    assert.equal(colorKeyedMapCrop.data[i], colorKeyedMapCrop.data[i + 1]);
+    assert.equal(colorKeyedMapCrop.data[i], colorKeyedMapCrop.data[i + 2]);
+  }
   const noisyTreeReading = LocalOcr.createReader(async () => ({
     text: "Victoria Road Tree lnmgeon Forest Up North IX",
     confidence: 95,

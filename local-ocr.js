@@ -1314,6 +1314,22 @@
                   !MapName.hasConflictingRomanEvidence(thresholdedMap, mapObservations)
                 )
                   result.map = thresholdedMap;
+                if (!result.map?.canonicalized) {
+                  // White-text keying keeps pale glyphs distinct from the blue
+                  // minimap panel when grayscale thresholding loses contrast.
+                  const colorKeyed = await readMap(
+                      MapName.prepareColorThreshold(input.mapImage, 4),
+                      "map",
+                    ),
+                    colorKeyedMap = MapName.parse(
+                      colorKeyed?.text,
+                      colorKeyed?.confidence,
+                    );
+                  if (
+                    colorKeyedMap?.canonicalized &&
+                    !MapName.hasConflictingRomanEvidence(colorKeyedMap, mapObservations)
+                  ) result.map = colorKeyedMap;
+                }
               }
             }
           } catch (error) {

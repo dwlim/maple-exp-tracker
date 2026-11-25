@@ -260,7 +260,10 @@
       w = x1 - x0,
       h = y1 - y0;
     if (w < 20 || h < 10) return null;
-    const data = new Uint8ClampedArray(w * h * 4);
+    const data = new Uint8ClampedArray(w * h * 4),
+      // Preserve the source colors for a white-text keying pass. The default
+      // grayscale crop remains unchanged for existing OCR variants.
+      colorData = new Uint8ClampedArray(w * h * 4);
     for (let y = 0; y < h; y++)
       for (let x = 0; x < w; x++) {
         const source = ((y + y0) * image.width + x + x0) * 4,
@@ -272,6 +275,10 @@
           );
         data[target] = data[target + 1] = data[target + 2] = gray;
         data[target + 3] = 255;
+        colorData[target] = image.data[source];
+        colorData[target + 1] = image.data[source + 1];
+        colorData[target + 2] = image.data[source + 2];
+        colorData[target + 3] = 255;
       }
     // Mask the emblem through its expected right edge while retaining the
     // original x position of the first text glyph.
@@ -302,6 +309,7 @@
         for (let x = 0; x < logoSliver; x++) {
           const i = (y * w + x) * 4;
           data[i] = data[i + 1] = data[i + 2] = fill;
+          colorData[i] = colorData[i + 1] = colorData[i + 2] = fill;
         }
     }
     // Captures can be dimmed by overlays or Windows capture composition. Use
@@ -326,7 +334,61 @@
         const value = Math.max(0, Math.min(255, Math.round(((data[i] - low) * 255) / range)));
         data[i] = data[i + 1] = data[i + 2] = value;
       }
-    return { width: w, height: h, data };
+    return { width: w, height: h, data, colorData };
+  }
+
+  // MapleStory's map title is pale text over a blue panel. Grayscale/Otsu can
+  // merge those tones, so retain a separate achromatic (white-text) mask as a
+  // final OCR variant. Only accept it through the normal map catalog parser.
+  function prepareColorThreshold(image, scale = 4) {
+    if (!image?.data || !image.width || !image.height || scale < 1) return null;
+    const colors = image.colorData || image.data,
+      histogram = new Uint32Array(256),
+      countStart = Math.floor(image.width * 0.3);
+    let count = 0;
+    const whiteness = new Uint8Array(image.width * image.height);
+    for (let y = 0; y < image.height; y++)
+      for (let x = 0; x < image.width; x++) {
+        const i = (y * image.width + x) * 4,
+          value = Math.min(colors[i], colors[i + 1], colors[i + 2]);
+        whiteness[y * image.width + x] = value;
+        if (x >= countStart) {
+          histogram[value]++;
+          count++;
+        }
+      }
+    if (!count) return null;
+    let backgroundWeight = 0,
+      backgroundSum = 0,
+      total = 0,
+      bestVariance = -1,
+      threshold = 0;
+    for (let value = 0; value < 256; value++) total += value * histogram[value];
+    for (let value = 0; value < 256; value++) {
+      backgroundWeight += histogram[value];
+      if (!backgroundWeight) continue;
+      const foregroundWeight = count - backgroundWeight;
+      if (!foregroundWeight) break;
+      backgroundSum += value * histogram[value];
+      const variance = backgroundWeight * foregroundWeight *
+        (backgroundSum / backgroundWeight - (total - backgroundSum) / foregroundWeight) ** 2;
+      if (variance > bestVariance) {
+        bestVariance = variance;
+        threshold = value;
+      }
+    }
+    const width = image.width * scale + 40,
+      height = image.height * scale + 40,
+      data = new Uint8ClampedArray(width * height * 4).fill(255);
+    for (let y = 0; y < image.height * scale; y++)
+      for (let x = 0; x < image.width * scale; x++) {
+        const value = whiteness[Math.floor(y / scale) * image.width + Math.floor(x / scale)],
+          target = ((y + 20) * width + x + 20) * 4,
+          pixel = value > threshold ? 0 : 255;
+        data[target] = data[target + 1] = data[target + 2] = pixel;
+        data[target + 3] = 255;
+      }
+    return { width, height, data };
   }
 
   // Some windowed captures show the minimap title as a single compact row,
@@ -926,6 +988,8 @@
     if (!image?.data) return 0;
     let value = 2166136261;
     for (const byte of image.data) value = Math.imul(value ^ byte, 16777619);
+    if (image.colorData)
+      for (const byte of image.colorData) value = Math.imul(value ^ byte, 16777619);
     return value >>> 0;
   }
 
@@ -937,6 +1001,7 @@
     splitLabelLines,
     prepare,
     prepareThreshold,
+    prepareColorThreshold,
     parse,
     isCanonicalName,
     hasRomanMapVariants,
