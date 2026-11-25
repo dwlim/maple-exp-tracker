@@ -4,6 +4,8 @@ A browser tracker for MapleStory Classic EXP. Share the game window and read EXP
 
 **Open the tracker:** https://dwlim.github.io/maple-exp-tracker/
 
+Feedback or bugs? [Contact @dlimms on Discord](https://discord.com/users/106630573862158336).
+
 Pushes to `main` run the capture and OCR checks, then publish only the standalone dashboard through GitHub Pages. Private screenshots and developer scripts are excluded. A small set of public HUD crops is deployed for the browser OCR self-check.
 
 ## Browser capture (default)
