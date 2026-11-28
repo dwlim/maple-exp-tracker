@@ -149,10 +149,10 @@
         potionTotals = latestMeso && Number.isFinite(sessionStart)
           ? inventoryTotals(sessionStart, latestMeso.t)
           : { startValue: null, endValue: null, known: false, configured: hasTrackedPotionInventory },
-        currentTotal = walletAmount !== null && potionTotals.known
+        currentTotal = walletAmount !== null && potionTotals.endKnown
           ? walletAmount + potionTotals.endValue
           : null,
-        startingTotal = mesoStartAmount !== null && potionTotals.known
+        startingTotal = mesoStartAmount !== null && potionTotals.startKnown
           ? mesoStartAmount + potionTotals.startValue
           : null,
         netProfit = currentTotal !== null && startingTotal !== null
@@ -163,7 +163,7 @@
         q("#sessionTotal").textContent = currentTotal === null ? "—" : fmt(currentTotal);
       if (q("#sessionTotalHint"))
         q("#sessionTotalHint").textContent = potionTotals.configured
-          ? potionTotals.known ? "Wallet + current potion inventory" : "Potion inventory value unavailable"
+          ? potionTotals.endKnown ? "Wallet + current potion inventory" : "Current potion inventory unavailable"
           : "Wallet only · no tracked potion inventory";
       if (q("#netProfit"))
         q("#netProfit").textContent = netProfit !== null
@@ -171,7 +171,11 @@
           : "—";
       if (q("#netProfitHint"))
         q("#netProfitHint").textContent = netProfit === null
-          ? "Session start or current total unavailable"
+          ? currentTotal === null
+            ? "Current total unavailable"
+            : startingTotal === null
+              ? "Session-start total unavailable"
+              : "Session start or current total unavailable"
           : `Start ${fmt(startingTotal)} → current ${fmt(currentTotal)}`;
       if (q("#mesoHint"))
         q("#mesoHint").textContent = latestMeso && now - latestMeso.t > 120000

@@ -134,12 +134,74 @@
     return { value: result.value, known: result.known, configured: result.configured };
   }
   function inventoryTotalsSince(items, start, end) {
-    const result = inventoryValue(items, start, end, true, true);
+    if (!Number.isFinite(start) || !Number.isFinite(end) || end < start)
+      return {
+        startValue: null,
+        endValue: null,
+        known: false,
+        startKnown: false,
+        endKnown: false,
+        configured: false,
+      };
+    const tracked = (Array.isArray(items) ? items : []).filter(
+      (item) =>
+        !!Costs.catalog[item?.potionType]?.group ||
+        ["hp", "mp", "both"].includes(item?.group),
+    );
+    if (!tracked.length)
+      return {
+        startValue: 0,
+        endValue: 0,
+        known: true,
+        startKnown: true,
+        endKnown: true,
+        configured: false,
+      };
+    let startValue = 0,
+      endValue = 0,
+      startKnown = true,
+      endKnown = true;
+    const countAt = (item, t) => {
+      const samples = item.inventorySamples || [];
+      let low = 0,
+        high = samples.length - 1,
+        sample = null;
+      while (low <= high) {
+        const mid = (low + high) >> 1,
+          entry = samples[mid];
+        if (entry.t <= t) {
+          sample = entry;
+          low = mid + 1;
+        } else high = mid - 1;
+      }
+      return sample && t - sample.t <= 25000 ? sample.count : null;
+    };
+    for (const item of tracked) {
+      const samples = item.inventorySamples || [],
+        baseline = samples.find(
+          (sample) => sample.t >= start && sample.t - start <= 25000,
+        ),
+        currentCount = countAt(item, end),
+        unitCost = Costs.validPrice(item.price)
+          ? item.price
+          : Costs.price(item);
+      if (unitCost === null) {
+        startKnown = false;
+        endKnown = false;
+        continue;
+      }
+      if (baseline) startValue += baseline.count * unitCost;
+      else startKnown = false;
+      if (currentCount !== null) endValue += currentCount * unitCost;
+      else endKnown = false;
+    }
     return {
-      startValue: result.startValue,
-      endValue: result.endValue,
-      known: result.known,
-      configured: result.configured,
+      startValue: startKnown ? startValue : null,
+      endValue: endKnown ? endValue : null,
+      known: startKnown && endKnown,
+      startKnown,
+      endKnown,
+      configured: true,
     };
   }
   function validRegion(r) {

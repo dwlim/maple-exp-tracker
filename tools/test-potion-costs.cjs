@@ -142,8 +142,23 @@ assert.deepEqual(stockTotals, {
   startValue: 5000,
   endValue: 7500,
   known: true,
+  startKnown: true,
+  endKnown: true,
   configured: true,
 }, "Combined totals expose the session-start and current potion values");
+const currentOnlyTotals = Items.inventoryTotalsSince(
+  [{ group: "hp", price: 50, inventorySamples: [{ t: now, count: 12 }] }],
+  now - 30000,
+  now,
+);
+assert.deepEqual(currentOnlyTotals, {
+  startValue: null,
+  endValue: 600,
+  known: false,
+  startKnown: false,
+  endKnown: true,
+  configured: true,
+}, "A missing session-start potion baseline does not hide the known current inventory total");
 assert.equal(
   (10000 - 5000 + restockTotals.endValue) - (10000 + restockTotals.startValue),
   0,
