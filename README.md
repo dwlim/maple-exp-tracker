@@ -25,6 +25,8 @@ The level normally stays unchanged. A one-level increase needs confirmation on a
 3. Keep the dashboard open while playing. The preview confirms the chosen window; screenshots and recognition stay in the browser, and audio capture is disabled. Recognition code and templates are bundled with the page.
 4. Click **Stop sharing**, or stop from the browser’s sharing control. Previously accepted session readings remain saved. A refresh stops capture; click Share again to reconnect.
 
+Reconnecting within 15 minutes of stopping sharing continues the same session. After more than 15 minutes, a successful new share automatically starts a fresh session and resets its readings and potion usage; canceling the browser picker does not reset anything.
+
 For calibration and raw diagnostics, use `?debug=1`. Window borders, a different game resolution or HUD layout may require adjusting the regions in debug mode. The in-app preview may not expose screen sharing; use desktop Chrome or Edge if the app reports it unavailable. Manual entry remains available.
 
 Map-name OCR is most reliable when the minimap title is sharp and fully visible. If the map is missed, try windowed mode at 1920×1080 and the game's **Default Ratio (Filter Applied)** UI setting, then reconnect sharing so the tracker reacquires the capture. Turn off HDR if the shared preview looks washed out. The title probe waits for a changed label to remain stable across two captures before starting a map read. Debug mode shows the exact map crop used by OCR.

@@ -146,6 +146,7 @@
         debugTools,
         debug,
         onFrame: items.process,
+        onNewSession: () => items.resetSession(),
         onInvalidate: items.invalidate,
         timers: {
           setTimeout: window.setTimeout.bind(window),

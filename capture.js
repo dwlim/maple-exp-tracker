@@ -14,6 +14,7 @@
     debugTools,
     debug = false,
     pickupTrackingEnabled = false,
+    onNewSession = () => {},
     onFrame = null,
     onInvalidate = () => {},
     now = Date.now,
@@ -23,6 +24,7 @@
       FULL_SCAN_INTERVAL_MS = 10000,
       MAP_HEADER_POLL_INTERVAL_MS = 2000,
       DROP_FEED_POLL_INTERVAL_MS = 100,
+      SESSION_IDLE_RESET_MS = 15 * 60 * 1000,
       DROP_FEED_SCALE = 0.5,
       // Restrict the probe to the lower-right HUD; it reports stable new text
       // rows so OCR only receives a small crop around a newly added message.
@@ -86,7 +88,12 @@
       video.pause();
       video.srcObject = null;
       recognition.reset();
-      updateSession({ running: false, paused: false, source: null });
+      updateSession({
+        running: false,
+        paused: false,
+        source: null,
+        ...(prior ? { endAt: now() } : {}),
+      });
       view.status(
         "waiting",
         "Sharing stopped. Your session readings are saved.",
@@ -421,10 +428,19 @@
           },
           { once: true },
         );
+        const connectedAt = now();
+        if (
+          Number.isFinite(session.state.endAt) &&
+          connectedAt - session.state.endAt > SESSION_IDLE_RESET_MS
+        ) {
+          session.reset(connectedAt);
+          onNewSession();
+        }
         updateSession({
           running: true,
           source: "GAME WINDOW SHARED",
-          startAt: session.state.startAt || now(),
+          startAt: session.state.startAt || connectedAt,
+          endAt: null,
         });
         view.status("waiting", "Reading your game window…");
         view.update();

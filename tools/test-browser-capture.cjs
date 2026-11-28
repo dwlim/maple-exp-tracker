@@ -4,7 +4,10 @@ const assert = require("node:assert/strict"),
   L = require("../level-ocr"),
   App = require("../app"),
   { dom } = require("./test-helpers.cjs");
-function fixture(getDisplayMedia, { pickupTrackingEnabled = false } = {}) {
+function fixture(
+  getDisplayMedia,
+  { pickupTrackingEnabled = false, onNewSession = () => {} } = {},
+) {
   const d = dom(),
     session = S.create({ levelOcr: L });
   session.state.samples = [{ exp: 123 }];
@@ -79,6 +82,7 @@ function fixture(getDisplayMedia, { pickupTrackingEnabled = false } = {}) {
     },
     reader,
     pickupTrackingEnabled,
+    onNewSession,
     onFrame: async () => { processedItems++; },
     view: {
       update() {},
@@ -153,6 +157,7 @@ function fixture(getDisplayMedia, { pickupTrackingEnabled = false } = {}) {
   });
   await f.c.connect();
   assert.equal(f.session.state.running, true);
+  assert.equal(f.session.state.endAt, null);
   assert.deepEqual(f.intervals.map(({ ms }) => ms), [10000, 2000]);
   assert.equal(f.captured, 1);
   assert.deepEqual(f.mapProbeReads[0], { report: false, forceMap: false });
@@ -177,6 +182,7 @@ function fixture(getDisplayMedia, { pickupTrackingEnabled = false } = {}) {
   assert.equal(stopped, 1);
   assert.equal(f.c.stream, null);
   assert.equal(f.session.state.samples[0].exp, 123);
+  assert.ok(Number.isFinite(f.session.state.endAt), "stopping sharing records the session end time");
   assert.deepEqual(
     f.cleared.filter((id) => id !== null),
     [1, 2],
@@ -201,13 +207,37 @@ function fixture(getDisplayMedia, { pickupTrackingEnabled = false } = {}) {
     "row crop stays within the lower-right feed and excludes unrelated HUD area",
   );
   pickup.c.stop();
+  const restarted = fixture(async () => stream, {
+    onNewSession: () => { restartedCount++; },
+  });
+  let restartedCount = 0;
+  restarted.session.state.samples = [{ exp: 99 }];
+  restarted.session.state.startAt = Date.now() - 60 * 60 * 1000;
+  restarted.session.state.endAt = Date.now() - 16 * 60 * 1000;
+  await restarted.c.connect();
+  assert.equal(restarted.session.state.samples.length, 0, "a share after more than 15 minutes starts a fresh session");
+  assert.equal(restarted.session.state.startAt > Date.now() - 1000, true);
+  assert.equal(restarted.session.state.endAt, null);
+  assert.equal(restartedCount, 1, "potion usage is reset with the new session callback");
+  restarted.c.stop();
+  const resumed = fixture(async () => stream);
+  resumed.session.state.samples = [{ exp: 99 }];
+  resumed.session.state.startAt = Date.now() - 60 * 60 * 1000;
+  resumed.session.state.endAt = Date.now() - 10 * 60 * 1000;
+  await resumed.c.connect();
+  assert.equal(resumed.session.state.samples.length, 1, "a share resumed within 15 minutes stays in the same session");
+  assert.equal(resumed.session.state.startAt < Date.now() - 15 * 60 * 1000, true);
+  resumed.c.stop();
   const cancelled = fixture(async () => {
     throw Object.assign(Error("cancelled"), { name: "NotAllowedError" });
   });
+  cancelled.session.state.samples = [{ exp: 99 }];
+  cancelled.session.state.endAt = Date.now() - 16 * 60 * 1000;
   await cancelled.c.connect();
   assert.equal(cancelled.c.stream, null);
   assert.equal(cancelled.c.connecting, false);
   assert.match(cancelled.status.text, /cancelled/);
+  assert.equal(cancelled.session.state.samples.length, 1, "a canceled share picker does not reset session history");
   const unsupported = fixture(undefined);
   await unsupported.c.connect();
   assert.match(unsupported.status.text, /unavailable/);

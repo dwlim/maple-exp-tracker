@@ -51,7 +51,7 @@
   } = {}) {
     const SCHEMA_VERSION = 1,
       UPDATABLE_FIELDS = new Set([
-        "running", "paused", "source", "startAt", "mesoRegion", "mesoAnchor", "mesoStatus", "calibration",
+        "running", "paused", "source", "startAt", "endAt", "mesoRegion", "mesoAnchor", "mesoStatus", "calibration",
       ]),
       validTime = (value) => Number.isFinite(value) && value >= 0,
       validRegion = (value) =>
@@ -75,6 +75,7 @@
       source: null,
       running: false,
       startAt: null,
+      endAt: null,
       calibration: { level: null, exp: null, auto: true },
     };
     let saved = {};
@@ -119,6 +120,7 @@
       ? state.level
       : null;
     state.startAt = validTime(state.startAt) ? state.startAt : null;
+    state.endAt = validTime(state.endAt) ? state.endAt : null;
     state.mapUpdatedAt = validTime(state.mapUpdatedAt) ? state.mapUpdatedAt : null;
     state.mapName = typeof state.mapName === "string" ? state.mapName.trim() : "";
     state.mesoStatus = typeof state.mesoStatus === "string"
@@ -254,8 +256,7 @@
       onChange();
       return true;
     }
-    function reset() {
-      const t = now();
+    function reset(t = now()) {
       state.samples = [];
       state.mesoSamples = [];
       state.dropNotices = [];
@@ -263,6 +264,7 @@
       state.mesoStatus = "Searching for the inventory balance automatically";
       state.level = null;
       state.startAt = t;
+      state.endAt = null;
       state.mapHistory = state.mapName ? [{ t, name: state.mapName }] : [];
       state.mapUpdatedAt = state.mapName ? t : null;
       clearPending();

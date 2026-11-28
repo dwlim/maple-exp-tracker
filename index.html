@@ -4042,7 +4042,7 @@ return {detect,crop,anchors,percentageRegion};
   } = {}) {
     const SCHEMA_VERSION = 1,
       UPDATABLE_FIELDS = new Set([
-        "running", "paused", "source", "startAt", "mesoRegion", "mesoAnchor", "mesoStatus", "calibration",
+        "running", "paused", "source", "startAt", "endAt", "mesoRegion", "mesoAnchor", "mesoStatus", "calibration",
       ]),
       validTime = (value) => Number.isFinite(value) && value >= 0,
       validRegion = (value) =>
@@ -4066,6 +4066,7 @@ return {detect,crop,anchors,percentageRegion};
       source: null,
       running: false,
       startAt: null,
+      endAt: null,
       calibration: { level: null, exp: null, auto: true },
     };
     let saved = {};
@@ -4110,6 +4111,7 @@ return {detect,crop,anchors,percentageRegion};
       ? state.level
       : null;
     state.startAt = validTime(state.startAt) ? state.startAt : null;
+    state.endAt = validTime(state.endAt) ? state.endAt : null;
     state.mapUpdatedAt = validTime(state.mapUpdatedAt) ? state.mapUpdatedAt : null;
     state.mapName = typeof state.mapName === "string" ? state.mapName.trim() : "";
     state.mesoStatus = typeof state.mesoStatus === "string"
@@ -4245,8 +4247,7 @@ return {detect,crop,anchors,percentageRegion};
       onChange();
       return true;
     }
-    function reset() {
-      const t = now();
+    function reset(t = now()) {
       state.samples = [];
       state.mesoSamples = [];
       state.dropNotices = [];
@@ -4254,6 +4255,7 @@ return {detect,crop,anchors,percentageRegion};
       state.mesoStatus = "Searching for the inventory balance automatically";
       state.level = null;
       state.startAt = t;
+      state.endAt = null;
       state.mapHistory = state.mapName ? [{ t, name: state.mapName }] : [];
       state.mapUpdatedAt = state.mapName ? t : null;
       clearPending();
@@ -6643,6 +6645,7 @@ return {detect,crop,anchors,percentageRegion};
     debugTools,
     debug = false,
     pickupTrackingEnabled = false,
+    onNewSession = () => {},
     onFrame = null,
     onInvalidate = () => {},
     now = Date.now,
@@ -6652,6 +6655,7 @@ return {detect,crop,anchors,percentageRegion};
       FULL_SCAN_INTERVAL_MS = 10000,
       MAP_HEADER_POLL_INTERVAL_MS = 2000,
       DROP_FEED_POLL_INTERVAL_MS = 100,
+      SESSION_IDLE_RESET_MS = 15 * 60 * 1000,
       DROP_FEED_SCALE = 0.5,
       // Restrict the probe to the lower-right HUD; it reports stable new text
       // rows so OCR only receives a small crop around a newly added message.
@@ -6715,7 +6719,12 @@ return {detect,crop,anchors,percentageRegion};
       video.pause();
       video.srcObject = null;
       recognition.reset();
-      updateSession({ running: false, paused: false, source: null });
+      updateSession({
+        running: false,
+        paused: false,
+        source: null,
+        ...(prior ? { endAt: now() } : {}),
+      });
       view.status(
         "waiting",
         "Sharing stopped. Your session readings are saved.",
@@ -7050,10 +7059,19 @@ return {detect,crop,anchors,percentageRegion};
           },
           { once: true },
         );
+        const connectedAt = now();
+        if (
+          Number.isFinite(session.state.endAt) &&
+          connectedAt - session.state.endAt > SESSION_IDLE_RESET_MS
+        ) {
+          session.reset(connectedAt);
+          onNewSession();
+        }
         updateSession({
           running: true,
           source: "GAME WINDOW SHARED",
-          startAt: session.state.startAt || now(),
+          startAt: session.state.startAt || connectedAt,
+          endAt: null,
         });
         view.status("waiting", "Reading your game window…");
         view.update();
@@ -8692,6 +8710,7 @@ return {detect,crop,anchors,percentageRegion};
         debugTools,
         debug,
         onFrame: items.process,
+        onNewSession: () => items.resetSession(),
         onInvalidate: items.invalidate,
         timers: {
           setTimeout: window.setTimeout.bind(window),
